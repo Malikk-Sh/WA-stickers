@@ -1,6 +1,7 @@
 package com.malikksh.wastickers;
 
 import android.content.ActivityNotFoundException;
+import android.content.ClipData;
 import android.content.ContentResolver;
 import android.content.Intent;
 import android.content.res.ColorStateList;
@@ -16,6 +17,7 @@ import android.graphics.drawable.RippleDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.provider.MediaStore;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -23,9 +25,11 @@ import android.view.Window;
 import android.view.WindowInsetsController;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -51,24 +55,27 @@ public class MainActivity extends ComponentActivity {
     private static final int MIN_STICKERS = 3;
     private static final int MAX_STICKER_BYTES = 100 * 1024;
 
-    private static final int BG = 0xFFF4F7F6;
+    private static final int BG = 0xFFF6F9F7;
     private static final int CARD = 0xFFFFFFFF;
-    private static final int TEXT = 0xFF18201E;
-    private static final int MUTED = 0xFF66736F;
+    private static final int TEXT = 0xFF11241E;
+    private static final int MUTED = 0xFF687871;
+    private static final int PRIMARY = 0xFF075E54;
     private static final int TEAL = 0xFF128C7E;
-    private static final int DARK_TEAL = 0xFF075E54;
     private static final int GREEN = 0xFF25D366;
-    private static final int SOFT_GREEN = 0xFFE7F8EE;
-    private static final int BORDER = 0xFFE1E8E5;
+    private static final int PALE_GREEN = 0xFFE7F8EE;
+    private static final int SOFT = 0xFFF0F5F2;
+    private static final int BORDER = 0xFFDDE7E2;
 
     private final List<Uri> selectedUris = new ArrayList<>();
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
-    private ActivityResultLauncher<PickVisualMediaRequest> photoPicker;
+    private ActivityResultLauncher<Intent> galleryLauncher;
+    private ActivityResultLauncher<PickVisualMediaRequest> photoPickerFallback;
     private EditText packName;
     private TextView selectionStatus;
     private TextView processStatus;
     private LinearLayout previewContainer;
+    private ProgressBar selectionProgress;
     private Button pickButton;
     private Button createButton;
     private Button addButton;
@@ -80,9 +87,18 @@ public class MainActivity extends ComponentActivity {
         super.onCreate(savedInstanceState);
         configureSystemBars();
 
-        photoPicker = registerForActivityResult(
+        galleryLauncher = registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(),
+                result -> {
+                    if (result.getResultCode() == RESULT_OK && result.getData() != null) {
+                        receiveGalleryResult(result.getData());
+                    }
+                }
+        );
+
+        photoPickerFallback = registerForActivityResult(
                 new ActivityResultContracts.PickMultipleVisualMedia(MAX_STICKERS),
-                this::receiveSelectedImages
+                this::mergeSelectedImages
         );
 
         setContentView(buildUi());
@@ -91,6 +107,7 @@ public class MainActivity extends ComponentActivity {
         if (currentPack != null) {
             processStatus.setText("Последний набор «" + currentPack.name + "» готов к добавлению в WhatsApp.");
         }
+        updateSelectionUi();
         updateActionButtons();
     }
 
@@ -119,105 +136,190 @@ public class MainActivity extends ComponentActivity {
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(20), dp(24), dp(20), dp(36));
+        root.setPadding(dp(18), dp(18), dp(18), dp(36));
         scroll.addView(root, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        LinearLayout header = new LinearLayout(this);
-        header.setOrientation(LinearLayout.HORIZONTAL);
-        header.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout hero = new LinearLayout(this);
+        hero.setOrientation(LinearLayout.VERTICAL);
+        hero.setPadding(dp(20), dp(20), dp(20), dp(20));
+        hero.setBackground(gradientRounded(PRIMARY, TEAL, 26));
+        hero.setElevation(dp(4));
+        root.addView(hero, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        LinearLayout heroTop = new LinearLayout(this);
+        heroTop.setOrientation(LinearLayout.HORIZONTAL);
+        heroTop.setGravity(Gravity.CENTER_VERTICAL);
+        hero.addView(heroTop);
 
         ImageView logo = new ImageView(this);
         logo.setImageResource(R.drawable.ic_app_logo_mark);
         logo.setPadding(dp(10), dp(10), dp(10), dp(10));
-        logo.setBackground(rounded(TEAL, 18));
-        LinearLayout.LayoutParams logoParams = new LinearLayout.LayoutParams(dp(54), dp(54));
-        header.addView(logo, logoParams);
+        logo.setBackground(rounded(0x26FFFFFF, 18));
+        heroTop.addView(logo, new LinearLayout.LayoutParams(dp(58), dp(58)));
 
         LinearLayout heading = new LinearLayout(this);
         heading.setOrientation(LinearLayout.VERTICAL);
         LinearLayout.LayoutParams headingParams = new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
         headingParams.leftMargin = dp(14);
-        header.addView(heading, headingParams);
+        heroTop.addView(heading, headingParams);
 
-        TextView title = text("WA Stickers", 26, TEXT, Typeface.BOLD);
-        heading.addView(title);
-        TextView tagline = text("Свои фото → набор для WhatsApp", 14, MUTED, Typeface.NORMAL);
-        LinearLayout.LayoutParams taglineParams = new LinearLayout.LayoutParams(
+        TextView brand = text("WA Stickers", 13, 0xFFD9FFF0, Typeface.BOLD);
+        heading.addView(brand);
+        TextView title = text("Стикеры из ваших фото", 24, Color.WHITE, Typeface.BOLD);
+        LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        taglineParams.topMargin = dp(2);
-        heading.addView(tagline, taglineParams);
+        titleParams.topMargin = dp(2);
+        heading.addView(title, titleParams);
 
-        root.addView(header);
-
-        TextView intro = text(
-                "Выберите от 3 до 30 фотографий. Мы оставим изображение как есть: без удаления фона и без белой обводки.",
-                15, MUTED, Typeface.NORMAL);
-        intro.setLineSpacing(0, 1.08f);
-        LinearLayout.LayoutParams introParams = new LinearLayout.LayoutParams(
+        TextView heroText = text(
+                "Выберите фотографии, создайте набор и добавьте его в WhatsApp — всё прямо на телефоне.",
+                14, 0xFFE5F5F0, Typeface.NORMAL);
+        heroText.setLineSpacing(0, 1.08f);
+        LinearLayout.LayoutParams heroTextParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        introParams.topMargin = dp(16);
-        root.addView(intro, introParams);
+        heroTextParams.topMargin = dp(16);
+        hero.addView(heroText, heroTextParams);
 
-        LinearLayout setupCard = makeCard();
-        LinearLayout.LayoutParams cardParams = cardParams();
-        cardParams.topMargin = dp(20);
-        root.addView(setupCard, cardParams);
+        LinearLayout steps = new LinearLayout(this);
+        steps.setOrientation(LinearLayout.HORIZONTAL);
+        steps.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams stepsParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        stepsParams.topMargin = dp(16);
+        hero.addView(steps, stepsParams);
+        addStep(steps, "1", "Фото");
+        addStepDivider(steps);
+        addStep(steps, "2", "Набор");
+        addStepDivider(steps);
+        addStep(steps, "3", "WhatsApp");
 
-        setupCard.addView(sectionTitle("Название набора"));
-        TextView nameHint = text("Так набор будет называться в WhatsApp", 13, MUTED, Typeface.NORMAL);
+        LinearLayout nameCard = makeCard();
+        LinearLayout.LayoutParams nameCardParams = cardParams();
+        nameCardParams.topMargin = dp(16);
+        root.addView(nameCard, nameCardParams);
+
+        TextView nameEyebrow = text("ШАГ 1", 11, TEAL, Typeface.BOLD);
+        nameCard.addView(nameEyebrow);
+        TextView nameTitle = sectionTitle("Название набора");
+        LinearLayout.LayoutParams nameTitleParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        nameTitleParams.topMargin = dp(4);
+        nameCard.addView(nameTitle, nameTitleParams);
+        TextView nameHint = text("Оно будет видно в списке стикеров WhatsApp.", 13, MUTED, Typeface.NORMAL);
         LinearLayout.LayoutParams nameHintParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        nameHintParams.topMargin = dp(3);
-        setupCard.addView(nameHint, nameHintParams);
+        nameHintParams.topMargin = dp(4);
+        nameCard.addView(nameHint, nameHintParams);
 
         packName = new EditText(this);
-        packName.setHint("Например: Мои стикеры");
-        packName.setHintTextColor(0xFF9AA5A1);
+        packName.setHint("Например: Отпуск 2026");
+        packName.setHintTextColor(0xFF9AA7A1);
         packName.setTextColor(TEXT);
         packName.setTextSize(16);
         packName.setSingleLine(true);
-        packName.setPadding(dp(14), 0, dp(14), 0);
+        packName.setPadding(dp(15), 0, dp(15), 0);
         packName.setBackground(inputBackground());
         LinearLayout.LayoutParams fieldParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(54));
-        fieldParams.topMargin = dp(12);
-        setupCard.addView(packName, fieldParams);
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(56));
+        fieldParams.topMargin = dp(14);
+        nameCard.addView(packName, fieldParams);
 
-        View divider = new View(this);
-        divider.setBackgroundColor(BORDER);
-        LinearLayout.LayoutParams dividerParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(1));
-        dividerParams.topMargin = dp(22);
-        dividerParams.bottomMargin = dp(20);
-        setupCard.addView(divider, dividerParams);
+        LinearLayout photosCard = makeCard();
+        LinearLayout.LayoutParams photosCardParams = cardParams();
+        photosCardParams.topMargin = dp(12);
+        root.addView(photosCard, photosCardParams);
 
-        setupCard.addView(sectionTitle("Фотографии"));
-        TextView photosHint = text("Откроется системная галерея. Можно выбрать сразу несколько фото.", 13, MUTED, Typeface.NORMAL);
+        LinearLayout photosHeader = new LinearLayout(this);
+        photosHeader.setOrientation(LinearLayout.HORIZONTAL);
+        photosHeader.setGravity(Gravity.CENTER_VERTICAL);
+        photosCard.addView(photosHeader, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        LinearLayout photosHeading = new LinearLayout(this);
+        photosHeading.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams photosHeadingParams = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        photosHeader.addView(photosHeading, photosHeadingParams);
+        photosHeading.addView(text("ШАГ 2", 11, TEAL, Typeface.BOLD));
+        TextView photosTitle = sectionTitle("Выберите фотографии");
+        LinearLayout.LayoutParams photosTitleParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        photosTitleParams.topMargin = dp(4);
+        photosHeading.addView(photosTitle, photosTitleParams);
+
+        selectionStatus = text("0 / 30", 12, PRIMARY, Typeface.BOLD);
+        selectionStatus.setGravity(Gravity.CENTER);
+        selectionStatus.setPadding(dp(11), 0, dp(11), 0);
+        selectionStatus.setBackground(rounded(PALE_GREEN, 14));
+        photosHeader.addView(selectionStatus, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, dp(30)));
+
+        TextView photosHint = text(
+                "Нужно от 3 до 30 фото. Нажмите кнопку — откроется галерея телефона.",
+                13, MUTED, Typeface.NORMAL);
+        photosHint.setLineSpacing(0, 1.06f);
         LinearLayout.LayoutParams photosHintParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        photosHintParams.topMargin = dp(3);
-        setupCard.addView(photosHint, photosHintParams);
+        photosHintParams.topMargin = dp(7);
+        photosCard.addView(photosHint, photosHintParams);
+
+        LinearLayout galleryPanel = new LinearLayout(this);
+        galleryPanel.setOrientation(LinearLayout.VERTICAL);
+        galleryPanel.setGravity(Gravity.CENTER);
+        galleryPanel.setPadding(dp(18), dp(18), dp(18), dp(18));
+        GradientDrawable galleryBg = rounded(0xFFF8FBF9, 18);
+        galleryBg.setStroke(dp(1), 0xFFBFD5CB, dp(6), dp(5));
+        galleryPanel.setBackground(galleryBg);
+        LinearLayout.LayoutParams galleryPanelParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        galleryPanelParams.topMargin = dp(16);
+        photosCard.addView(galleryPanel, galleryPanelParams);
+
+        TextView galleryGlyph = text("＋", 30, PRIMARY, Typeface.NORMAL);
+        galleryGlyph.setGravity(Gravity.CENTER);
+        galleryGlyph.setBackground(rounded(PALE_GREEN, 22));
+        galleryPanel.addView(galleryGlyph, new LinearLayout.LayoutParams(dp(48), dp(48)));
+
+        TextView galleryTitle = text("Добавьте фото из галереи", 15, TEXT, Typeface.BOLD);
+        LinearLayout.LayoutParams galleryTitleParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        galleryTitleParams.topMargin = dp(10);
+        galleryPanel.addView(galleryTitle, galleryTitleParams);
+
+        TextView gallerySub = text("JPG, PNG, HEIC и другие форматы Android", 12, MUTED, Typeface.NORMAL);
+        LinearLayout.LayoutParams gallerySubParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        gallerySubParams.topMargin = dp(3);
+        galleryPanel.addView(gallerySub, gallerySubParams);
 
         pickButton = new Button(this);
-        pickButton.setText("Выбрать фото из галереи");
-        styleButton(pickButton, TEAL, Color.WHITE);
-        pickButton.setOnClickListener(v -> openPhotoPicker());
+        pickButton.setText("Открыть галерею");
+        styleButton(pickButton, PRIMARY, Color.WHITE);
+        pickButton.setOnClickListener(v -> openGallery());
         LinearLayout.LayoutParams pickParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(54));
         pickParams.topMargin = dp(14);
-        setupCard.addView(pickButton, pickParams);
+        galleryPanel.addView(pickButton, pickParams);
 
-        selectionStatus = text("Фото пока не выбраны", 13, DARK_TEAL, Typeface.BOLD);
-        selectionStatus.setGravity(Gravity.CENTER_VERTICAL);
-        selectionStatus.setPadding(dp(12), 0, dp(12), 0);
-        selectionStatus.setBackground(rounded(SOFT_GREEN, 12));
-        LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, dp(36));
-        statusParams.topMargin = dp(12);
-        setupCard.addView(selectionStatus, statusParams);
+        selectionProgress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        selectionProgress.setMax(MAX_STICKERS);
+        selectionProgress.setProgress(0);
+        selectionProgress.setProgressTintList(ColorStateList.valueOf(GREEN));
+        selectionProgress.setProgressBackgroundTintList(ColorStateList.valueOf(0xFFE8EFEB));
+        LinearLayout.LayoutParams progressParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(5));
+        progressParams.topMargin = dp(14);
+        photosCard.addView(selectionProgress, progressParams);
+
+        TextView previewHint = text("Миниатюры выбранных фото · нажмите ×, чтобы удалить", 12, MUTED, Typeface.NORMAL);
+        LinearLayout.LayoutParams previewHintParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        previewHintParams.topMargin = dp(14);
+        photosCard.addView(previewHint, previewHintParams);
 
         HorizontalScrollView previewScroll = new HorizontalScrollView(this);
         previewScroll.setHorizontalScrollBarEnabled(false);
@@ -229,28 +331,33 @@ public class MainActivity extends ComponentActivity {
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));
         LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(118));
-        previewParams.topMargin = dp(10);
-        setupCard.addView(previewScroll, previewParams);
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(116));
+        previewParams.topMargin = dp(8);
+        photosCard.addView(previewScroll, previewParams);
         renderPreviews();
 
         LinearLayout actionsCard = makeCard();
         LinearLayout.LayoutParams actionsParams = cardParams();
-        actionsParams.topMargin = dp(14);
+        actionsParams.topMargin = dp(12);
         root.addView(actionsCard, actionsParams);
 
-        actionsCard.addView(sectionTitle("Готово к созданию"));
+        actionsCard.addView(text("ШАГ 3", 11, TEAL, Typeface.BOLD));
+        TextView actionsTitle = sectionTitle("Создайте и добавьте в WhatsApp");
+        LinearLayout.LayoutParams actionsTitleParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        actionsTitleParams.topMargin = dp(4);
+        actionsCard.addView(actionsTitle, actionsTitleParams);
         TextView actionHint = text(
-                "Фото будут помещены целиком в 512×512 и автоматически сжаты под требования WhatsApp.",
+                "Каждое фото помещается целиком в 512×512 без удаления фона и без белой обводки.",
                 13, MUTED, Typeface.NORMAL);
         actionHint.setLineSpacing(0, 1.06f);
         LinearLayout.LayoutParams actionHintParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        actionHintParams.topMargin = dp(4);
+        actionHintParams.topMargin = dp(6);
         actionsCard.addView(actionHint, actionHintParams);
 
         createButton = new Button(this);
-        createButton.setText("Создать набор стикеров");
+        createButton.setText("Создать набор");
         styleButton(createButton, GREEN, 0xFF073B2B);
         createButton.setOnClickListener(v -> createPack());
         LinearLayout.LayoutParams createParams = new LinearLayout.LayoutParams(
@@ -260,44 +367,79 @@ public class MainActivity extends ComponentActivity {
 
         addButton = new Button(this);
         addButton.setText("Добавить в WhatsApp");
-        styleButton(addButton, DARK_TEAL, Color.WHITE);
+        styleButton(addButton, PRIMARY, Color.WHITE);
         addButton.setOnClickListener(v -> addCurrentPackToWhatsApp());
         LinearLayout.LayoutParams addParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(56));
         addParams.topMargin = dp(10);
         actionsCard.addView(addButton, addParams);
 
-        LinearLayout statusCard = makeCard();
+        LinearLayout statusCard = new LinearLayout(this);
+        statusCard.setOrientation(LinearLayout.HORIZONTAL);
+        statusCard.setGravity(Gravity.TOP);
+        statusCard.setPadding(dp(16), dp(15), dp(16), dp(15));
+        statusCard.setBackground(rounded(SOFT, 18));
         LinearLayout.LayoutParams statusCardParams = cardParams();
-        statusCardParams.topMargin = dp(14);
+        statusCardParams.topMargin = dp(12);
         root.addView(statusCard, statusCardParams);
 
-        TextView statusTitle = text("Статус", 14, TEXT, Typeface.BOLD);
-        statusCard.addView(statusTitle);
-        processStatus = text("Выберите минимум 3 фотографии, чтобы создать набор.", 14, MUTED, Typeface.NORMAL);
+        TextView statusDot = text("●", 12, GREEN, Typeface.NORMAL);
+        LinearLayout.LayoutParams dotParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        dotParams.topMargin = dp(1);
+        statusCard.addView(statusDot, dotParams);
+
+        processStatus = text("Выберите минимум 3 фотографии, чтобы создать набор.", 13, MUTED, Typeface.NORMAL);
         processStatus.setLineSpacing(0, 1.08f);
         LinearLayout.LayoutParams processParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        processParams.topMargin = dp(7);
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        processParams.leftMargin = dp(10);
         statusCard.addView(processStatus, processParams);
 
         TextView privacy = text(
-                "🔒 Все фотографии обрабатываются только на вашем телефоне и никуда не загружаются.",
+                "Все фотографии обрабатываются только на вашем телефоне и никуда не загружаются.",
                 12, MUTED, Typeface.NORMAL);
         privacy.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams privacyParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        privacyParams.topMargin = dp(20);
+        privacyParams.topMargin = dp(18);
         root.addView(privacy, privacyParams);
 
         return scroll;
+    }
+
+    private void addStep(LinearLayout parent, String number, String label) {
+        LinearLayout step = new LinearLayout(this);
+        step.setOrientation(LinearLayout.HORIZONTAL);
+        step.setGravity(Gravity.CENTER_VERTICAL);
+
+        TextView badge = text(number, 11, PRIMARY, Typeface.BOLD);
+        badge.setGravity(Gravity.CENTER);
+        badge.setBackground(rounded(0xFFFFFFFF, 12));
+        step.addView(badge, new LinearLayout.LayoutParams(dp(24), dp(24)));
+
+        TextView text = text(label, 12, 0xFFF2FFFA, Typeface.BOLD);
+        LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        textParams.leftMargin = dp(6);
+        step.addView(text, textParams);
+        parent.addView(step);
+    }
+
+    private void addStepDivider(LinearLayout parent) {
+        View divider = new View(this);
+        divider.setBackgroundColor(0x55FFFFFF);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(1), 1f);
+        params.leftMargin = dp(8);
+        params.rightMargin = dp(8);
+        parent.addView(divider, params);
     }
 
     private LinearLayout makeCard() {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(18), dp(18), dp(18), dp(18));
-        card.setBackground(rounded(CARD, 20));
+        card.setBackground(rounded(CARD, 22));
         card.setElevation(dp(2));
         return card;
     }
@@ -309,7 +451,7 @@ public class MainActivity extends ComponentActivity {
     }
 
     private TextView sectionTitle(String value) {
-        return text(value, 17, TEXT, Typeface.BOLD);
+        return text(value, 18, TEXT, Typeface.BOLD);
     }
 
     private TextView text(String value, int size, int color, int style) {
@@ -328,8 +470,16 @@ public class MainActivity extends ComponentActivity {
         return drawable;
     }
 
+    private GradientDrawable gradientRounded(int startColor, int endColor, int radiusDp) {
+        GradientDrawable drawable = new GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                new int[]{startColor, endColor});
+        drawable.setCornerRadius(dp(radiusDp));
+        return drawable;
+    }
+
     private GradientDrawable inputBackground() {
-        GradientDrawable drawable = rounded(0xFFF9FBFA, 14);
+        GradientDrawable drawable = rounded(0xFFFAFCFB, 14);
         drawable.setStroke(dp(1), BORDER);
         return drawable;
     }
@@ -341,6 +491,7 @@ public class MainActivity extends ComponentActivity {
         button.setTypeface(Typeface.create("sans", Typeface.BOLD));
         button.setGravity(Gravity.CENTER);
         button.setPadding(dp(14), 0, dp(14), 0);
+        button.setStateListAnimator(null);
 
         GradientDrawable content = rounded(fillColor, 15);
         RippleDrawable ripple = new RippleDrawable(
@@ -348,35 +499,77 @@ public class MainActivity extends ComponentActivity {
         button.setBackground(ripple);
     }
 
-    private void openPhotoPicker() {
-        photoPicker.launch(new PickVisualMediaRequest.Builder()
+    private void openGallery() {
+        Intent gallery = new Intent(Intent.ACTION_PICK);
+        gallery.setDataAndType(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, "image/*");
+        gallery.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+        gallery.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        try {
+            galleryLauncher.launch(gallery);
+        } catch (ActivityNotFoundException e) {
+            openPhotoPickerFallback();
+        }
+    }
+
+    private void openPhotoPickerFallback() {
+        photoPickerFallback.launch(new PickVisualMediaRequest.Builder()
                 .setMediaType(ActivityResultContracts.PickVisualMedia.ImageOnly.INSTANCE)
                 .build());
     }
 
-    private void receiveSelectedImages(List<Uri> uris) {
+    private void receiveGalleryResult(Intent data) {
+        List<Uri> uris = new ArrayList<>();
+        ClipData clipData = data.getClipData();
+        if (clipData != null) {
+            for (int i = 0; i < clipData.getItemCount() && uris.size() < MAX_STICKERS; i++) {
+                Uri uri = clipData.getItemAt(i).getUri();
+                if (uri != null) uris.add(uri);
+            }
+        } else if (data.getData() != null) {
+            uris.add(data.getData());
+        }
+        mergeSelectedImages(uris);
+    }
+
+    private void mergeSelectedImages(List<Uri> uris) {
         if (uris == null || uris.isEmpty()) return;
 
-        selectedUris.clear();
         for (Uri uri : uris) {
             if (selectedUris.size() >= MAX_STICKERS) break;
+            if (selectedUris.contains(uri)) continue;
             selectedUris.add(uri);
             try {
                 getContentResolver().takePersistableUriPermission(
                         uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
             } catch (SecurityException ignored) {
-                // Photo Picker grants access even when a persistable grant is unavailable.
+                // Gallery and Photo Picker grants are sufficient for immediate conversion.
             }
         }
 
-        selectionStatus.setText("Выбрано: " + selectedUris.size() + " из " + MAX_STICKERS);
         renderPreviews();
-        if (selectedUris.size() < MIN_STICKERS) {
-            processStatus.setText("Нужно выбрать ещё " + (MIN_STICKERS - selectedUris.size()) + " фото.");
-        } else {
-            processStatus.setText("Фото выбраны. Можно создавать набор.");
-        }
+        updateSelectionUi();
         updateActionButtons();
+    }
+
+    private void updateSelectionUi() {
+        if (selectionStatus != null) {
+            selectionStatus.setText(selectedUris.size() + " / " + MAX_STICKERS);
+        }
+        if (selectionProgress != null) {
+            selectionProgress.setProgress(selectedUris.size());
+        }
+        if (pickButton != null) {
+            pickButton.setText(selectedUris.isEmpty() ? "Открыть галерею" : "Добавить ещё фото");
+        }
+        if (processStatus != null && !isProcessing) {
+            if (selectedUris.isEmpty()) {
+                processStatus.setText("Выберите минимум 3 фотографии, чтобы создать набор.");
+            } else if (selectedUris.size() < MIN_STICKERS) {
+                processStatus.setText("Добавьте ещё " + (MIN_STICKERS - selectedUris.size()) + " фото.");
+            } else {
+                processStatus.setText("Фото выбраны. Можно создавать набор.");
+            }
+        }
     }
 
     private void renderPreviews() {
@@ -384,30 +577,45 @@ public class MainActivity extends ComponentActivity {
         previewContainer.removeAllViews();
 
         if (selectedUris.isEmpty()) {
-            TextView empty = text("Здесь появится предпросмотр выбранных фото", 13, MUTED, Typeface.NORMAL);
+            TextView empty = text("Здесь появятся выбранные фотографии", 13, MUTED, Typeface.NORMAL);
             empty.setGravity(Gravity.CENTER);
-            empty.setBackground(rounded(0xFFF0F4F2, 14));
+            empty.setBackground(rounded(SOFT, 14));
             empty.setPadding(dp(18), 0, dp(18), 0);
-            LinearLayout.LayoutParams emptyParams = new LinearLayout.LayoutParams(dp(270), dp(92));
-            previewContainer.addView(empty, emptyParams);
+            previewContainer.addView(empty, new LinearLayout.LayoutParams(dp(270), dp(94)));
             return;
         }
 
         for (int i = 0; i < selectedUris.size(); i++) {
+            final int index = i;
             Uri uri = selectedUris.get(i);
+
             LinearLayout cell = new LinearLayout(this);
             cell.setOrientation(LinearLayout.VERTICAL);
             cell.setGravity(Gravity.CENTER_HORIZONTAL);
 
+            FrameLayout imageFrame = new FrameLayout(this);
+            cell.addView(imageFrame, new LinearLayout.LayoutParams(dp(92), dp(92)));
+
             ImageView image = new ImageView(this);
             image.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            image.setBackground(rounded(0xFFE8EEEB, 16));
+            image.setBackground(rounded(0xFFE8EFEB, 16));
             image.setClipToOutline(true);
             try {
                 image.setImageBitmap(decodeSampled(uri, 240));
             } catch (IOException ignored) {
             }
-            cell.addView(image, new LinearLayout.LayoutParams(dp(88), dp(88)));
+            imageFrame.addView(image, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+            TextView remove = text("×", 18, Color.WHITE, Typeface.BOLD);
+            remove.setGravity(Gravity.CENTER);
+            remove.setBackground(rounded(0xCC1A2722, 12));
+            remove.setOnClickListener(v -> removeSelectedImage(index));
+            FrameLayout.LayoutParams removeParams = new FrameLayout.LayoutParams(dp(26), dp(26));
+            removeParams.gravity = Gravity.TOP | Gravity.END;
+            removeParams.topMargin = dp(4);
+            removeParams.rightMargin = dp(4);
+            imageFrame.addView(remove, removeParams);
 
             TextView number = text(String.valueOf(i + 1), 11, MUTED, Typeface.BOLD);
             number.setGravity(Gravity.CENTER);
@@ -416,10 +624,18 @@ public class MainActivity extends ComponentActivity {
             numberParams.topMargin = dp(3);
             cell.addView(number, numberParams);
 
-            LinearLayout.LayoutParams cellParams = new LinearLayout.LayoutParams(dp(92), dp(112));
+            LinearLayout.LayoutParams cellParams = new LinearLayout.LayoutParams(dp(96), dp(112));
             cellParams.rightMargin = dp(8);
             previewContainer.addView(cell, cellParams);
         }
+    }
+
+    private void removeSelectedImage(int index) {
+        if (index < 0 || index >= selectedUris.size() || isProcessing) return;
+        selectedUris.remove(index);
+        renderPreviews();
+        updateSelectionUi();
+        updateActionButtons();
     }
 
     private void updateActionButtons() {
@@ -428,11 +644,11 @@ public class MainActivity extends ComponentActivity {
         boolean enoughPhotos = selectedUris.size() >= MIN_STICKERS && selectedUris.size() <= MAX_STICKERS;
         createButton.setEnabled(enoughPhotos && !isProcessing);
         addButton.setEnabled(currentPack != null && !isProcessing);
-        pickButton.setEnabled(!isProcessing);
+        pickButton.setEnabled(!isProcessing && selectedUris.size() < MAX_STICKERS);
 
-        createButton.setAlpha(createButton.isEnabled() ? 1f : 0.48f);
-        addButton.setAlpha(addButton.isEnabled() ? 1f : 0.48f);
-        pickButton.setAlpha(pickButton.isEnabled() ? 1f : 0.62f);
+        createButton.setAlpha(createButton.isEnabled() ? 1f : 0.42f);
+        addButton.setAlpha(addButton.isEnabled() ? 1f : 0.42f);
+        pickButton.setAlpha(pickButton.isEnabled() ? 1f : 0.58f);
     }
 
     private void createPack() {
