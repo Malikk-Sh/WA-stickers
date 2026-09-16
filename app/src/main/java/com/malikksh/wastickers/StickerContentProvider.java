@@ -1,7 +1,6 @@
 package com.malikksh.wastickers;
 
 import android.content.ContentProvider;
-import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.content.UriMatcher;
 import android.content.res.AssetFileDescriptor;
@@ -86,7 +85,7 @@ public class StickerContentProvider extends ContentProvider {
                     "",
                     pack.imageDataVersion,
                     1,
-                    0
+                    pack.animated ? 1 : 0
             });
         }
         cursor.setNotificationUri(getContext().getContentResolver(), uri);
@@ -102,7 +101,11 @@ public class StickerContentProvider extends ContentProvider {
         PackStore.Pack pack = PackStore.getPack(getContext(), packId);
         if (pack != null) {
             for (int i = 1; i <= pack.stickerCount; i++) {
-                cursor.addRow(new Object[]{i + ".webp", "🙂", "Photo sticker " + i});
+                cursor.addRow(new Object[]{
+                        i + ".webp",
+                        "🙂",
+                        (pack.animated ? "Animated sticker " : "Photo sticker ") + i
+                });
             }
         }
         cursor.setNotificationUri(getContext().getContentResolver(), uri);
