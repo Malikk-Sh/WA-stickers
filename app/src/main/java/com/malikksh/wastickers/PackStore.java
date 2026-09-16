@@ -21,12 +21,18 @@ final class PackStore {
         final String name;
         final int stickerCount;
         final String imageDataVersion;
+        final boolean animated;
 
         Pack(String id, String name, int stickerCount, String imageDataVersion) {
+            this(id, name, stickerCount, imageDataVersion, false);
+        }
+
+        Pack(String id, String name, int stickerCount, String imageDataVersion, boolean animated) {
             this.id = id;
             this.name = name;
             this.stickerCount = stickerCount;
             this.imageDataVersion = imageDataVersion;
+            this.animated = animated;
         }
     }
 
@@ -44,7 +50,8 @@ final class PackStore {
                         item.getString("id"),
                         item.getString("name"),
                         item.getInt("stickerCount"),
-                        item.optString("imageDataVersion", "1")
+                        item.optString("imageDataVersion", "1"),
+                        item.optBoolean("animated", false)
                 ));
             }
         } catch (JSONException ignored) {
@@ -69,7 +76,6 @@ final class PackStore {
         List<Pack> packs = getPacks(context);
         packs.add(pack);
 
-        // Keep the app lightweight while still allowing several previously-created packs.
         while (packs.size() > 10) {
             Pack removed = packs.remove(0);
             deleteRecursively(getPackDir(context, removed.id));
@@ -83,6 +89,7 @@ final class PackStore {
                 object.put("name", item.name);
                 object.put("stickerCount", item.stickerCount);
                 object.put("imageDataVersion", item.imageDataVersion);
+                object.put("animated", item.animated);
                 array.put(object);
             } catch (JSONException ignored) {
             }
