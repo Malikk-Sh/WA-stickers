@@ -75,6 +75,9 @@ public class MainActivity extends Activity {
     private Button galleryButton;
     private Button createButton;
     private Button addButton;
+
+    // Important: this is only the pack created successfully in the CURRENT editor session.
+    // We deliberately do not restore an old pack here, otherwise WhatsApp can receive stale pack ids.
     private PackStore.Pack currentPack;
     private boolean processing;
     private boolean animatedMode;
@@ -91,12 +94,7 @@ public class MainActivity extends Activity {
             return;
         }
 
-        try {
-            currentPack = PackStore.getLatestPack(this);
-        } catch (Throwable ignored) {
-            currentPack = null;
-        }
-
+        currentPack = null;
         updateModeUi();
         updateUiState();
     }
@@ -153,7 +151,7 @@ public class MainActivity extends Activity {
         heroTexts.addView(title, titleParams);
 
         TextView subtitle = text(
-                "Создавайте обычные и анимированные наборы прямо на телефоне.",
+                "Обычные и анимированные наборы — прямо на телефоне.",
                 14, 0xFFE7F6F1, Typeface.NORMAL);
         subtitle.setLineSpacing(0, 1.08f);
         LinearLayout.LayoutParams subtitleParams = matchWrap();
@@ -164,9 +162,10 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams modeParams = matchWrap();
         modeParams.topMargin = dp(14);
         root.addView(modeCard, modeParams);
-
         modeCard.addView(text("Тип набора", 17, TEXT, Typeface.BOLD));
-        TextView modeHint = text("WhatsApp не разрешает смешивать обычные и анимированные стикеры в одном наборе.",
+
+        TextView modeHint = text(
+                "Статичные и анимированные стикеры должны быть в разных наборах WhatsApp.",
                 12, MUTED, Typeface.NORMAL);
         LinearLayout.LayoutParams modeHintParams = matchWrap();
         modeHintParams.topMargin = dp(5);
@@ -182,8 +181,7 @@ public class MainActivity extends Activity {
         photoModeButton.setText("Фото");
         photoModeButton.setAllCaps(false);
         photoModeButton.setOnClickListener(v -> setAnimatedMode(false));
-        LinearLayout.LayoutParams photoModeParams = new LinearLayout.LayoutParams(0, dp(48), 1f);
-        modeRow.addView(photoModeButton, photoModeParams);
+        modeRow.addView(photoModeButton, new LinearLayout.LayoutParams(0, dp(48), 1f));
 
         animatedModeButton = new Button(this);
         animatedModeButton.setText("Анимация");
@@ -197,12 +195,7 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams nameCardParams = matchWrap();
         nameCardParams.topMargin = dp(12);
         root.addView(nameCard, nameCardParams);
-
         nameCard.addView(text("1  Название набора", 17, TEXT, Typeface.BOLD));
-        TextView nameHint = text("Например: Мои мемы", 13, MUTED, Typeface.NORMAL);
-        LinearLayout.LayoutParams nameHintParams = matchWrap();
-        nameHintParams.topMargin = dp(5);
-        nameCard.addView(nameHint, nameHintParams);
 
         packName = new EditText(this);
         packName.setHint("Мои стикеры");
@@ -216,7 +209,7 @@ public class MainActivity extends Activity {
         packName.setBackground(input);
         LinearLayout.LayoutParams nameParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(54));
-        nameParams.topMargin = dp(13);
+        nameParams.topMargin = dp(12);
         nameCard.addView(packName, nameParams);
 
         LinearLayout mediaCard = card();
@@ -229,7 +222,7 @@ public class MainActivity extends Activity {
         mediaHeader.setGravity(Gravity.CENTER_VERTICAL);
         mediaCard.addView(mediaHeader, matchWrap());
 
-        mediaTitle = text("2  Фотографии", 17, TEXT, Typeface.BOLD);
+        mediaTitle = text("", 17, TEXT, Typeface.BOLD);
         mediaHeader.addView(mediaTitle, new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
@@ -265,14 +258,13 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(118));
         previewParams.topMargin = dp(12);
         mediaCard.addView(previewScroll, previewParams);
-        renderPreviews();
 
         LinearLayout actionsCard = card();
         LinearLayout.LayoutParams actionsParams = matchWrap();
         actionsParams.topMargin = dp(12);
         root.addView(actionsCard, actionsParams);
-
         actionsCard.addView(text("3  Готовый набор", 17, TEXT, Typeface.BOLD));
+
         actionHint = text("", 13, MUTED, Typeface.NORMAL);
         actionHint.setLineSpacing(0, 1.07f);
         LinearLayout.LayoutParams actionHintParams = matchWrap();
@@ -312,6 +304,7 @@ public class MainActivity extends Activity {
         privacyParams.topMargin = dp(16);
         root.addView(privacy, privacyParams);
 
+        renderPreviews();
         return scroll;
     }
 
@@ -321,13 +314,11 @@ public class MainActivity extends Activity {
         root.setGravity(Gravity.CENTER);
         root.setPadding(dp(24), dp(24), dp(24), dp(24));
         root.setBackgroundColor(BG);
-
         TextView title = text("WA Stickers", 24, TEXT, Typeface.BOLD);
         title.setGravity(Gravity.CENTER);
         root.addView(title, matchWrap());
-
         TextView message = text(
-                "Не удалось загрузить основной экран. Перезапустите приложение или установите свежую сборку.",
+                "Не удалось загрузить основной экран. Установите свежую сборку приложения.",
                 14, MUTED, Typeface.NORMAL);
         message.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams params = matchWrap();
@@ -394,10 +385,15 @@ public class MainActivity extends Activity {
         button.setBackground(background);
     }
 
+    private void invalidateCurrentPack() {
+        currentPack = null;
+    }
+
     private void setAnimatedMode(boolean animated) {
         if (processing || animatedMode == animated) return;
         animatedMode = animated;
         selectedUris.clear();
+        invalidateCurrentPack();
         renderPreviews();
         updateModeUi();
         updateUiState();
@@ -410,12 +406,12 @@ public class MainActivity extends Activity {
 
         if (animatedMode) {
             mediaTitle.setText("2  Анимации и видео");
-            mediaHint.setText("Выберите 3–30 файлов: GIF, анимированный WebP, MP4, WebM, MOV, MKV и другие форматы, которые поддерживает FFmpeg.");
-            actionHint.setText("Каждый файл станет анимированным WebP 512×512 до 10 секунд и до 500 КБ. Сначала сохраняем высокий quality и только затем снижаем FPS при необходимости.");
+            mediaHint.setText("Выберите 3–30 файлов: GIF, анимированный WebP, MP4, WebM, MOV, MKV и другие видеоформаты.");
+            actionHint.setText("До 10 секунд на стикер. Сначала сохраняется высокая детализация кадра, затем при необходимости уменьшается FPS, чтобы уложиться в лимит WhatsApp 500 КБ.");
         } else {
             mediaTitle.setText("2  Фотографии");
-            mediaHint.setText("Нужно выбрать 3–30 фото. Фон и изображение остаются без удаления и без белой обводки.");
-            actionHint.setText("Каждое фото будет помещено целиком в 512×512 WebP до 100 КБ.");
+            mediaHint.setText("Нужно выбрать 3–30 фото. Фон не удаляется, белая обводка не добавляется.");
+            actionHint.setText("Каждое фото помещается целиком в 512×512 WebP до 100 КБ.");
         }
     }
 
@@ -461,14 +457,14 @@ public class MainActivity extends Activity {
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
         try {
             startActivityForResult(Intent.createChooser(intent, "Выберите анимации или видео"), REQUEST_PICK_ANIMATED);
-        } catch (ActivityNotFoundException error) {
+        } catch (ActivityNotFoundException first) {
             Intent fallback = new Intent(Intent.ACTION_GET_CONTENT);
             fallback.setType("*/*");
             fallback.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
             fallback.addCategory(Intent.CATEGORY_OPENABLE);
             try {
                 startActivityForResult(Intent.createChooser(fallback, "Выберите GIF, WebP или видео"), REQUEST_PICK_ANIMATED);
-            } catch (ActivityNotFoundException ignored) {
+            } catch (ActivityNotFoundException second) {
                 Toast.makeText(this, "Не найдено приложение для выбора файлов", Toast.LENGTH_LONG).show();
             }
         }
@@ -501,9 +497,13 @@ public class MainActivity extends Activity {
             incoming.add(data.getData());
         }
 
+        boolean changed = false;
         for (Uri uri : incoming) {
             if (selectedUris.size() >= MAX_STICKERS) break;
-            if (!selectedUris.contains(uri)) selectedUris.add(uri);
+            if (!selectedUris.contains(uri)) {
+                selectedUris.add(uri);
+                changed = true;
+            }
             if (persistPermission) {
                 try {
                     getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
@@ -512,6 +512,7 @@ public class MainActivity extends Activity {
             }
         }
 
+        if (changed) invalidateCurrentPack();
         renderPreviews();
         updateUiState();
     }
@@ -521,7 +522,8 @@ public class MainActivity extends Activity {
         previewContainer.removeAllViews();
 
         if (selectedUris.isEmpty()) {
-            TextView empty = text(animatedMode ? "Выбранные анимации появятся здесь" : "Выбранные фото появятся здесь",
+            TextView empty = text(
+                    animatedMode ? "Выбранные анимации появятся здесь" : "Выбранные фото появятся здесь",
                     13, MUTED, Typeface.NORMAL);
             empty.setGravity(Gravity.CENTER);
             empty.setPadding(dp(16), 0, dp(16), 0);
@@ -564,6 +566,7 @@ public class MainActivity extends Activity {
             remove.setOnClickListener(v -> {
                 if (!processing && index >= 0 && index < selectedUris.size()) {
                     selectedUris.remove(index);
+                    invalidateCurrentPack();
                     renderPreviews();
                     updateUiState();
                 }
@@ -598,6 +601,7 @@ public class MainActivity extends Activity {
 
     private void updateUiState() {
         if (countText != null) countText.setText(selectedUris.size() + " / " + MAX_STICKERS);
+
         if (galleryButton != null) {
             String open = animatedMode ? "Выбрать GIF / WebP / видео" : "Открыть галерею";
             String more = animatedMode ? "Добавить ещё анимации" : "Добавить ещё фото";
@@ -605,30 +609,38 @@ public class MainActivity extends Activity {
             galleryButton.setEnabled(!processing && selectedUris.size() < MAX_STICKERS);
             galleryButton.setAlpha(galleryButton.isEnabled() ? 1f : 0.45f);
         }
+
         if (photoModeButton != null) {
             photoModeButton.setEnabled(!processing);
             animatedModeButton.setEnabled(!processing);
         }
+
         if (createButton != null) {
             boolean enough = selectedUris.size() >= MIN_STICKERS && selectedUris.size() <= MAX_STICKERS;
             createButton.setEnabled(enough && !processing);
             createButton.setAlpha(createButton.isEnabled() ? 1f : 0.45f);
         }
+
         if (addButton != null) {
-            addButton.setEnabled(currentPack != null && !processing);
+            boolean packMatchesMode = currentPack != null && currentPack.animated == animatedMode;
+            addButton.setEnabled(packMatchesMode && !processing);
             addButton.setAlpha(addButton.isEnabled() ? 1f : 0.45f);
         }
+
         if (statusText != null && !processing) {
-            if (!selectedUris.isEmpty()) {
-                if (selectedUris.size() < MIN_STICKERS) {
-                    statusText.setText("Добавьте ещё " + (MIN_STICKERS - selectedUris.size()) + (animatedMode ? " файла." : " фото."));
-                } else {
-                    statusText.setText(animatedMode ? "Анимации выбраны. Можно создавать набор." : "Фото выбраны. Можно создавать набор.");
-                }
-            } else if (currentPack != null) {
-                statusText.setText("Последний набор «" + currentPack.name + "» готов к добавлению в WhatsApp.");
+            if (currentPack != null && currentPack.animated == animatedMode) {
+                statusText.setText("Набор «" + currentPack.name + "» готов к добавлению в WhatsApp.");
+            } else if (selectedUris.isEmpty()) {
+                statusText.setText(animatedMode
+                        ? "Выберите минимум 3 анимации или видео."
+                        : "Выберите минимум 3 фотографии.");
+            } else if (selectedUris.size() < MIN_STICKERS) {
+                statusText.setText("Добавьте ещё " + (MIN_STICKERS - selectedUris.size())
+                        + (animatedMode ? " файла." : " фото."));
             } else {
-                statusText.setText(animatedMode ? "Выберите минимум 3 анимации или видео." : "Выберите минимум 3 фотографии.");
+                statusText.setText(animatedMode
+                        ? "Анимации выбраны. Можно создавать набор."
+                        : "Фото выбраны. Можно создавать набор.");
             }
         }
     }
@@ -646,6 +658,8 @@ public class MainActivity extends Activity {
         final List<Uri> work = new ArrayList<>(selectedUris);
         final boolean makeAnimated = animatedMode;
 
+        // Never allow a previous pack to remain active while a new one is being built.
+        invalidateCurrentPack();
         processing = true;
         statusText.setText(makeAnimated ? "Создаю анимированные стикеры…" : "Создаю стикеры…");
         updateUiState();
@@ -660,19 +674,31 @@ public class MainActivity extends Activity {
 
                 int lastFps = 0;
                 int lastQuality = 0;
+
                 for (int i = 0; i < work.size(); i++) {
+                    final int index = i;
+                    runOnUiThread(() -> statusText.setText(
+                            (makeAnimated ? "Конвертирую " : "Обрабатываю ")
+                                    + (index + 1) + " из " + work.size() + "…"));
+
                     File target = new File(packDir, (i + 1) + ".webp");
-                    if (makeAnimated) {
-                        AnimatedStickerConverter.Result result = AnimatedStickerConverter.convert(this, work.get(i), target);
-                        lastFps = result.fps;
-                        lastQuality = result.quality;
-                    } else {
-                        Bitmap sticker = makeSticker(work.get(i));
-                        writeWebpUnderLimit(sticker, target);
-                        sticker.recycle();
+                    try {
+                        if (makeAnimated) {
+                            AnimatedStickerConverter.Result result =
+                                    AnimatedStickerConverter.convert(this, work.get(i), target);
+                            lastFps = result.fps;
+                            lastQuality = result.quality;
+                        } else {
+                            Bitmap sticker = makeSticker(work.get(i));
+                            writeWebpUnderLimit(sticker, target);
+                            sticker.recycle();
+                        }
+                    } catch (Throwable itemError) {
+                        String reason = itemError.getMessage() == null
+                                ? "неизвестная ошибка конвертации"
+                                : itemError.getMessage();
+                        throw new IOException("Файл " + (i + 1) + ": " + reason, itemError);
                     }
-                    final int done = i + 1;
-                    runOnUiThread(() -> statusText.setText("Обработано " + done + " из " + work.size() + "…"));
                 }
 
                 File tray = new File(packDir, "tray.png");
@@ -700,17 +726,21 @@ public class MainActivity extends Activity {
                 runOnUiThread(() -> {
                     processing = false;
                     if (makeAnimated) {
-                        statusText.setText("Готово: «" + pack.name + "». Оптимизация: до " + finalFps + " FPS, quality " + finalQuality + ". Теперь добавьте набор в WhatsApp.");
+                        statusText.setText("Готово: «" + pack.name + "». Итоговый профиль последнего стикера: "
+                                + finalFps + " FPS, quality " + finalQuality + ".");
                     } else {
-                        statusText.setText("Готово: «" + pack.name + "». Теперь добавьте набор в WhatsApp.");
+                        statusText.setText("Готово: «" + pack.name + "».");
                     }
                     updateUiState();
                 });
             } catch (Throwable error) {
                 deleteRecursively(packDir);
+                currentPack = null;
                 runOnUiThread(() -> {
                     processing = false;
-                    statusText.setText("Ошибка: " + (error.getMessage() == null ? "не удалось создать набор" : error.getMessage()));
+                    statusText.setText("Ошибка: " + (error.getMessage() == null
+                            ? "не удалось создать набор"
+                            : error.getMessage()));
                     updateUiState();
                 });
             }
@@ -806,7 +836,25 @@ public class MainActivity extends Activity {
     }
 
     private void addCurrentPackToWhatsApp() {
-        if (currentPack == null) return;
+        if (currentPack == null) {
+            Toast.makeText(this, "Сначала успешно создайте новый набор", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        if (currentPack.animated != animatedMode) {
+            currentPack = null;
+            updateUiState();
+            Toast.makeText(this, "Текущий набор устарел. Создайте набор заново.", Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        File firstSticker = PackStore.getStickerFile(this, currentPack.id, "1.webp");
+        if (!firstSticker.isFile()) {
+            currentPack = null;
+            updateUiState();
+            Toast.makeText(this, "Файлы набора не найдены. Создайте набор заново.", Toast.LENGTH_LONG).show();
+            return;
+        }
 
         String authority = getPackageName() + ".stickercontentprovider";
         Intent intent = new Intent("com.whatsapp.intent.action.ENABLE_STICKER_PACK");
