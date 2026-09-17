@@ -1,10 +1,13 @@
 package com.malikksh.wastickers;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.ContentResolver;
 import android.content.Intent;
+import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
@@ -18,6 +21,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.MediaStore;
+import android.provider.OpenableColumns;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -28,6 +32,7 @@ import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -37,8 +42,14 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.nio.charset.StandardCharsets;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -69,22 +80,30 @@ public class MainActivity extends Activity {
     private TextView mediaTitle;
     private TextView mediaHint;
     private TextView actionHint;
+    private TextView progressText;
+    private ProgressBar progressBar;
     private LinearLayout previewContainer;
     private Button photoModeButton;
     private Button animatedModeButton;
     private Button galleryButton;
     private Button createButton;
     private Button addButton;
+    private Button bugLogButton;
 
     // Important: this is only the pack created successfully in the CURRENT editor session.
     // We deliberately do not restore an old pack here, otherwise WhatsApp can receive stale pack ids.
     private PackStore.Pack currentPack;
     private boolean processing;
     private boolean animatedMode;
+    private boolean lastOperationFailed;
+    private String lastBugLog = "";
+    private int diagnosticItemIndex = -1;
+    private Uri diagnosticItemUri;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        BugLogStore.install();
         configureWindow();
 
         try {
@@ -271,6 +290,21 @@ public class MainActivity extends Activity {
         actionHintParams.topMargin = dp(7);
         actionsCard.addView(actionHint, actionHintParams);
 
+        progressText = text("", 13, PRIMARY, Typeface.BOLD);
+        progressText.setVisibility(View.GONE);
+        LinearLayout.LayoutParams progressTextParams = matchWrap();
+        progressTextParams.topMargin = dp(13);
+        actionsCard.addView(progressText, progressTextParams);
+
+        progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        progressBar.setMax(MAX_STICKERS);
+        progressBar.setProgress(0);
+        progressBar.setVisibility(View.GONE);
+        LinearLayout.LayoutParams progressParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(16));
+        progressParams.topMargin = dp(7);
+        actionsCard.addView(progressBar, progressParams);
+
         createButton = new Button(this);
         createButton.setText("Создать набор");
         styleButton(createButton, GREEN, 0xFF073B2B);
@@ -279,6 +313,16 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(56));
         createParams.topMargin = dp(15);
         actionsCard.addView(createButton, createParams);
+
+        bugLogButton = new Button(this);
+        bugLogButton.setText("Показать баг-лог");
+        styleButton(bugLogButton, SOFT, PRIMARY);
+        bugLogButton.setVisibility(View.GONE);
+        bugLogButton.setOnClickListener(v -> showBugLogDialog());
+        LinearLayout.LayoutParams bugLogParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(50));
+        bugLogParams.topMargin = dp(9);
+        actionsCard.addView(bugLogButton, bugLogParams);
 
         addButton = new Button(this);
         addButton.setText("Добавить в WhatsApp");
@@ -387,6 +431,9 @@ public class MainActivity extends Activity {
 
     private void invalidateCurrentPack() {
         currentPack = null;
+        lastOperationFailed = false;
+        lastBugLog = "";
+        hideDiagnosticsUi();
     }
 
     private void setAnimatedMode(boolean animated) {
@@ -619,6 +666,7 @@ public class MainActivity extends Activity {
             boolean enough = selectedUris.size() >= MIN_STICKERS && selectedUris.size() <= MAX_STICKERS;
             createButton.setEnabled(enough && !processing);
             createButton.setAlpha(createButton.isEnabled() ? 1f : 0.45f);
+            if (!processing) createButton.setText("Создать набор");
         }
 
         if (addButton != null) {
@@ -627,7 +675,12 @@ public class MainActivity extends Activity {
             addButton.setAlpha(addButton.isEnabled() ? 1f : 0.45f);
         }
 
-        if (statusText != null && !processing) {
+        if (bugLogButton != null) {
+            boolean showBugLog = lastOperationFailed && lastBugLog != null && !lastBugLog.isEmpty();
+            bugLogButton.setVisibility(showBugLog ? View.VISIBLE : View.GONE);
+        }
+
+        if (statusText != null && !processing && !lastOperationFailed) {
             if (currentPack != null && currentPack.animated == animatedMode) {
                 statusText.setText("Набор «" + currentPack.name + "» готов к добавлению в WhatsApp.");
             } else if (selectedUris.isEmpty()) {
@@ -660,8 +713,17 @@ public class MainActivity extends Activity {
 
         // Never allow a previous pack to remain active while a new one is being built.
         invalidateCurrentPack();
+        lastOperationFailed = false;
+        lastBugLog = "";
+        diagnosticItemIndex = -1;
+        diagnosticItemUri = null;
+        BugLogStore.reset();
+        BugLogStore.appendApp("Starting pack creation. mode=" + (makeAnimated ? "animated" : "static")
+                + ", items=" + work.size());
+
         processing = true;
         statusText.setText(makeAnimated ? "Создаю анимированные стикеры…" : "Создаю стикеры…");
+        startProgress(work.size(), makeAnimated);
         updateUiState();
 
         executor.execute(() -> {
@@ -676,8 +738,15 @@ public class MainActivity extends Activity {
                 int lastQuality = 0;
 
                 for (int i = 0; i < work.size(); i++) {
+                    diagnosticItemIndex = i;
+                    diagnosticItemUri = work.get(i);
+                    BugLogStore.appendApp("Item " + (i + 1) + "/" + work.size() + ": "
+                            + describeUri(work.get(i)));
+
                     final int index = i;
-                    runOnUiThread(() -> statusText.setText(
+                    runOnUiThread(() -> updateProgress(
+                            index,
+                            work.size(),
                             (makeAnimated ? "Конвертирую " : "Обрабатываю ")
                                     + (index + 1) + " из " + work.size() + "…"));
 
@@ -688,10 +757,13 @@ public class MainActivity extends Activity {
                                     AnimatedStickerConverter.convert(this, work.get(i), target);
                             lastFps = result.fps;
                             lastQuality = result.quality;
+                            BugLogStore.appendApp("Item " + (i + 1) + " converted: bytes=" + result.bytes
+                                    + ", fps=" + result.fps + ", quality=" + result.quality);
                         } else {
                             Bitmap sticker = makeSticker(work.get(i));
                             writeWebpUnderLimit(sticker, target);
                             sticker.recycle();
+                            BugLogStore.appendApp("Item " + (i + 1) + " converted: bytes=" + target.length());
                         }
                     } catch (Throwable itemError) {
                         String reason = itemError.getMessage() == null
@@ -699,14 +771,25 @@ public class MainActivity extends Activity {
                                 : itemError.getMessage();
                         throw new IOException("Файл " + (i + 1) + ": " + reason, itemError);
                     }
+
+                    final int completed = i + 1;
+                    runOnUiThread(() -> updateProgress(
+                            completed,
+                            work.size(),
+                            completed == work.size()
+                                    ? "Стикеры готовы. Создаю иконку набора…"
+                                    : "Готово " + completed + " из " + work.size() + "."));
                 }
 
+                diagnosticItemIndex = -1;
+                diagnosticItemUri = null;
                 File tray = new File(packDir, "tray.png");
                 if (makeAnimated) {
                     AnimatedStickerConverter.createTrayIcon(this, work.get(0), tray);
                 } else {
                     createTrayIcon(new File(packDir, "1.webp"), tray);
                 }
+                BugLogStore.appendApp("Tray icon created: bytes=" + tray.length());
 
                 PackStore.Pack pack = new PackStore.Pack(
                         id,
@@ -725,6 +808,8 @@ public class MainActivity extends Activity {
                 final int finalQuality = lastQuality;
                 runOnUiThread(() -> {
                     processing = false;
+                    lastOperationFailed = false;
+                    finishProgressSuccess(work.size());
                     if (makeAnimated) {
                         statusText.setText("Готово: «" + pack.name + "». Итоговый профиль последнего стикера: "
                                 + finalFps + " FPS, quality " + finalQuality + ".");
@@ -736,15 +821,204 @@ public class MainActivity extends Activity {
             } catch (Throwable error) {
                 deleteRecursively(packDir);
                 currentPack = null;
+                lastBugLog = buildBugLog(error, makeAnimated, work);
+                saveBugLog(lastBugLog);
+                lastOperationFailed = true;
+                BugLogStore.appendApp("Pack creation failed: " + error);
+
                 runOnUiThread(() -> {
                     processing = false;
-                    statusText.setText("Ошибка: " + (error.getMessage() == null
+                    String message = error.getMessage() == null
                             ? "не удалось создать набор"
-                            : error.getMessage()));
+                            : error.getMessage();
+                    statusText.setText("Ошибка: " + message);
+                    showProgressError();
                     updateUiState();
                 });
             }
         });
+    }
+
+    private void startProgress(int total, boolean animated) {
+        if (progressBar != null) {
+            progressBar.setMax(Math.max(1, total));
+            progressBar.setProgress(0);
+            progressBar.setVisibility(View.VISIBLE);
+        }
+        if (progressText != null) {
+            progressText.setText(animated
+                    ? "Запускаю обработку анимированных стикеров…"
+                    : "Запускаю обработку стикеров…");
+            progressText.setVisibility(View.VISIBLE);
+        }
+        if (createButton != null) createButton.setText("Запуск обработки…");
+        if (bugLogButton != null) bugLogButton.setVisibility(View.GONE);
+    }
+
+    private void updateProgress(int completed, int total, String message) {
+        if (progressBar != null) {
+            progressBar.setMax(Math.max(1, total));
+            progressBar.setProgress(Math.max(0, Math.min(completed, total)));
+            progressBar.setVisibility(View.VISIBLE);
+        }
+        if (progressText != null) {
+            progressText.setText(message);
+            progressText.setVisibility(View.VISIBLE);
+        }
+        if (createButton != null && processing) {
+            int current = Math.min(total, completed + 1);
+            createButton.setText(completed >= total
+                    ? "Завершаю набор…"
+                    : "Обработка " + current + " / " + total + "…");
+        }
+    }
+
+    private void finishProgressSuccess(int total) {
+        if (progressBar != null) {
+            progressBar.setMax(Math.max(1, total));
+            progressBar.setProgress(Math.max(1, total));
+            progressBar.setVisibility(View.VISIBLE);
+        }
+        if (progressText != null) {
+            progressText.setText("Готово. Все стикеры обработаны.");
+            progressText.setVisibility(View.VISIBLE);
+        }
+        if (bugLogButton != null) bugLogButton.setVisibility(View.GONE);
+    }
+
+    private void showProgressError() {
+        if (progressText != null) {
+            progressText.setText("Создание набора завершилось ошибкой. Откройте баг-лог ниже.");
+            progressText.setVisibility(View.VISIBLE);
+        }
+        if (bugLogButton != null) bugLogButton.setVisibility(View.VISIBLE);
+    }
+
+    private void hideDiagnosticsUi() {
+        if (progressText != null) progressText.setVisibility(View.GONE);
+        if (progressBar != null) {
+            progressBar.setProgress(0);
+            progressBar.setVisibility(View.GONE);
+        }
+        if (bugLogButton != null) bugLogButton.setVisibility(View.GONE);
+    }
+
+    private String buildBugLog(Throwable error, boolean makeAnimated, List<Uri> work) {
+        StringBuilder report = new StringBuilder();
+        report.append("WA Stickers bug log\n");
+        report.append("Time: ")
+                .append(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.US).format(new Date()))
+                .append('\n');
+        report.append("App: ").append(BuildConfig.VERSION_NAME)
+                .append(" (versionCode ").append(BuildConfig.VERSION_CODE).append(")\n");
+        report.append("Android SDK: ").append(Build.VERSION.SDK_INT).append('\n');
+        report.append("Device: ").append(Build.MANUFACTURER).append(' ').append(Build.MODEL).append('\n');
+        report.append("Mode: ").append(makeAnimated ? "animated" : "static").append('\n');
+        report.append("Selected files: ").append(work.size()).append('\n');
+
+        if (diagnosticItemIndex >= 0) {
+            report.append("Failed item: ").append(diagnosticItemIndex + 1).append(" / ").append(work.size()).append('\n');
+        }
+        if (diagnosticItemUri != null) {
+            report.append("Failed file: ").append(describeUri(diagnosticItemUri)).append('\n');
+        }
+
+        report.append("\nFiles:\n");
+        for (int i = 0; i < work.size(); i++) {
+            report.append(i + 1).append(". ").append(describeUri(work.get(i))).append('\n');
+        }
+
+        report.append("\nException:\n").append(stackTrace(error));
+        String ffmpeg = BugLogStore.snapshot();
+        report.append("\nFFmpeg / app log:\n");
+        report.append(ffmpeg.isEmpty() ? "<no FFmpeg log captured>\n" : ffmpeg);
+        return report.toString();
+    }
+
+    private String describeUri(Uri uri) {
+        if (uri == null) return "<null>";
+        String displayName = "unknown";
+        long size = -1;
+        try (Cursor cursor = getContentResolver().query(
+                uri,
+                new String[]{OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE},
+                null,
+                null,
+                null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                int nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                int sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE);
+                if (nameIndex >= 0 && !cursor.isNull(nameIndex)) displayName = cursor.getString(nameIndex);
+                if (sizeIndex >= 0 && !cursor.isNull(sizeIndex)) size = cursor.getLong(sizeIndex);
+            }
+        } catch (Throwable ignored) {
+        }
+
+        String mime = null;
+        try {
+            mime = getContentResolver().getType(uri);
+        } catch (Throwable ignored) {
+        }
+        return displayName + " | mime=" + (mime == null ? "unknown" : mime)
+                + " | bytes=" + (size < 0 ? "unknown" : size);
+    }
+
+    private String stackTrace(Throwable error) {
+        StringWriter writer = new StringWriter();
+        PrintWriter printer = new PrintWriter(writer);
+        error.printStackTrace(printer);
+        printer.flush();
+        return writer.toString();
+    }
+
+    private void saveBugLog(String log) {
+        if (log == null || log.isEmpty()) return;
+        File dir = new File(getFilesDir(), "buglogs");
+        if (!dir.mkdirs() && !dir.isDirectory()) return;
+        File file = new File(dir, "last_bug_log.txt");
+        try (FileOutputStream output = new FileOutputStream(file, false)) {
+            output.write(log.getBytes(StandardCharsets.UTF_8));
+        } catch (IOException ignored) {
+        }
+    }
+
+    private void showBugLogDialog() {
+        if (lastBugLog == null || lastBugLog.isEmpty()) {
+            Toast.makeText(this, "Баг-лог пока отсутствует", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        String preview = lastBugLog.length() > 8000
+                ? "…\n" + lastBugLog.substring(lastBugLog.length() - 8000)
+                : lastBugLog;
+
+        new AlertDialog.Builder(this)
+                .setTitle("Баг-лог")
+                .setMessage(preview)
+                .setPositiveButton("Копировать", (dialog, which) -> copyBugLog())
+                .setNeutralButton("Поделиться", (dialog, which) -> shareBugLog())
+                .setNegativeButton("Закрыть", null)
+                .show();
+    }
+
+    private void copyBugLog() {
+        ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+        if (clipboard != null) {
+            clipboard.setPrimaryClip(ClipData.newPlainText("WA Stickers bug log", lastBugLog));
+            Toast.makeText(this, "Баг-лог скопирован", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void shareBugLog() {
+        Intent share = new Intent(Intent.ACTION_SEND);
+        share.setType("text/plain");
+        share.putExtra(Intent.EXTRA_SUBJECT, "WA Stickers bug log");
+        share.putExtra(Intent.EXTRA_TEXT, lastBugLog);
+        try {
+            startActivity(Intent.createChooser(share, "Поделиться баг-логом"));
+        } catch (ActivityNotFoundException error) {
+            Toast.makeText(this, "Не найдено приложение для отправки", Toast.LENGTH_SHORT).show();
+        }
     }
 
     private Bitmap makeSticker(Uri uri) throws IOException {
