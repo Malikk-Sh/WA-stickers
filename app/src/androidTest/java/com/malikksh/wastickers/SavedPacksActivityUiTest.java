@@ -5,11 +5,10 @@ import static androidx.test.espresso.Espresso.onView;
 import static androidx.test.espresso.action.ViewActions.click;
 import static androidx.test.espresso.action.ViewActions.replaceText;
 import static androidx.test.espresso.assertion.ViewAssertions.matches;
+import static androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom;
 import static androidx.test.espresso.matcher.ViewMatchers.isDisplayed;
 import static androidx.test.espresso.matcher.ViewMatchers.withContentDescription;
 import static androidx.test.espresso.matcher.ViewMatchers.withText;
-
-import static org.hamcrest.Matchers.isA;
 
 import android.content.Context;
 import android.widget.EditText;
@@ -54,7 +53,7 @@ public class SavedPacksActivityUiTest {
 
             onView(withContentDescription("Действия с набором Тестовый набор")).perform(click());
             onView(withText("Переименовать")).perform(click());
-            onView(isA(EditText.class)).perform(replaceText("Новый набор"));
+            onView(isAssignableFrom(EditText.class)).perform(replaceText("Новый набор"));
             closeSoftKeyboard();
             onView(withText("Сохранить")).perform(click());
             onView(withText("Новый набор")).check(matches(isDisplayed()));
