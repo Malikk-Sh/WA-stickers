@@ -74,4 +74,10 @@ jobs:
           arch: x86_64
           profile: pixel_6
           disable-animations: true
-          script: gradle :app:connectedDebugAndroidTest --stacktrace
+          script: |
+            adb shell input keyevent KEYCODE_WAKEUP || true
+            adb shell wm dismiss-keyguard || true
+            adb shell input keyevent 82 || true
+            adb shell settings put system screen_off_timeout 2147483647 || true
+            sleep 2
+            gradle :app:connectedDebugAndroidTest --stacktrace
