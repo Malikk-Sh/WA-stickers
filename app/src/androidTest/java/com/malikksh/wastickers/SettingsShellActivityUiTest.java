@@ -56,7 +56,7 @@ public class SettingsShellActivityUiTest {
     }
 
     @Test
-    public void gearOpensSettingsAndOverflowClearsDraft() throws Exception {
+    public void gearOpensSettings() {
         Instrumentation instrumentation = InstrumentationRegistry.getInstrumentation();
         Instrumentation.ActivityMonitor settingsMonitor = new Instrumentation.ActivityMonitor(
                 SettingsActivity.class.getName(), null, false);
@@ -73,7 +73,14 @@ public class SettingsShellActivityUiTest {
             assertNotNull("Settings gear did not launch SettingsActivity", launchedSettings);
             instrumentation.runOnMainSync(launchedSettings::finish);
             instrumentation.waitForIdleSync();
+        } finally {
+            instrumentation.removeMonitor(settingsMonitor);
+        }
+    }
 
+    @Test
+    public void overflowClearsDraft() throws Exception {
+        try (ActivityScenario<SettingsShellActivity> scenario = ActivityScenario.launch(SettingsShellActivity.class)) {
             scenario.onActivity(activity -> {
                 try {
                     Uri item = writeImage(activity, "settings_shell_draft.png");
@@ -106,8 +113,6 @@ public class SettingsShellActivityUiTest {
                     throw new RuntimeException(error);
                 }
             });
-        } finally {
-            instrumentation.removeMonitor(settingsMonitor);
         }
     }
 
