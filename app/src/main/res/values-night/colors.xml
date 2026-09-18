@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="launcher_background">#0A302C</color>
+
+    <color name="app_background">#101816</color>
+    <color name="app_surface">#17211E</color>
+    <color name="app_surface_variant">#1D2A26</color>
+    <color name="app_surface_strong">#24332E</color>
+
+    <color name="app_primary">#7FDCC2</color>
+    <color name="app_primary_container">#23483C</color>
+    <color name="app_primary_pressed">#9AE8D2</color>
+    <color name="app_secondary">#6FD0C0</color>
+    <color name="app_accent">#50D68C</color>
+
+    <color name="app_text_primary">#EAF3EF</color>
+    <color name="app_text_secondary">#B1C2BB</color>
+    <color name="app_text_tertiary">#82968E</color>
+    <color name="app_border">#31423C</color>
+
+    <color name="app_success">#73D8A5</color>
+    <color name="app_success_container">#183E2C</color>
+    <color name="app_warning">#F1C36A</color>
+    <color name="app_warning_container">#493817</color>
+    <color name="app_error">#FFB4AB</color>
+    <color name="app_error_container">#5B2421</color>
+
+    <color name="app_disabled_surface">#29332F</color>
+    <color name="app_disabled_text">#7E8C86</color>
+</resources>
