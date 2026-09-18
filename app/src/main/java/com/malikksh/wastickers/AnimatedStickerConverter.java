@@ -145,6 +145,25 @@ final class AnimatedStickerConverter {
                     + ", clipDurationMs=" + expectedDurationMs);
         }
 
+        ConversionCache.Hit cacheHit = ConversionCache.restore(
+                context,
+                sourceUri,
+                true,
+                startOffsetMs,
+                output,
+                MAX_ANIMATED_BYTES
+        );
+        if (cacheHit != null) {
+            BugLogStore.appendApp("Conversion cache hit: animated, bytes=" + cacheHit.bytes
+                    + ", fps=" + cacheHit.fps + ", quality=" + cacheHit.quality
+                    + ", startMs=" + startOffsetMs);
+            report(progressListener, ProgressStage.PREPARING, 100, 0, 0,
+                    cacheHit.fps, cacheHit.quality, cacheHit.bytes);
+            report(progressListener, ProgressStage.DONE, 100, 0, 0,
+                    cacheHit.fps, cacheHit.quality, cacheHit.bytes);
+            return new Result(cacheHit.fps, cacheHit.quality, cacheHit.bytes);
+        }
+
         File input = new File(tempDir, "input_" + System.nanoTime() + guessExtension(context, sourceUri));
         copyUri(context, sourceUri, input);
         report(progressListener, ProgressStage.PREPARING, 100, 0, 0, 0, 0, input.length());
@@ -176,7 +195,8 @@ final class AnimatedStickerConverter {
                     BugLogStore.appendApp("Animated WebP passthrough: already 512x512; original bytes preserved");
                     report(progressListener, ProgressStage.DONE, 100, 0, 0,
                             webp.approximateFps(), 100, output.length());
-                    return new Result(webp.approximateFps(), 100, input.length());
+                    return cacheResult(context, sourceUri, startOffsetMs, output,
+                            new Result(webp.approximateFps(), 100, output.length()));
                 }
 
                 if (startOffsetMs == 0 && isAnimationStructureCompatible(webp)) {
@@ -199,7 +219,7 @@ final class AnimatedStickerConverter {
                                     + ", quality=" + resized.quality + ", bytes=" + resized.bytes);
                             report(progressListener, ProgressStage.DONE, 100, 0, 0,
                                     resized.fps, resized.quality, resized.bytes);
-                            return resized;
+                            return cacheResult(context, sourceUri, startOffsetMs, output, resized);
                         }
                         //noinspection ResultOfMethodCallIgnored
                         output.delete();
@@ -274,7 +294,8 @@ final class AnimatedStickerConverter {
                     copyFile(candidate, output);
                     report(progressListener, ProgressStage.DONE, 100, attempt,
                             AnimatedStickerProfiles.size(), profile.fps, profile.quality, size);
-                    return new Result(profile.fps, profile.quality, size);
+                    return cacheResult(context, sourceUri, startOffsetMs, output,
+                            new Result(profile.fps, profile.quality, output.length()));
                 }
             }
 
@@ -287,6 +308,21 @@ final class AnimatedStickerConverter {
             //noinspection ResultOfMethodCallIgnored
             candidate.delete();
         }
+    }
+
+    private static Result cacheResult(Context context, Uri sourceUri, long startOffsetMs,
+                                      File output, Result result) {
+        ConversionCache.store(
+                context,
+                sourceUri,
+                true,
+                startOffsetMs,
+                output,
+                result.fps,
+                result.quality,
+                MAX_ANIMATED_BYTES
+        );
+        return result;
     }
 
     static void createTrayIcon(Context context, Uri sourceUri, File trayFile) throws IOException {
