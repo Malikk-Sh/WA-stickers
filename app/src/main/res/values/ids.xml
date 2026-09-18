@@ -14,6 +14,18 @@
     <item name="media_add_more" type="id" />
     <item name="media_grid" type="id" />
     <item name="media_detail" type="id" />
+    <item name="media_edit_trim" type="id" />
     <item name="media_clear" type="id" />
     <item name="media_continue" type="id" />
+    <item name="trim_title" type="id" />
+    <item name="trim_indicator" type="id" />
+    <item name="trim_preview" type="id" />
+    <item name="trim_filename" type="id" />
+    <item name="trim_duration" type="id" />
+    <item name="trim_range" type="id" />
+    <item name="trim_seek" type="id" />
+    <item name="trim_previous" type="id" />
+    <item name="trim_next" type="id" />
+    <item name="trim_cancel" type="id" />
+    <item name="trim_done" type="id" />
 </resources>
