@@ -81,6 +81,49 @@ final class PackStore {
             deleteRecursively(getPackDir(context, removed.id));
         }
 
+        savePacks(context, packs);
+    }
+
+    static synchronized Pack renamePack(Context context, String id, String newName) {
+        String trimmed = newName == null ? "" : newName.trim();
+        if (trimmed.isEmpty()) return null;
+
+        List<Pack> packs = getPacks(context);
+        Pack renamed = null;
+        for (int i = 0; i < packs.size(); i++) {
+            Pack item = packs.get(i);
+            if (!item.id.equals(id)) continue;
+            renamed = new Pack(
+                    item.id,
+                    trimmed,
+                    item.stickerCount,
+                    String.valueOf(System.currentTimeMillis()),
+                    item.animated
+            );
+            packs.set(i, renamed);
+            break;
+        }
+        if (renamed != null) savePacks(context, packs);
+        return renamed;
+    }
+
+    static synchronized boolean deletePack(Context context, String id) {
+        List<Pack> packs = getPacks(context);
+        Pack removed = null;
+        for (int i = 0; i < packs.size(); i++) {
+            if (packs.get(i).id.equals(id)) {
+                removed = packs.remove(i);
+                break;
+            }
+        }
+        if (removed == null) return false;
+
+        savePacks(context, packs);
+        deleteRecursively(getPackDir(context, removed.id));
+        return true;
+    }
+
+    private static void savePacks(Context context, List<Pack> packs) {
         JSONArray array = new JSONArray();
         for (Pack item : packs) {
             JSONObject object = new JSONObject();
