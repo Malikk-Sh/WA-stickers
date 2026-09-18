@@ -2,6 +2,7 @@ package com.malikksh.wastickers;
 
 import android.content.ClipData;
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -26,6 +27,10 @@ import java.util.concurrent.Executors;
 
 /** Task-focused Media tab UI. Business/editor state remains owned by MainActivity. */
 final class MediaGridPanel extends LinearLayout {
+    private static final int MIN_STICKERS = 3;
+    private static final int MAX_STICKERS = 30;
+    private static final String TRIM_PERSISTENT_KEY = "home_video_trim";
+
     interface Host {
         void onModeChanged(boolean animated);
         void onAddMedia();
@@ -35,9 +40,6 @@ final class MediaGridPanel extends LinearLayout {
         void onClearMedia();
         void onContinue();
     }
-
-    private static final int MIN_STICKERS = 3;
-    private static final int MAX_STICKERS = 30;
 
     private final Host host;
     private final PreviewLoader previewLoader;
@@ -52,6 +54,7 @@ final class MediaGridPanel extends LinearLayout {
     private final TextView detailName;
     private final TextView detailMeta;
     private final TextView detailStatus;
+    private final Button detailTrimButton;
     private final Button addMore;
     private final Button clear;
     private final Button continueButton;
@@ -102,7 +105,8 @@ final class MediaGridPanel extends LinearLayout {
 
         summary = text("Выбрано фото: 0", 15, color(R.color.app_text_primary), Typeface.BOLD);
         summary.setId(R.id.media_summary);
-        summaryRow.addView(summary, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        summaryRow.addView(summary, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
         addMore = new Button(context);
         addMore.setId(R.id.media_add_more);
@@ -134,14 +138,29 @@ final class MediaGridPanel extends LinearLayout {
 
         detailName = text("", 16, color(R.color.app_text_primary), Typeface.BOLD);
         detailCard.addView(detailName, matchWrap());
+
         detailMeta = text("", 13, color(R.color.app_text_secondary), Typeface.NORMAL);
+        detailMeta.setLineSpacing(0, 1.08f);
         LinearLayout.LayoutParams detailMetaParams = matchWrap();
         detailMetaParams.topMargin = dp(4);
         detailCard.addView(detailMeta, detailMetaParams);
+
         detailStatus = text("", 13, color(R.color.app_primary), Typeface.BOLD);
         LinearLayout.LayoutParams detailStatusParams = matchWrap();
         detailStatusParams.topMargin = dp(6);
         detailCard.addView(detailStatus, detailStatusParams);
+
+        detailTrimButton = new Button(context);
+        detailTrimButton.setId(R.id.media_edit_trim);
+        detailTrimButton.setText("Изменить фрагмент");
+        detailTrimButton.setAllCaps(false);
+        styleSecondaryButton(detailTrimButton);
+        detailTrimButton.setVisibility(GONE);
+        detailTrimButton.setOnClickListener(v -> openTrimForSelected());
+        LinearLayout.LayoutParams trimParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(46));
+        trimParams.topMargin = dp(10);
+        detailCard.addView(detailTrimButton, trimParams);
 
         LinearLayout actions = new LinearLayout(context);
         actions.setOrientation(HORIZONTAL);
@@ -186,8 +205,8 @@ final class MediaGridPanel extends LinearLayout {
         addMore.setAlpha(addMore.isEnabled() ? 1f : 0.45f);
         clear.setEnabled(!items.isEmpty());
         clear.setAlpha(clear.isEnabled() ? 1f : 0.45f);
-        boolean canContinue = items.size() >= MIN_STICKERS && items.size() <= MAX_STICKERS;
-        stylePrimaryButton(continueButton, canContinue);
+        stylePrimaryButton(continueButton,
+                items.size() >= MIN_STICKERS && items.size() <= MAX_STICKERS);
 
         renderGrid();
         renderDetail();
@@ -196,35 +215,7 @@ final class MediaGridPanel extends LinearLayout {
     private void renderGrid() {
         grid.removeAllViews();
         if (items.isEmpty()) {
-            LinearLayout empty = new LinearLayout(getContext());
-            empty.setOrientation(VERTICAL);
-            empty.setGravity(Gravity.CENTER);
-            empty.setPadding(dp(16), dp(26), dp(16), dp(26));
-            empty.setBackground(rounded(color(R.color.app_surface), 20));
-            TextView title = text("Пока ничего не выбрано", 17,
-                    color(R.color.app_text_primary), Typeface.BOLD);
-            title.setGravity(Gravity.CENTER);
-            empty.addView(title, matchWrap());
-            TextView hint = text("Добавьте от 3 до 30 файлов", 13,
-                    color(R.color.app_text_secondary), Typeface.NORMAL);
-            hint.setGravity(Gravity.CENTER);
-            LinearLayout.LayoutParams hintParams = matchWrap();
-            hintParams.topMargin = dp(4);
-            empty.addView(hint, hintParams);
-            Button pick = new Button(getContext());
-            pick.setText("Выбрать файлы");
-            pick.setAllCaps(false);
-            stylePrimaryButton(pick, true);
-            pick.setOnClickListener(v -> host.onAddMedia());
-            LinearLayout.LayoutParams pickParams = new LinearLayout.LayoutParams(dp(220), dp(50));
-            pickParams.topMargin = dp(12);
-            empty.addView(pick, pickParams);
-
-            GridLayout.LayoutParams emptyParams = new GridLayout.LayoutParams();
-            emptyParams.columnSpec = GridLayout.spec(0, 3);
-            emptyParams.width = ViewGroup.LayoutParams.MATCH_PARENT;
-            emptyParams.height = ViewGroup.LayoutParams.WRAP_CONTENT;
-            grid.addView(empty, emptyParams);
+            renderEmptyState();
             return;
         }
 
@@ -249,17 +240,7 @@ final class MediaGridPanel extends LinearLayout {
                 renderGrid();
                 renderDetail();
             });
-            tile.setOnLongClickListener(v -> {
-                ClipData dragData = ClipData.newPlainText("media-index", String.valueOf(index));
-                View.DragShadowBuilder shadow = new View.DragShadowBuilder(tile);
-                if (Build.VERSION.SDK_INT >= 24) {
-                    tile.startDragAndDrop(dragData, shadow, Integer.valueOf(index), 0);
-                } else {
-                    //noinspection deprecation
-                    tile.startDrag(dragData, shadow, Integer.valueOf(index), 0);
-                }
-                return true;
-            });
+            tile.setOnLongClickListener(v -> startTileDrag(tile, index));
             tile.setOnDragListener((v, event) -> handleDrag(tile, index, event));
 
             ImageView image = new ImageView(getContext());
@@ -267,8 +248,7 @@ final class MediaGridPanel extends LinearLayout {
             image.setBackground(rounded(color(R.color.app_disabled_surface), 14));
             if (Build.VERSION.SDK_INT >= 21) image.setClipToOutline(true);
             FrameLayout.LayoutParams imageParams = new FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT);
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
             imageParams.setMargins(dp(2), dp(2), dp(2), dp(2));
             tile.addView(image, imageParams);
             loadPreview(uri, image);
@@ -311,10 +291,56 @@ final class MediaGridPanel extends LinearLayout {
             GridLayout.LayoutParams tileParams = new GridLayout.LayoutParams();
             tileParams.width = tileSize;
             tileParams.height = tileSize;
-            int margin = dp(3);
-            tileParams.setMargins(margin, margin, margin, margin);
+            tileParams.setMargins(dp(3), dp(3), dp(3), dp(3));
             grid.addView(tile, tileParams);
         }
+    }
+
+    private void renderEmptyState() {
+        LinearLayout empty = new LinearLayout(getContext());
+        empty.setOrientation(VERTICAL);
+        empty.setGravity(Gravity.CENTER);
+        empty.setPadding(dp(16), dp(26), dp(16), dp(26));
+        empty.setBackground(rounded(color(R.color.app_surface), 20));
+
+        TextView title = text("Пока ничего не выбрано", 17,
+                color(R.color.app_text_primary), Typeface.BOLD);
+        title.setGravity(Gravity.CENTER);
+        empty.addView(title, matchWrap());
+
+        TextView hint = text("Добавьте от 3 до 30 файлов", 13,
+                color(R.color.app_text_secondary), Typeface.NORMAL);
+        hint.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams hintParams = matchWrap();
+        hintParams.topMargin = dp(4);
+        empty.addView(hint, hintParams);
+
+        Button pick = new Button(getContext());
+        pick.setText("Выбрать файлы");
+        pick.setAllCaps(false);
+        stylePrimaryButton(pick, true);
+        pick.setOnClickListener(v -> host.onAddMedia());
+        LinearLayout.LayoutParams pickParams = new LinearLayout.LayoutParams(dp(220), dp(50));
+        pickParams.topMargin = dp(12);
+        empty.addView(pick, pickParams);
+
+        GridLayout.LayoutParams emptyParams = new GridLayout.LayoutParams();
+        emptyParams.columnSpec = GridLayout.spec(0, 3);
+        emptyParams.width = ViewGroup.LayoutParams.MATCH_PARENT;
+        emptyParams.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+        grid.addView(empty, emptyParams);
+    }
+
+    private boolean startTileDrag(FrameLayout tile, int index) {
+        ClipData dragData = ClipData.newPlainText("media-index", String.valueOf(index));
+        View.DragShadowBuilder shadow = new View.DragShadowBuilder(tile);
+        if (Build.VERSION.SDK_INT >= 24) {
+            tile.startDragAndDrop(dragData, shadow, Integer.valueOf(index), 0);
+        } else {
+            //noinspection deprecation
+            tile.startDrag(dragData, shadow, Integer.valueOf(index), 0);
+        }
+        return true;
     }
 
     private boolean handleDrag(FrameLayout tile, int targetIndex, DragEvent event) {
@@ -341,16 +367,20 @@ final class MediaGridPanel extends LinearLayout {
     }
 
     private void renderDetail() {
+        detailTrimButton.setVisibility(GONE);
+        detailTrimButton.setEnabled(true);
         if (selectedUri == null || !items.contains(selectedUri)) {
             detailCard.setVisibility(GONE);
             return;
         }
+
         detailCard.setVisibility(VISIBLE);
         final Uri uri = selectedUri;
         final long generation = renderGeneration;
         detailName.setText("Файл");
         detailMeta.setText(animated ? "Анимация · загрузка данных…" : "Фото · загрузка данных…");
         detailStatus.setText(uri.equals(coverUri) ? "★ Выбрана как обложка" : "Готово к сборке");
+
         metadataExecutor.execute(() -> {
             List<MediaPreflightAnalyzer.Result> results = analyzer.analyze(Collections.singletonList(uri));
             if (results.isEmpty()) return;
@@ -366,6 +396,8 @@ final class MediaGridPanel extends LinearLayout {
                         String trim = MediaPreflightPolicy.formatTrimWindow(
                                 VideoTrimStore.getStartOffsetMs(result.uri), result.durationMs);
                         if (!trim.isEmpty()) meta.append("\nФрагмент ").append(trim);
+                        detailTrimButton.setText("Изменить фрагмент");
+                        detailTrimButton.setVisibility(VISIBLE);
                     }
                 }
                 detailMeta.setText(meta.toString());
@@ -376,6 +408,26 @@ final class MediaGridPanel extends LinearLayout {
                 } else {
                     detailStatus.setText("Готово к сборке");
                 }
+            });
+        });
+    }
+
+    private void openTrimForSelected() {
+        Uri uri = selectedUri;
+        if (uri == null) return;
+        detailTrimButton.setEnabled(false);
+        detailTrimButton.setText("Подготавливаю…");
+        metadataExecutor.execute(() -> {
+            List<String> keys = VideoTrimStore.prepare(
+                    getContext(), Collections.singletonList(uri));
+            VideoTrimStore.savePersistent(getContext(), TRIM_PERSISTENT_KEY);
+            post(() -> {
+                detailTrimButton.setEnabled(true);
+                detailTrimButton.setText("Изменить фрагмент");
+                if (keys.isEmpty() || selectedUri == null || !uri.equals(selectedUri)) return;
+                Intent intent = new Intent(getContext(), VideoTrimActivity.class);
+                intent.putStringArrayListExtra(VideoTrimActivity.EXTRA_KEYS, new ArrayList<>(keys));
+                getContext().startActivity(intent);
             });
         });
     }
@@ -430,9 +482,8 @@ final class MediaGridPanel extends LinearLayout {
         button.setTextSize(14);
         button.setTypeface(Typeface.create("sans", Typeface.BOLD));
         button.setTextColor(active ? Color.WHITE : color(R.color.app_primary));
-        GradientDrawable background = rounded(
-                active ? color(R.color.app_primary) : Color.TRANSPARENT, 14);
-        button.setBackground(background);
+        button.setBackground(rounded(
+                active ? color(R.color.app_primary) : Color.TRANSPARENT, 14));
     }
 
     private void stylePrimaryButton(Button button, boolean enabled) {
