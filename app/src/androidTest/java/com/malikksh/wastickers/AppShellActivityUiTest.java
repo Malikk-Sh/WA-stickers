@@ -7,6 +7,7 @@ import static androidx.test.espresso.matcher.ViewMatchers.isDisplayed;
 import static androidx.test.espresso.matcher.ViewMatchers.isEnabled;
 import static androidx.test.espresso.matcher.ViewMatchers.withId;
 import static androidx.test.espresso.matcher.ViewMatchers.withText;
+import static org.hamcrest.Matchers.allOf;
 import static org.hamcrest.Matchers.not;
 
 import android.content.Context;
@@ -61,12 +62,12 @@ public class AppShellActivityUiTest {
     @Test
     public void createModeSwitchUpdatesCompactSelectionCard() {
         try (ActivityScenario<AppShellActivity> ignored = ActivityScenario.launch(AppShellActivity.class)) {
-            onView(withText("Анимация")).perform(click());
+            onView(allOf(withText("Анимация"), not(withId(R.id.media_mode_animated)))).perform(click());
             onView(withText("Добавьте анимации")).check(matches(isDisplayed()));
             onView(withText("GIF, WebP и видео · до 10 секунд")).check(matches(isDisplayed()));
             onView(withId(R.id.create_pick_media)).check(matches(withText("＋  Выбрать файлы")));
 
-            onView(withText("Фото")).perform(click());
+            onView(allOf(withText("Фото"), not(withId(R.id.media_mode_photo)))).perform(click());
             onView(withText("Добавьте фотографии")).check(matches(isDisplayed()));
             onView(withId(R.id.create_pick_media)).check(matches(withText("＋  Выбрать фото")));
         }
