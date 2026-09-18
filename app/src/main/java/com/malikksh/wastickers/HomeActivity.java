@@ -27,6 +27,7 @@ public class HomeActivity extends MainActivity {
     private static final int REQUEST_PICK_PHOTOS = 1001;
     private static final int REQUEST_PICK_ANIMATED = 1002;
     private static final int REQUEST_SAVED_PACKS = 3001;
+    private static final String TRIM_STATE_PREFIX = "home.video_trim.";
     private static final int CARD = 0xFFFFFFFF;
     private static final int TEXT = 0xFF14221D;
     private static final int MUTED = 0xFF6A7872;
@@ -43,9 +44,20 @@ public class HomeActivity extends MainActivity {
     protected void onCreate(Bundle savedInstanceState) {
         VideoTrimStore.clear();
         super.onCreate(savedInstanceState);
+        if (savedInstanceState != null) {
+            VideoTrimStore.restoreFromBundle(savedInstanceState, TRIM_STATE_PREFIX);
+            EditorInstanceStateBridge.restore(this, savedInstanceState);
+        }
         preflightAnalyzer = new MediaPreflightAnalyzer(this);
         injectSavedPacksCard();
         updateSavedPacksSummary();
+    }
+
+    @Override
+    protected void onSaveInstanceState(Bundle outState) {
+        EditorInstanceStateBridge.save(this, outState);
+        VideoTrimStore.saveToBundle(outState, TRIM_STATE_PREFIX);
+        super.onSaveInstanceState(outState);
     }
 
     @Override
