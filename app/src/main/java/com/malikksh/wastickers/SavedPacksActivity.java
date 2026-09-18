@@ -245,9 +245,12 @@ public class SavedPacksActivity extends Activity {
                         Toast.makeText(this, "Название не может быть пустым", Toast.LENGTH_SHORT).show();
                         return;
                     }
-                    PackStore.renamePack(this, pack.id, name);
-                    notifyMetadataChanged();
-                    renderPacks();
+                    PackStore.Pack renamed = PackStore.renamePack(this, pack.id, name);
+                    if (renamed != null) {
+                        setResult(RESULT_OK);
+                        notifyMetadataChanged();
+                        renderPacks();
+                    }
                 })
                 .setNegativeButton("Отмена", null)
                 .show();
@@ -258,9 +261,11 @@ public class SavedPacksActivity extends Activity {
                 .setTitle("Удалить набор?")
                 .setMessage("«" + pack.name + "» будет удалён из приложения вместе с локальными файлами.")
                 .setPositiveButton("Удалить", (dialog, which) -> {
-                    PackStore.deletePack(this, pack.id);
-                    notifyMetadataChanged();
-                    renderPacks();
+                    if (PackStore.deletePack(this, pack.id)) {
+                        setResult(RESULT_OK);
+                        notifyMetadataChanged();
+                        renderPacks();
+                    }
                 })
                 .setNegativeButton("Отмена", null)
                 .show();
