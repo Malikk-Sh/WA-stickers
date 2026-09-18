@@ -10,8 +10,8 @@ android {
         applicationId = "com.malikksh.wastickers"
         minSdk = 24
         targetSdk = 35
-        versionCode = 9
-        versionName = "1.5.3"
+        versionCode = 10
+        versionName = "1.5.4"
     }
 
     buildFeatures {
