@@ -97,7 +97,7 @@ final class PackStore {
                     item.id,
                     trimmed,
                     item.stickerCount,
-                    String.valueOf(System.currentTimeMillis()),
+                    item.imageDataVersion,
                     item.animated
             );
             packs.set(i, renamed);
