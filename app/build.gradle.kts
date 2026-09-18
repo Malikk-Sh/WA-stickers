@@ -33,4 +33,6 @@ dependencies {
     // Native libwebp decoder/animation encoder. Used for animated WebP files that FFmpeg
     // cannot decode (for example TikTok animated stickers), and to upscale their frames.
     implementation("com.aureusapps.android:webp-android:1.1.2")
+
+    testImplementation("junit:junit:4.13.2")
 }
