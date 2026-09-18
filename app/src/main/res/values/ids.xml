@@ -49,4 +49,22 @@
     <item name="packs_list" type="id" />
     <item name="packs_empty" type="id" />
     <item name="packs_create_first" type="id" />
+    <item name="app_settings" type="id" />
+    <item name="app_overflow" type="id" />
+    <item name="settings_back" type="id" />
+    <item name="settings_title" type="id" />
+    <item name="settings_theme_system" type="id" />
+    <item name="settings_theme_light" type="id" />
+    <item name="settings_theme_dark" type="id" />
+    <item name="settings_compact" type="id" />
+    <item name="settings_quality_smoother" type="id" />
+    <item name="settings_quality_balance" type="id" />
+    <item name="settings_quality_sharper" type="id" />
+    <item name="settings_keep_drafts" type="id" />
+    <item name="settings_clear_cache" type="id" />
+    <item name="settings_auto_cleanup" type="id" />
+    <item name="settings_version" type="id" />
+    <item name="settings_privacy" type="id" />
+    <item name="settings_help" type="id" />
+    <item name="settings_about" type="id" />
 </resources>
