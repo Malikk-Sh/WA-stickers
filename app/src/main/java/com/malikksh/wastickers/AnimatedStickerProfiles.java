@@ -33,16 +33,39 @@ final class AnimatedStickerProfiles {
             new Profile(1, 36)
     };
 
+    private static final int[] BALANCE = {
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18
+    };
+    private static final int[] SMOOTHER = {
+            0, 1, 2, 3, 4, 5, 6, 7, 10, 11, 13, 8, 9, 12, 14, 15, 16, 17, 18
+    };
+    private static final int[] SHARPER = {
+            2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18
+    };
+
+    private static volatile int[] activeOrder = BALANCE;
+
     private AnimatedStickerProfiles() {}
 
+    static void setPreset(String preset) {
+        if (AppSettings.QUALITY_SMOOTHER.equals(preset)) {
+            activeOrder = SMOOTHER;
+        } else if (AppSettings.QUALITY_SHARPER.equals(preset)) {
+            activeOrder = SHARPER;
+        } else {
+            activeOrder = BALANCE;
+        }
+    }
+
     static int size() {
-        return PROFILES.length;
+        return activeOrder.length;
     }
 
     static Profile get(int index) {
-        if (index < 0 || index >= PROFILES.length) {
+        int[] order = activeOrder;
+        if (index < 0 || index >= order.length) {
             throw new IndexOutOfBoundsException("Profile index: " + index);
         }
-        return PROFILES[index];
+        return PROFILES[order[index]];
     }
 }

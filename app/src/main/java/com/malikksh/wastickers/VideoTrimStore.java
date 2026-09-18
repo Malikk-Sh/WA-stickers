@@ -185,6 +185,10 @@ final class VideoTrimStore {
 
     static synchronized void savePersistent(Context context, String key) {
         if (context == null || key == null) return;
+        if (!AppSettings.keepDrafts(context)) {
+            clearPersistent(context, key);
+            return;
+        }
         try {
             JSONArray array = new JSONArray();
             for (MutableEntry entry : ENTRIES.values()) {
@@ -209,7 +213,7 @@ final class VideoTrimStore {
     }
 
     static synchronized void restorePersistent(Context context, String key) {
-        if (context == null || key == null) return;
+        if (context == null || key == null || !AppSettings.keepDrafts(context)) return;
         SharedPreferences preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         String raw = preferences.getString(key, null);
         if (raw == null || raw.trim().isEmpty()) return;

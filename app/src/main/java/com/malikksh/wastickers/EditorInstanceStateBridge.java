@@ -124,6 +124,10 @@ final class EditorInstanceStateBridge {
 
     static void savePersistent(MainActivity activity) {
         if (activity == null) return;
+        if (!AppSettings.keepDrafts(activity)) {
+            clearPersistent(activity);
+            return;
+        }
         Bundle state = new Bundle();
         save(activity, state);
         if (!state.containsKey(KEY_ACTIVE_ANIMATED)) return;
@@ -145,7 +149,7 @@ final class EditorInstanceStateBridge {
     }
 
     static boolean restorePersistent(MainActivity activity) {
-        if (activity == null) return false;
+        if (activity == null || !AppSettings.keepDrafts(activity)) return false;
         SharedPreferences preferences = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         String raw = preferences.getString(PREF_STATE, null);
         if (raw == null || raw.trim().isEmpty()) return false;
@@ -167,6 +171,13 @@ final class EditorInstanceStateBridge {
             preferences.edit().remove(PREF_STATE).apply();
             return false;
         }
+    }
+
+    static boolean hasPersistent(Context context) {
+        if (context == null || !AppSettings.keepDrafts(context)) return false;
+        String raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getString(PREF_STATE, null);
+        return raw != null && !raw.trim().isEmpty();
     }
 
     static void clearPersistent(Context context) {
