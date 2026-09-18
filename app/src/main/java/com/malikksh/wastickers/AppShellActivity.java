@@ -1,7 +1,6 @@
 package com.malikksh.wastickers;
 
 import android.content.Intent;
-import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -27,9 +26,8 @@ import java.util.List;
 /**
  * Transitional application shell for the redesigned four-tab flow.
  *
- * The conversion/editor logic still lives in MainActivity/HomeActivity. This class deliberately
- * reuses those existing views and state holders while moving them into task-focused screens. That
- * keeps the conversion pipeline stable while the UI is migrated incrementally.
+ * Conversion and editor state still live in MainActivity/HomeActivity. The shell presents that
+ * state as task-focused screens while the legacy UI is migrated incrementally.
  */
 public class AppShellActivity extends LauncherActivity {
     private static final int MIN_STICKERS = 3;
@@ -61,7 +59,7 @@ public class AppShellActivity extends LauncherActivity {
     private Button createManageButton;
     private Button createContinueButton;
 
-    private View legacyMediaCard;
+    private MediaGridPanel mediaPanel;
     private View legacyBuildCard;
     private View legacyPacksCard;
     private TextView legacyStatusText;
@@ -123,7 +121,7 @@ public class AppShellActivity extends LauncherActivity {
         TextView packsMeta = (TextView) readField(HomeActivity.class, "packsMeta");
 
         View nameCard = directChildContaining(legacyRoot, packName);
-        legacyMediaCard = directChildContaining(legacyRoot, legacyGalleryButton);
+        View legacyMediaCard = directChildContaining(legacyRoot, legacyGalleryButton);
         legacyBuildCard = directChildContaining(legacyRoot, createButton);
         legacyPacksCard = directChildContaining(legacyRoot, packsMeta);
         View modeRow = parentView(photoModeButton);
@@ -213,9 +211,11 @@ public class AppShellActivity extends LauncherActivity {
         header.addView(titleBlock, new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-        createMediaTitle = text("Добавьте фотографии", 18, color(R.color.app_text_primary), Typeface.BOLD);
+        createMediaTitle = text("Добавьте фотографии", 18,
+                color(R.color.app_text_primary), Typeface.BOLD);
         titleBlock.addView(createMediaTitle, matchWrap());
-        createMediaSubtitle = text("От 3 до 30 фото", 13, color(R.color.app_text_secondary), Typeface.NORMAL);
+        createMediaSubtitle = text("От 3 до 30 фото", 13,
+                color(R.color.app_text_secondary), Typeface.NORMAL);
         LinearLayout.LayoutParams subtitleParams = matchWrap();
         subtitleParams.topMargin = dp(3);
         titleBlock.addView(createMediaSubtitle, subtitleParams);
@@ -249,19 +249,13 @@ public class AppShellActivity extends LauncherActivity {
         createPickButton.setId(R.id.create_pick_media);
         createPickButton.setText("＋  Выбрать фото");
         stylePrimaryButton(createPickButton, true);
-        createPickButton.setOnClickListener(v -> {
-            if (legacyGalleryButton != null) legacyGalleryButton.performClick();
-        });
+        createPickButton.setOnClickListener(v -> openPickerFromShell());
         LinearLayout.LayoutParams pickParams = new LinearLayout.LayoutParams(dp(250), dp(54));
         pickParams.topMargin = dp(14);
         dropZone.addView(createPickButton, pickParams);
 
-        TextView helper = text(
-                "Файлы останутся на устройстве",
-                12,
-                color(R.color.app_text_secondary),
-                Typeface.NORMAL
-        );
+        TextView helper = text("Файлы останутся на устройстве", 12,
+                color(R.color.app_text_secondary), Typeface.NORMAL);
         helper.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams helperParams = matchWrap();
         helperParams.topMargin = dp(9);
@@ -292,19 +286,46 @@ public class AppShellActivity extends LauncherActivity {
         LinearLayout body = newScreenBody();
         body.addView(buildTopBar("Медиа", "Выбранные файлы"), matchWrap());
 
-        LinearLayout.LayoutParams mediaParams = matchWrap();
-        mediaParams.topMargin = dp(16);
-        body.addView(legacyMediaCard, mediaParams);
+        mediaPanel = new MediaGridPanel(this, shellPreviewLoader, new MediaGridPanel.Host() {
+            @Override
+            public void onModeChanged(boolean animated) {
+                invokeSetAnimatedMode(animated);
+                refreshShellState();
+            }
 
-        Button next = new Button(this);
-        next.setText("Далее к сборке  →");
-        stylePrimaryButton(next, true);
-        next.setOnClickListener(v -> showTab(AppTab.BUILD));
-        LinearLayout.LayoutParams nextParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(56));
-        nextParams.topMargin = dp(16);
-        nextParams.bottomMargin = dp(12);
-        body.addView(next, nextParams);
+            @Override
+            public void onAddMedia() {
+                openPickerFromShell();
+            }
+
+            @Override
+            public void onMoveMedia(int fromIndex, int toIndex) {
+                moveMediaFromShell(fromIndex, toIndex);
+            }
+
+            @Override
+            public void onSelectCover(Uri uri) {
+                selectCoverFromShell(uri);
+            }
+
+            @Override
+            public void onRemoveMedia(int index) {
+                removeMediaFromShell(index);
+            }
+
+            @Override
+            public void onClearMedia() {
+                clearMediaFromShell();
+            }
+
+            @Override
+            public void onContinue() {
+                showTab(AppTab.BUILD);
+            }
+        });
+        LinearLayout.LayoutParams panelParams = matchWrap();
+        panelParams.topMargin = dp(16);
+        body.addView(mediaPanel, panelParams);
         return wrap(body);
     }
 
@@ -339,7 +360,8 @@ public class AppShellActivity extends LauncherActivity {
 
     private View buildPacksFallback() {
         LinearLayout card = card();
-        card.addView(text("Пока нет наборов", 18, color(R.color.app_text_primary), Typeface.BOLD), matchWrap());
+        card.addView(text("Пока нет наборов", 18,
+                color(R.color.app_text_primary), Typeface.BOLD), matchWrap());
         TextView hint = text("Созданные наборы появятся здесь", 13,
                 color(R.color.app_text_secondary), Typeface.NORMAL);
         LinearLayout.LayoutParams hintParams = matchWrap();
@@ -377,7 +399,8 @@ public class AppShellActivity extends LauncherActivity {
 
         TextView title = text(titleValue, 28, color(R.color.app_text_primary), Typeface.BOLD);
         labels.addView(title, matchWrap());
-        TextView subtitle = text(subtitleValue, 14, color(R.color.app_text_secondary), Typeface.NORMAL);
+        TextView subtitle = text(subtitleValue, 14,
+                color(R.color.app_text_secondary), Typeface.NORMAL);
         LinearLayout.LayoutParams subtitleParams = matchWrap();
         subtitleParams.topMargin = dp(2);
         labels.addView(subtitle, subtitleParams);
@@ -414,9 +437,9 @@ public class AppShellActivity extends LauncherActivity {
         icon.setGravity(Gravity.CENTER);
         item.addView(icon, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(34)));
-        TextView text = text(label, 12, color(R.color.app_text_secondary), Typeface.NORMAL);
-        text.setGravity(Gravity.CENTER);
-        item.addView(text, new LinearLayout.LayoutParams(
+        TextView labelView = text(label, 12, color(R.color.app_text_secondary), Typeface.NORMAL);
+        labelView.setGravity(Gravity.CENTER);
+        item.addView(labelView, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(24)));
 
         navItems.add(item);
@@ -459,14 +482,14 @@ public class AppShellActivity extends LauncherActivity {
     private void refreshShellState() {
         if (createMediaCounter == null) return;
         normalizeLegacyLabels();
-        refreshCreateMediaCard();
-    }
-
-    private void refreshCreateMediaCard() {
         List<Uri> items = selectedUrisSnapshot();
         boolean animated = EditorInstanceStateBridge.isAnimatedMode(this);
-        int count = items.size();
+        refreshCreateMediaCard(items, animated);
+        if (mediaPanel != null) mediaPanel.render(items, coverUriSnapshot(), animated);
+    }
 
+    private void refreshCreateMediaCard(List<Uri> items, boolean animated) {
+        int count = items.size();
         createMediaTitle.setText(animated ? "Добавьте анимации" : "Добавьте фотографии");
         createMediaSubtitle.setText(animated
                 ? "GIF, WebP и видео · до 10 секунд"
@@ -475,9 +498,7 @@ public class AppShellActivity extends LauncherActivity {
         createPickButton.setText(animated ? "＋  Выбрать файлы" : "＋  Выбрать фото");
 
         boolean ready = count >= MIN_STICKERS && count <= MAX_STICKERS;
-        createContinueButton.setEnabled(ready);
         stylePrimaryButton(createContinueButton, ready);
-
         createManageButton.setVisibility(count > 0 ? View.VISIBLE : View.GONE);
         renderCreatePreviews(items);
     }
@@ -526,6 +547,74 @@ public class AppShellActivity extends LauncherActivity {
         }));
     }
 
+    private void openPickerFromShell() {
+        if (legacyGalleryButton != null) legacyGalleryButton.performClick();
+    }
+
+    private void moveMediaFromShell(int fromIndex, int toIndex) {
+        if (isProcessing()) return;
+        invokeMainMethod("moveSticker", new Class<?>[]{int.class, int.class}, fromIndex, toIndex);
+        persistAndRefreshShell();
+    }
+
+    private void selectCoverFromShell(Uri uri) {
+        if (isProcessing() || uri == null || !selectedUrisSnapshot().contains(uri)) return;
+        writeFieldQuietly(MainActivity.class, "coverUri", uri);
+        syncLegacyEditorAfterMediaMutation();
+    }
+
+    @SuppressWarnings("unchecked")
+    private void removeMediaFromShell(int index) {
+        if (isProcessing()) return;
+        Object value = readFieldQuietly(MainActivity.class, "selectedUris");
+        if (!(value instanceof List<?>)) return;
+        List<Uri> selected = (List<Uri>) value;
+        if (index < 0 || index >= selected.size()) return;
+        Uri removed = selected.remove(index);
+        Uri cover = coverUriSnapshot();
+        if (removed != null && removed.equals(cover)) {
+            writeFieldQuietly(MainActivity.class, "coverUri",
+                    selected.isEmpty() ? null : selected.get(0));
+        }
+        syncLegacyEditorAfterMediaMutation();
+    }
+
+    @SuppressWarnings("unchecked")
+    private void clearMediaFromShell() {
+        if (isProcessing()) return;
+        Object value = readFieldQuietly(MainActivity.class, "selectedUris");
+        if (!(value instanceof List<?>)) return;
+        ((List<Uri>) value).clear();
+        writeFieldQuietly(MainActivity.class, "coverUri", null);
+        syncLegacyEditorAfterMediaMutation();
+    }
+
+    private void syncLegacyEditorAfterMediaMutation() {
+        invokeMainMethod("invalidateCurrentPack", new Class<?>[0]);
+        invokeMainMethod("renderPreviews", new Class<?>[0]);
+        invokeMainMethod("updateUiState", new Class<?>[0]);
+        persistAndRefreshShell();
+    }
+
+    private void persistAndRefreshShell() {
+        try {
+            EditorInstanceStateBridge.savePersistent(this);
+        } catch (Throwable error) {
+            BugLogStore.appendApp("Could not persist shell media edit: " + error);
+        }
+        refreshShellState();
+    }
+
+    private boolean isProcessing() {
+        Object value = readFieldQuietly(MainActivity.class, "processing");
+        return value instanceof Boolean && (Boolean) value;
+    }
+
+    private Uri coverUriSnapshot() {
+        Object value = readFieldQuietly(MainActivity.class, "coverUri");
+        return value instanceof Uri ? (Uri) value : null;
+    }
+
     private void normalizeLegacyLabels() {
         boolean animated = EditorInstanceStateBridge.isAnimatedMode(this);
         TextView mediaTitle = (TextView) readFieldQuietly(MainActivity.class, "mediaTitle");
@@ -561,12 +650,17 @@ public class AppShellActivity extends LauncherActivity {
     }
 
     private void invokeSetAnimatedMode(boolean animated) {
+        invokeMainMethod("setAnimatedMode", new Class<?>[]{boolean.class}, animated);
+    }
+
+    private Object invokeMainMethod(String name, Class<?>[] parameterTypes, Object... args) {
         try {
-            Method method = MainActivity.class.getDeclaredMethod("setAnimatedMode", boolean.class);
+            Method method = MainActivity.class.getDeclaredMethod(name, parameterTypes);
             method.setAccessible(true);
-            method.invoke(this, animated);
+            return method.invoke(this, args);
         } catch (Throwable error) {
-            BugLogStore.appendApp("Could not switch mode from app shell: " + error);
+            BugLogStore.appendApp("Could not invoke " + name + " from app shell: " + error);
+            return null;
         }
     }
 
@@ -595,6 +689,16 @@ public class AppShellActivity extends LauncherActivity {
         }
     }
 
+    private void writeFieldQuietly(Class<?> owner, String name, Object value) {
+        try {
+            Field field = owner.getDeclaredField(name);
+            field.setAccessible(true);
+            field.set(this, value);
+        } catch (Throwable error) {
+            BugLogStore.appendApp("Could not update " + name + " from app shell: " + error);
+        }
+    }
+
     private static View directChildContaining(ViewGroup root, View target) {
         if (root == null || target == null) return null;
         View current = target;
@@ -618,8 +722,8 @@ public class AppShellActivity extends LauncherActivity {
 
     private TextView findTextView(View root, String exactText) {
         if (root instanceof TextView) {
-            CharSequence text = ((TextView) root).getText();
-            if (text != null && exactText.contentEquals(text)) return (TextView) root;
+            CharSequence value = ((TextView) root).getText();
+            if (value != null && exactText.contentEquals(value)) return (TextView) root;
         }
         if (root instanceof ViewGroup) {
             ViewGroup group = (ViewGroup) root;
@@ -669,8 +773,7 @@ public class AppShellActivity extends LauncherActivity {
         button.setTextColor(enabled ? Color.WHITE : color(R.color.app_disabled_text));
         button.setBackground(rounded(
                 enabled ? color(R.color.app_primary) : color(R.color.app_disabled_surface),
-                18
-        ));
+                18));
     }
 
     private void styleSecondaryButton(Button button) {
