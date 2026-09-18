@@ -5,6 +5,7 @@ import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.ContentResolver;
 import android.content.Intent;
+import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
@@ -18,6 +19,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.MediaStore;
+import android.provider.OpenableColumns;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -28,6 +30,7 @@ import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -61,6 +64,7 @@ public class MainActivity extends Activity {
     private static final int BORDER = 0xFFDCE7E1;
 
     private final List<Uri> selectedUris = new ArrayList<>();
+    private final List<FileProgressRow> fileProgressRows = new ArrayList<>();
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
     private EditText packName;
@@ -69,7 +73,11 @@ public class MainActivity extends Activity {
     private TextView mediaTitle;
     private TextView mediaHint;
     private TextView actionHint;
+    private TextView overallProgressText;
     private LinearLayout previewContainer;
+    private LinearLayout processingPanel;
+    private LinearLayout processingRows;
+    private ProgressBar overallProgressBar;
     private Button photoModeButton;
     private Button animatedModeButton;
     private Button galleryButton;
@@ -81,6 +89,18 @@ public class MainActivity extends Activity {
     private PackStore.Pack currentPack;
     private boolean processing;
     private boolean animatedMode;
+
+    private static final class FileProgressRow {
+        final String name;
+        final TextView label;
+        final ProgressBar progressBar;
+
+        FileProgressRow(String name, TextView label, ProgressBar progressBar) {
+            this.name = name;
+            this.label = label;
+            this.progressBar = progressBar;
+        }
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -271,6 +291,31 @@ public class MainActivity extends Activity {
         actionHintParams.topMargin = dp(7);
         actionsCard.addView(actionHint, actionHintParams);
 
+        processingPanel = new LinearLayout(this);
+        processingPanel.setOrientation(LinearLayout.VERTICAL);
+        processingPanel.setPadding(dp(14), dp(14), dp(14), dp(14));
+        processingPanel.setBackground(rounded(0xFFF7FAF8, 16));
+        processingPanel.setVisibility(View.GONE);
+        LinearLayout.LayoutParams processingParams = matchWrap();
+        processingParams.topMargin = dp(14);
+        actionsCard.addView(processingPanel, processingParams);
+
+        overallProgressText = text("", 13, TEXT, Typeface.BOLD);
+        processingPanel.addView(overallProgressText, matchWrap());
+
+        overallProgressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        overallProgressBar.setMax(100);
+        LinearLayout.LayoutParams overallBarParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(8));
+        overallBarParams.topMargin = dp(8);
+        processingPanel.addView(overallProgressBar, overallBarParams);
+
+        processingRows = new LinearLayout(this);
+        processingRows.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams rowsParams = matchWrap();
+        rowsParams.topMargin = dp(10);
+        processingPanel.addView(processingRows, rowsParams);
+
         createButton = new Button(this);
         createButton.setText("Создать набор");
         styleButton(createButton, GREEN, 0xFF073B2B);
@@ -394,6 +439,7 @@ public class MainActivity extends Activity {
         animatedMode = animated;
         selectedUris.clear();
         invalidateCurrentPack();
+        clearProcessingProgress();
         renderPreviews();
         updateModeUi();
         updateUiState();
@@ -407,7 +453,7 @@ public class MainActivity extends Activity {
         if (animatedMode) {
             mediaTitle.setText("2  Анимации и видео");
             mediaHint.setText("Выберите 3–30 файлов: GIF, анимированный WebP, MP4, WebM, MOV, MKV и другие видеоформаты.");
-            actionHint.setText("До 10 секунд на стикер. Сначала сохраняется высокая детализация кадра, затем при необходимости уменьшается FPS, чтобы уложиться в лимит WhatsApp 500 КБ.");
+            actionHint.setText("До 10 секунд на стикер. Во время конвертации показывается прогресс каждого файла и текущий профиль FPS/quality.");
         } else {
             mediaTitle.setText("2  Фотографии");
             mediaHint.setText("Нужно выбрать 3–30 фото. Фон не удаляется, белая обводка не добавляется.");
@@ -512,7 +558,10 @@ public class MainActivity extends Activity {
             }
         }
 
-        if (changed) invalidateCurrentPack();
+        if (changed) {
+            invalidateCurrentPack();
+            clearProcessingProgress();
+        }
         renderPreviews();
         updateUiState();
     }
@@ -544,6 +593,7 @@ public class MainActivity extends Activity {
             ImageView image = new ImageView(this);
             image.setScaleType(ImageView.ScaleType.CENTER_CROP);
             image.setBackground(rounded(0xFFE9EFEC, 15));
+            image.setContentDescription("Стикер " + (i + 1) + " из " + selectedUris.size());
             if (Build.VERSION.SDK_INT >= 21) image.setClipToOutline(true);
             Bitmap preview = loadPreview(uri);
             if (preview != null) image.setImageBitmap(preview);
@@ -554,6 +604,7 @@ public class MainActivity extends Activity {
             if (animatedMode) {
                 TextView play = text("▶", 13, Color.WHITE, Typeface.BOLD);
                 play.setGravity(Gravity.CENTER);
+                play.setContentDescription("Анимированный стикер");
                 play.setBackground(rounded(0xAA075E54, 14));
                 FrameLayout.LayoutParams playParams = new FrameLayout.LayoutParams(dp(30), dp(30));
                 playParams.gravity = Gravity.CENTER;
@@ -562,11 +613,13 @@ public class MainActivity extends Activity {
 
             TextView remove = text("×", 18, Color.WHITE, Typeface.BOLD);
             remove.setGravity(Gravity.CENTER);
+            remove.setContentDescription("Удалить стикер " + (i + 1));
             remove.setBackground(rounded(0xCC17231F, 12));
             remove.setOnClickListener(v -> {
                 if (!processing && index >= 0 && index < selectedUris.size()) {
                     selectedUris.remove(index);
                     invalidateCurrentPack();
+                    clearProcessingProgress();
                     renderPreviews();
                     updateUiState();
                 }
@@ -658,10 +711,10 @@ public class MainActivity extends Activity {
         final List<Uri> work = new ArrayList<>(selectedUris);
         final boolean makeAnimated = animatedMode;
 
-        // Never allow a previous pack to remain active while a new one is being built.
         invalidateCurrentPack();
         processing = true;
         statusText.setText(makeAnimated ? "Создаю анимированные стикеры…" : "Создаю стикеры…");
+        prepareProcessingProgress(work);
         updateUiState();
 
         executor.execute(() -> {
@@ -672,31 +725,57 @@ public class MainActivity extends Activity {
                     throw new IOException("Не удалось создать папку набора");
                 }
 
-                int lastFps = 0;
-                int lastQuality = 0;
-
                 for (int i = 0; i < work.size(); i++) {
                     final int index = i;
-                    runOnUiThread(() -> statusText.setText(
-                            (makeAnimated ? "Конвертирую " : "Обрабатываю ")
-                                    + (index + 1) + " из " + work.size() + "…"));
+                    runOnUiThread(() -> {
+                        updateOverallProgress(index, work.size(), 0);
+                        updateFileProgress(index, 0,
+                                makeAnimated ? "Подготовка к конвертации…" : "Обработка изображения…");
+                    });
 
                     File target = new File(packDir, (i + 1) + ".webp");
                     try {
                         if (makeAnimated) {
-                            AnimatedStickerConverter.Result result =
-                                    AnimatedStickerConverter.convert(this, work.get(i), target);
-                            lastFps = result.fps;
-                            lastQuality = result.quality;
+                            AnimatedStickerConverter.Result result = AnimatedStickerConverter.convert(
+                                    this,
+                                    work.get(i),
+                                    target,
+                                    progress -> runOnUiThread(() -> {
+                                        String detail;
+                                        if (progress.checkingSize) {
+                                            detail = "Проверка размера · " + formatBytes(progress.candidateBytes)
+                                                    + " · " + progress.fps + " FPS · q" + progress.quality;
+                                        } else {
+                                            detail = "Попытка " + progress.attempt + "/" + progress.totalAttempts
+                                                    + " · " + progress.fps + " FPS · q" + progress.quality;
+                                        }
+                                        updateFileProgress(index, progress.percent, detail);
+                                        updateOverallProgress(index, work.size(), progress.percent);
+                                    })
+                            );
+                            runOnUiThread(() -> {
+                                updateFileDone(index,
+                                        formatBytes(result.bytes) + " · " + result.fps + " FPS · q" + result.quality);
+                                updateOverallProgress(index + 1, work.size(), 0);
+                            });
                         } else {
                             Bitmap sticker = makeSticker(work.get(i));
+                            runOnUiThread(() -> {
+                                updateFileProgress(index, 65, "Сжатие WebP…");
+                                updateOverallProgress(index, work.size(), 65);
+                            });
                             writeWebpUnderLimit(sticker, target);
                             sticker.recycle();
+                            runOnUiThread(() -> {
+                                updateFileDone(index, formatBytes(target.length()));
+                                updateOverallProgress(index + 1, work.size(), 0);
+                            });
                         }
                     } catch (Throwable itemError) {
                         String reason = itemError.getMessage() == null
                                 ? "неизвестная ошибка конвертации"
                                 : itemError.getMessage();
+                        runOnUiThread(() -> updateFileError(index, reason));
                         throw new IOException("Файл " + (i + 1) + ": " + reason, itemError);
                     }
                 }
@@ -721,16 +800,10 @@ public class MainActivity extends Activity {
                 String authority = getPackageName() + ".stickercontentprovider";
                 getContentResolver().notifyChange(Uri.parse("content://" + authority + "/metadata"), null);
 
-                final int finalFps = lastFps;
-                final int finalQuality = lastQuality;
                 runOnUiThread(() -> {
                     processing = false;
-                    if (makeAnimated) {
-                        statusText.setText("Готово: «" + pack.name + "». Итоговый профиль последнего стикера: "
-                                + finalFps + " FPS, quality " + finalQuality + ".");
-                    } else {
-                        statusText.setText("Готово: «" + pack.name + "».");
-                    }
+                    updateOverallProgress(work.size(), work.size(), 0);
+                    statusText.setText("Готово: «" + pack.name + "».");
                     updateUiState();
                 });
             } catch (Throwable error) {
@@ -745,6 +818,104 @@ public class MainActivity extends Activity {
                 });
             }
         });
+    }
+
+    private void prepareProcessingProgress(List<Uri> work) {
+        fileProgressRows.clear();
+        processingRows.removeAllViews();
+        processingPanel.setVisibility(View.VISIBLE);
+        overallProgressBar.setProgress(0);
+        overallProgressText.setText("Общий прогресс · 0% · 0 из " + work.size());
+
+        for (int i = 0; i < work.size(); i++) {
+            String name = getDisplayName(work.get(i), i + 1);
+
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.VERTICAL);
+            row.setPadding(0, dp(8), 0, dp(8));
+            processingRows.addView(row, matchWrap());
+
+            TextView label = text((i + 1) + ". " + name + " · В очереди", 12, MUTED, Typeface.NORMAL);
+            label.setMaxLines(2);
+            row.addView(label, matchWrap());
+
+            ProgressBar progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+            progressBar.setMax(100);
+            progressBar.setProgress(0);
+            LinearLayout.LayoutParams barParams = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(6));
+            barParams.topMargin = dp(5);
+            row.addView(progressBar, barParams);
+
+            fileProgressRows.add(new FileProgressRow(name, label, progressBar));
+        }
+    }
+
+    private void clearProcessingProgress() {
+        fileProgressRows.clear();
+        if (processingRows != null) processingRows.removeAllViews();
+        if (overallProgressBar != null) overallProgressBar.setProgress(0);
+        if (overallProgressText != null) overallProgressText.setText("");
+        if (processingPanel != null) processingPanel.setVisibility(View.GONE);
+    }
+
+    private void updateFileProgress(int index, int percent, String detail) {
+        if (index < 0 || index >= fileProgressRows.size()) return;
+        FileProgressRow row = fileProgressRows.get(index);
+        int safePercent = Math.max(0, Math.min(100, percent));
+        row.progressBar.setProgress(safePercent);
+        row.label.setText((index + 1) + ". " + row.name + " · " + safePercent + "%\n" + detail);
+        row.label.setTextColor(TEXT);
+    }
+
+    private void updateFileDone(int index, String detail) {
+        if (index < 0 || index >= fileProgressRows.size()) return;
+        FileProgressRow row = fileProgressRows.get(index);
+        row.progressBar.setProgress(100);
+        row.label.setText((index + 1) + ". " + row.name + " · Готово\n" + detail);
+        row.label.setTextColor(PRIMARY);
+    }
+
+    private void updateFileError(int index, String reason) {
+        if (index < 0 || index >= fileProgressRows.size()) return;
+        FileProgressRow row = fileProgressRows.get(index);
+        row.label.setText((index + 1) + ". " + row.name + " · Ошибка\n" + reason);
+        row.label.setTextColor(0xFFB3261E);
+    }
+
+    private void updateOverallProgress(int completedFiles, int totalFiles, int currentPercent) {
+        if (overallProgressBar == null || overallProgressText == null || totalFiles <= 0) return;
+        float completed = completedFiles + Math.max(0, Math.min(100, currentPercent)) / 100f;
+        int percent = Math.min(100, Math.round(completed * 100f / totalFiles));
+        overallProgressBar.setProgress(percent);
+        overallProgressText.setText("Общий прогресс · " + percent + "% · "
+                + Math.min(completedFiles, totalFiles) + " из " + totalFiles + " готово");
+    }
+
+    private String getDisplayName(Uri uri, int fallbackNumber) {
+        try (Cursor cursor = getContentResolver().query(
+                uri,
+                new String[]{OpenableColumns.DISPLAY_NAME},
+                null,
+                null,
+                null
+        )) {
+            if (cursor != null && cursor.moveToFirst()) {
+                int column = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                if (column >= 0) {
+                    String value = cursor.getString(column);
+                    if (value != null && !value.trim().isEmpty()) return value;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return (animatedMode ? "Анимация " : "Фото ") + fallbackNumber;
+    }
+
+    private String formatBytes(long bytes) {
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024L * 1024L) return Math.round(bytes / 1024f) + " KB";
+        return String.format(java.util.Locale.US, "%.1f MB", bytes / (1024f * 1024f));
     }
 
     private Bitmap makeSticker(Uri uri) throws IOException {
