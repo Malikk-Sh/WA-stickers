@@ -2,9 +2,9 @@ package com.malikksh.wastickers;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.content.UriPermission;
 import android.net.Uri;
 import android.os.Bundle;
-import android.os.ParcelFileDescriptor;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
@@ -205,12 +205,13 @@ final class EditorInstanceStateBridge {
             return path != null && new File(path).isFile();
         }
         if ("content".equalsIgnoreCase(scheme)) {
-            try (ParcelFileDescriptor descriptor =
-                         context.getContentResolver().openFileDescriptor(uri, "r")) {
-                return descriptor != null;
+            try {
+                for (UriPermission permission : context.getContentResolver().getPersistedUriPermissions()) {
+                    if (permission.isReadPermission() && uri.equals(permission.getUri())) return true;
+                }
             } catch (Throwable ignored) {
-                return false;
             }
+            return false;
         }
         return false;
     }
