@@ -1,4 +1,31 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="launcher_background">#075E54</color>
+
+    <!-- Redesign foundation tokens. Keep UI code on named resources so dark mode can be added later. -->
+    <color name="app_background">#F6F9F7</color>
+    <color name="app_surface">#FFFFFF</color>
+    <color name="app_surface_variant">#EEF7F2</color>
+    <color name="app_surface_strong">#E4F3EA</color>
+
+    <color name="app_primary">#075E54</color>
+    <color name="app_primary_container">#DDF4E8</color>
+    <color name="app_primary_pressed">#064D45</color>
+    <color name="app_secondary">#128C7E</color>
+    <color name="app_accent">#25D366</color>
+
+    <color name="app_text_primary">#14221D</color>
+    <color name="app_text_secondary">#6A7872</color>
+    <color name="app_text_tertiary">#92A099</color>
+    <color name="app_border">#DCE7E1</color>
+
+    <color name="app_success">#178F57</color>
+    <color name="app_success_container">#E3F7EC</color>
+    <color name="app_warning">#9A6400</color>
+    <color name="app_warning_container">#FFF2D3</color>
+    <color name="app_error">#B3261E</color>
+    <color name="app_error_container">#FCE8E6</color>
+
+    <color name="app_disabled_surface">#E9EFEC</color>
+    <color name="app_disabled_text">#9DA9A3</color>
 </resources>
