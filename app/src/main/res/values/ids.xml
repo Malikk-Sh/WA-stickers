@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <item name="app_screen_host" type="id" />
+    <item name="nav_create" type="id" />
+    <item name="nav_media" type="id" />
+    <item name="nav_build" type="id" />
+    <item name="nav_packs" type="id" />
+    <item name="create_media_counter" type="id" />
+    <item name="create_pick_media" type="id" />
+    <item name="create_continue" type="id" />
+</resources>
