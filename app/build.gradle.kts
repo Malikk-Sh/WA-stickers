@@ -22,4 +22,5 @@ android {
 
 dependencies {
     implementation("dev.ffmpegkit-maintained:ffmpeg-kit-video:7.1.6")
+    testImplementation("junit:junit:4.13.2")
 }
