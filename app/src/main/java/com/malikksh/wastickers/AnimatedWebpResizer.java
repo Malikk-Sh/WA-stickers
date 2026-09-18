@@ -21,19 +21,25 @@ import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * High quality animated-WebP path used when FFmpeg cannot decode an animated WebP.
- * Frames are decoded and scaled exactly once. Encoding then uses at most three profiles
- * instead of repeatedly doing the expensive decode/scale pipeline for every profile.
+ * Frames are decoded and scaled exactly once. Encoding then uses at most three profiles.
+ * Every expensive native stage is protected by an independent no-progress watchdog.
  */
 final class AnimatedWebpResizer {
     private static final int CANVAS_SIZE = 512;
     private static final int CONTENT_SIZE = 480;
     private static final int TARGET_BYTES = 490_000;
+    private static final int STAGE_STALL_TIMEOUT_SECONDS = 30;
 
-    // Three attempts maximum. The first preserves source smoothness and high detail.
-    // Later attempts trade some smoothness before making quality aggressive.
     private static final ResizeProfile[] PROFILES = new ResizeProfile[]{
             new ResizeProfile(18, 94),
             new ResizeProfile(12, 90),
@@ -85,7 +91,9 @@ final class AnimatedWebpResizer {
         PreparedAnimation prepared = null;
         try {
             long decodeStarted = android.os.SystemClock.elapsedRealtime();
-            prepared = decodeAndScaleOnce(context, input);
+            prepared = runStageWithTimeout(
+                    "decode+scale",
+                    () -> decodeAndScaleOnce(context, input));
             long decodeMs = android.os.SystemClock.elapsedRealtime() - decodeStarted;
 
             BugLogStore.appendApp("libwebp decode+scale once: frames=" + prepared.frames.size()
@@ -105,7 +113,18 @@ final class AnimatedWebpResizer {
 
                 long encodeStarted = android.os.SystemClock.elapsedRealtime();
                 try {
-                    long bytes = encodePrepared(context, prepared, output, effectiveFps, profile.quality);
+                    final PreparedAnimation preparedForEncode = prepared;
+                    final int fpsForEncode = effectiveFps;
+                    final int qualityForEncode = profile.quality;
+                    String stageName = "encode fps=" + fpsForEncode + " quality=" + qualityForEncode;
+                    long bytes = runStageWithTimeout(
+                            stageName,
+                            () -> encodePrepared(
+                                    context,
+                                    preparedForEncode,
+                                    output,
+                                    fpsForEncode,
+                                    qualityForEncode));
                     long encodeMs = android.os.SystemClock.elapsedRealtime() - encodeStarted;
                     BugLogStore.appendApp("libwebp encode profile " + (index + 1) + "/" + PROFILES.length
                             + ": fps=" + effectiveFps
@@ -117,6 +136,13 @@ final class AnimatedWebpResizer {
                         return new AnimatedStickerConverter.Result(effectiveFps, profile.quality, bytes);
                     }
                 } catch (Throwable error) {
+                    // A watchdog timeout must abort the whole sticker immediately instead of trying
+                    // more profiles: the native stage may be genuinely stuck on this device/file.
+                    if (isWatchdogTimeout(error)) {
+                        if (error instanceof IOException) throw (IOException) error;
+                        throw new IOException(error.getMessage(), error);
+                    }
+
                     lastError = describeThrowable(error);
                     BugLogStore.appendApp("libwebp encode failed: fps=" + effectiveFps
                             + ", quality=" + profile.quality + ": " + lastError);
@@ -142,6 +168,57 @@ final class AnimatedWebpResizer {
         } finally {
             if (prepared != null) prepared.recycle();
         }
+    }
+
+    /**
+     * Runs a native-heavy stage on a separate daemon thread. If the stage produces no completion
+     * for the timeout window, control returns to MainActivity with an IOException. MainActivity's
+     * existing failure path then persists the bug log and reveals the "Показать баг-лог" button.
+     */
+    private static <T> T runStageWithTimeout(String stage, Callable<T> task) throws IOException {
+        long started = android.os.SystemClock.elapsedRealtime();
+        BugLogStore.appendApp("[WATCHDOG] stage start: " + stage
+                + ", timeout=" + STAGE_STALL_TIMEOUT_SECONDS + "s");
+
+        ExecutorService stageExecutor = Executors.newSingleThreadExecutor(runnable -> {
+            Thread thread = new Thread(runnable, "wa-webp-stage");
+            thread.setDaemon(true);
+            return thread;
+        });
+        Future<T> future = stageExecutor.submit(task);
+
+        try {
+            T result = future.get(STAGE_STALL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            long elapsed = android.os.SystemClock.elapsedRealtime() - started;
+            BugLogStore.appendApp("[WATCHDOG] stage complete: " + stage + ", elapsedMs=" + elapsed);
+            return result;
+        } catch (TimeoutException timeout) {
+            long elapsed = android.os.SystemClock.elapsedRealtime() - started;
+            future.cancel(true);
+            String message = "WATCHDOG TIMEOUT: этап «" + stage + "» не завершился за "
+                    + STAGE_STALL_TIMEOUT_SECONDS + " сек. (elapsedMs=" + elapsed + ")";
+            BugLogStore.appendApp("[WATCHDOG] " + message);
+            throw new IOException("Обработка зависла. " + message, timeout);
+        } catch (InterruptedException interrupted) {
+            future.cancel(true);
+            Thread.currentThread().interrupt();
+            BugLogStore.appendApp("[WATCHDOG] stage interrupted: " + stage);
+            throw new IOException("Обработка была прервана на этапе «" + stage + "»", interrupted);
+        } catch (ExecutionException execution) {
+            Throwable cause = execution.getCause();
+            if (cause instanceof IOException) throw (IOException) cause;
+            if (cause instanceof OutOfMemoryError) throw (OutOfMemoryError) cause;
+            throw new IOException("Ошибка этапа «" + stage + "»: " + describeThrowable(cause), cause);
+        } finally {
+            stageExecutor.shutdownNow();
+        }
+    }
+
+    private static boolean isWatchdogTimeout(Throwable error) {
+        if (error == null) return false;
+        String message = error.getMessage();
+        if (message != null && message.contains("WATCHDOG TIMEOUT")) return true;
+        return isWatchdogTimeout(error.getCause());
     }
 
     private static PreparedAnimation decodeAndScaleOnce(Context context, File input) throws IOException {
@@ -205,7 +282,6 @@ final class AnimatedWebpResizer {
         output.delete();
 
         WebPMuxAnimParams animParams = new WebPMuxAnimParams(0, 0);
-        // minimizeSize=false matters a lot for speed. We already enforce the final 500 KB limit.
         WebPAnimEncoderOptions options = new WebPAnimEncoderOptions(
                 false,
                 null,
@@ -277,8 +353,6 @@ final class AnimatedWebpResizer {
     }
 
     private static WebPConfig createFastHighQualityConfig(int quality) {
-        // method=4 and pass=2 are dramatically faster than method=6/pass=6 while keeping
-        // very good visual quality. threadLevel=1 enables libwebp multithreading.
         return new WebPConfig(
                 WebPConfig.COMPRESSION_LOSSY,
                 (float) quality,
