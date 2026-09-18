@@ -1,16 +1,9 @@
 package com.malikksh.wastickers;
 
-import static androidx.test.espresso.Espresso.onView;
-import static androidx.test.espresso.action.ViewActions.click;
-import static androidx.test.espresso.action.ViewActions.scrollTo;
-import static androidx.test.espresso.assertion.ViewAssertions.matches;
-import static androidx.test.espresso.matcher.ViewMatchers.isDisplayed;
-import static androidx.test.espresso.matcher.ViewMatchers.isEnabled;
-import static androidx.test.espresso.matcher.ViewMatchers.withContentDescription;
-import static androidx.test.espresso.matcher.ViewMatchers.withText;
-import static org.hamcrest.Matchers.containsString;
-import static org.hamcrest.Matchers.not;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import android.content.Context;
@@ -18,6 +11,9 @@ import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.SystemClock;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.TextView;
 
 import androidx.test.core.app.ActivityScenario;
 import androidx.test.core.app.ApplicationProvider;
@@ -69,24 +65,31 @@ public class MainActivityBatchUiTest {
                     );
                     sourcesRef.set(sources);
                     seedSelection(activity, sources, sources.get(0), false);
+                    clickText(activity, "Создать набор");
                 } catch (Exception error) {
                     throw new RuntimeException(error);
                 }
             });
 
-            onView(withText("Создать набор")).perform(scrollTo(), click());
             waitUntilProcessingStops(scenario);
+            scenario.onActivity(activity -> {
+                assertShownText(activity, "Повторить ошибки (1)");
+                assertShownText(activity, "Создать из готовых (3)");
+                assertShownTextContaining(activity, "Готово 3 стикеров, не удалось 1");
+                PackBuildSession<?> session = buildSession(activity);
+                assertEquals(3, session.successCount());
+                assertEquals(1, session.failureCount());
+                clickText(activity, "Повторить ошибки (1)");
+            });
 
-            onView(withText("Повторить ошибки (1)")).check(matches(isDisplayed()));
-            onView(withText("Создать из готовых (3)")).check(matches(isDisplayed()));
-            onView(withText(containsString("Готово 3 стикеров, не удалось 1")))
-                    .check(matches(isDisplayed()));
-
-            onView(withText("Повторить ошибки (1)")).perform(scrollTo(), click());
             waitUntilProcessingStops(scenario);
-
-            onView(withText("Повторить ошибки (1)")).check(matches(isDisplayed()));
-            onView(withText("Создать из готовых (3)")).check(matches(isDisplayed()));
+            scenario.onActivity(activity -> {
+                assertShownText(activity, "Повторить ошибки (1)");
+                assertShownText(activity, "Создать из готовых (3)");
+                PackBuildSession<?> session = buildSession(activity);
+                assertEquals("Retry must not reprocess the three successful stickers", 3, session.successCount());
+                assertEquals(1, session.failureCount());
+            });
             assertEquals(4, sourcesRef.get().size());
         }
     }
@@ -104,15 +107,18 @@ public class MainActivityBatchUiTest {
                     seedSelection(activity, sources, sources.get(0), false);
                     setField(activity, "processing", true);
                     invoke(activity, "updateUiState");
+
+                    View cancel = requireText(activity, "Отменить обработку");
+                    assertTrue(cancel.isEnabled());
+                    assertTrue(cancel.performClick());
+
+                    View stopping = requireText(activity, "Останавливаю…");
+                    assertFalse(stopping.isEnabled());
+                    assertShownTextContaining(activity, "Останавливаю обработку");
                 } catch (Exception error) {
                     throw new RuntimeException(error);
                 }
             });
-
-            onView(withText("Отменить обработку")).perform(scrollTo(), click());
-            onView(withText("Останавливаю…")).check(matches(not(isEnabled())));
-            onView(withText(containsString("Останавливаю обработку")))
-                    .check(matches(isDisplayed()));
         }
     }
 
@@ -146,18 +152,17 @@ public class MainActivityBatchUiTest {
             List<Uri> original = sourcesRef.get();
             assertEquals(Arrays.asList(original.get(1), original.get(2), original.get(0)), reorderedRef.get());
 
-            onView(withContentDescription("Сделать стикер 2 обложкой")).perform(click());
-
-            AtomicReference<Uri> coverRef = new AtomicReference<>();
             scenario.onActivity(activity -> {
+                View coverButton = requireContentDescription(activity, "Сделать стикер 2 обложкой");
+                assertTrue(coverButton.performClick());
                 try {
-                    coverRef.set((Uri) getField(activity, "coverUri"));
+                    assertEquals(original.get(2), getField(activity, "coverUri"));
                 } catch (Exception error) {
                     throw new RuntimeException(error);
                 }
+                View currentCover = requireContentDescription(activity, "Текущая обложка набора");
+                assertTrue(currentCover.isShown());
             });
-            assertEquals(original.get(2), coverRef.get());
-            onView(withContentDescription("Текущая обложка набора")).check(matches(isDisplayed()));
         }
     }
 
@@ -199,6 +204,14 @@ public class MainActivityBatchUiTest {
         return new ArrayList<>((List<Uri>) getField(activity, "selectedUris"));
     }
 
+    private static PackBuildSession<?> buildSession(MainActivity activity) {
+        try {
+            return (PackBuildSession<?>) getField(activity, "buildSession");
+        } catch (Exception error) {
+            throw new RuntimeException(error);
+        }
+    }
+
     private static Uri writeTestImage(MainActivity activity, String name, int color) throws Exception {
         File file = new File(activity.getCacheDir(), name);
         Bitmap bitmap = Bitmap.createBitmap(96, 96, Bitmap.Config.ARGB_8888);
@@ -211,6 +224,78 @@ public class MainActivityBatchUiTest {
             bitmap.recycle();
         }
         return Uri.fromFile(file);
+    }
+
+    private static void clickText(MainActivity activity, String text) {
+        View view = requireText(activity, text);
+        assertTrue("View must be enabled before click: " + text, view.isEnabled());
+        assertTrue("View must accept click: " + text, view.performClick());
+    }
+
+    private static void assertShownText(MainActivity activity, String text) {
+        View view = requireText(activity, text);
+        assertTrue("Expected visible text: " + text, view.isShown());
+    }
+
+    private static void assertShownTextContaining(MainActivity activity, String fragment) {
+        View view = findTextContaining(activity.getWindow().getDecorView(), fragment);
+        assertNotNull("Expected text containing: " + fragment, view);
+        assertTrue("Expected visible text containing: " + fragment, view.isShown());
+    }
+
+    private static View requireText(MainActivity activity, String text) {
+        View view = findText(activity.getWindow().getDecorView(), text);
+        assertNotNull("Expected view with text: " + text, view);
+        return view;
+    }
+
+    private static View requireContentDescription(MainActivity activity, String description) {
+        View view = findContentDescription(activity.getWindow().getDecorView(), description);
+        assertNotNull("Expected view with content description: " + description, view);
+        return view;
+    }
+
+    private static View findText(View view, String text) {
+        if (view instanceof TextView) {
+            CharSequence value = ((TextView) view).getText();
+            if (value != null && text.contentEquals(value)) return view;
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                View match = findText(group.getChildAt(i), text);
+                if (match != null) return match;
+            }
+        }
+        return null;
+    }
+
+    private static View findTextContaining(View view, String fragment) {
+        if (view instanceof TextView) {
+            CharSequence value = ((TextView) view).getText();
+            if (value != null && value.toString().contains(fragment)) return view;
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                View match = findTextContaining(group.getChildAt(i), fragment);
+                if (match != null) return match;
+            }
+        }
+        return null;
+    }
+
+    private static View findContentDescription(View view, String description) {
+        CharSequence value = view.getContentDescription();
+        if (value != null && description.contentEquals(value)) return view;
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                View match = findContentDescription(group.getChildAt(i), description);
+                if (match != null) return match;
+            }
+        }
+        return null;
     }
 
     private static Object getField(MainActivity activity, String name) throws Exception {
