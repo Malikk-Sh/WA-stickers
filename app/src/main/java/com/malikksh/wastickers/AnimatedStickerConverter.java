@@ -3,10 +3,12 @@ package com.malikksh.wastickers;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.database.Cursor;
+import android.media.MediaMetadataRetriever;
 import android.net.Uri;
 import android.provider.OpenableColumns;
 
 import com.arthenica.ffmpegkit.FFmpegKit;
+import com.arthenica.ffmpegkit.FFmpegSession;
 import com.arthenica.ffmpegkit.ReturnCode;
 
 import java.io.File;
@@ -15,6 +17,9 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 final class AnimatedStickerConverter {
     static final int MAX_ANIMATED_BYTES = 500 * 1024;
@@ -23,28 +28,43 @@ final class AnimatedStickerConverter {
     // A little headroom avoids WhatsApp builds that interpret "500 KB" more strictly.
     private static final int TARGET_ANIMATED_BYTES = 490_000;
 
-    // Preserve per-frame detail first. FPS is reduced before quality becomes aggressive.
-    private static final Profile[] PROFILES = new Profile[]{
-            new Profile(18, 92),
-            new Profile(14, 92),
-            new Profile(10, 92),
-            new Profile(8, 92),
-            new Profile(6, 92),
-            new Profile(5, 92),
-            new Profile(4, 92),
-            new Profile(3, 92),
-            new Profile(2, 92),
-            new Profile(1, 92),
-            new Profile(3, 84),
-            new Profile(2, 84),
-            new Profile(1, 84),
-            new Profile(2, 76),
-            new Profile(1, 76),
-            new Profile(1, 66),
-            new Profile(1, 56),
-            new Profile(1, 46),
-            new Profile(1, 36)
-    };
+    interface ProgressListener {
+        void onProgress(Progress progress);
+    }
+
+    static final class Progress {
+        final int attempt;
+        final int totalAttempts;
+        final int fps;
+        final int quality;
+        final int percent;
+        final long encodedMs;
+        final long expectedMs;
+        final long candidateBytes;
+        final boolean checkingSize;
+
+        Progress(
+                int attempt,
+                int totalAttempts,
+                int fps,
+                int quality,
+                int percent,
+                long encodedMs,
+                long expectedMs,
+                long candidateBytes,
+                boolean checkingSize
+        ) {
+            this.attempt = attempt;
+            this.totalAttempts = totalAttempts;
+            this.fps = fps;
+            this.quality = quality;
+            this.percent = percent;
+            this.encodedMs = encodedMs;
+            this.expectedMs = expectedMs;
+            this.candidateBytes = candidateBytes;
+            this.checkingSize = checkingSize;
+        }
+    }
 
     static final class Result {
         final int fps;
@@ -55,16 +75,6 @@ final class AnimatedStickerConverter {
             this.fps = fps;
             this.quality = quality;
             this.bytes = bytes;
-        }
-    }
-
-    private static final class Profile {
-        final int fps;
-        final int quality;
-
-        Profile(int fps, int quality) {
-            this.fps = fps;
-            this.quality = quality;
         }
     }
 
@@ -81,28 +91,68 @@ final class AnimatedStickerConverter {
     private AnimatedStickerConverter() {}
 
     static Result convert(Context context, Uri sourceUri, File output) throws IOException {
+        return convert(context, sourceUri, output, null);
+    }
+
+    static Result convert(
+            Context context,
+            Uri sourceUri,
+            File output,
+            ProgressListener progressListener
+    ) throws IOException {
         File tempDir = new File(context.getCacheDir(), "animated_sticker_work");
         if (!tempDir.mkdirs() && !tempDir.isDirectory()) {
             throw new IOException("Не удалось создать временную папку");
         }
 
+        long expectedMs = estimateDurationMs(context, sourceUri);
         File input = new File(tempDir, "input_" + System.nanoTime() + guessExtension(context, sourceUri));
         copyUri(context, sourceUri, input);
 
         File candidate = new File(tempDir, "candidate_" + System.nanoTime() + ".webp");
         String lastLog = "";
         try {
-            for (Profile profile : PROFILES) {
+            for (int profileIndex = 0; profileIndex < AnimatedStickerProfiles.size(); profileIndex++) {
+                AnimatedStickerProfiles.Profile profile = AnimatedStickerProfiles.get(profileIndex);
+                int attempt = profileIndex + 1;
                 if (candidate.exists()) candidate.delete();
 
-                EncodeOutcome outcome = encode(input, candidate, profile, "libwebp_anim");
+                report(progressListener, new Progress(
+                        attempt,
+                        AnimatedStickerProfiles.size(),
+                        profile.fps,
+                        profile.quality,
+                        0,
+                        0,
+                        expectedMs,
+                        0,
+                        false
+                ));
+
+                EncodeOutcome outcome = encode(
+                        input,
+                        candidate,
+                        profile,
+                        "libwebp_anim",
+                        attempt,
+                        expectedMs,
+                        progressListener
+                );
                 lastLog = outcome.log;
 
                 // Some Android FFmpeg builds expose only the generic libwebp encoder.
                 // Try it as a fallback, but still validate the resulting WebP is actually animated.
                 if (!outcome.success) {
                     if (candidate.exists()) candidate.delete();
-                    outcome = encode(input, candidate, profile, "libwebp");
+                    outcome = encode(
+                            input,
+                            candidate,
+                            profile,
+                            "libwebp",
+                            attempt,
+                            expectedMs,
+                            progressListener
+                    );
                     lastLog = outcome.log;
                 }
 
@@ -117,6 +167,18 @@ final class AnimatedStickerConverter {
                 }
 
                 long size = candidate.length();
+                report(progressListener, new Progress(
+                        attempt,
+                        AnimatedStickerProfiles.size(),
+                        profile.fps,
+                        profile.quality,
+                        100,
+                        expectedMs,
+                        expectedMs,
+                        size,
+                        true
+                ));
+
                 if (size <= TARGET_ANIMATED_BYTES) {
                     copyFile(candidate, output);
                     return new Result(profile.fps, profile.quality, size);
@@ -160,7 +222,15 @@ final class AnimatedStickerConverter {
         }
     }
 
-    private static EncodeOutcome encode(File input, File output, Profile profile, String encoder) {
+    private static EncodeOutcome encode(
+            File input,
+            File output,
+            AnimatedStickerProfiles.Profile profile,
+            String encoder,
+            int attempt,
+            long expectedMs,
+            ProgressListener progressListener
+    ) throws IOException {
         String filter = "fps=" + profile.fps +
                 ",scale=512:512:force_original_aspect_ratio=decrease:flags=lanczos" +
                 ",pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000" +
@@ -174,11 +244,85 @@ final class AnimatedStickerConverter {
                 " -quality " + profile.quality +
                 " -loop 0 -f webp " + q(output);
 
-        var session = FFmpegKit.execute(command);
+        CountDownLatch completed = new CountDownLatch(1);
+        AtomicReference<FFmpegSession> sessionRef = new AtomicReference<>();
+        AtomicInteger lastPercent = new AtomicInteger(0);
+        int totalAttempts = AnimatedStickerProfiles.size();
+        long expectedFrames = Math.max(1L, Math.round((expectedMs / 1000.0) * profile.fps));
+
+        FFmpegKit.executeAsync(
+                command,
+                session -> {
+                    sessionRef.set(session);
+                    completed.countDown();
+                },
+                log -> { },
+                statistics -> {
+                    long encodedMs = Math.max(0L, Math.round(statistics.getTime()));
+                    long encodedFrames = Math.max(0, statistics.getVideoFrameNumber());
+                    int framePercent = (int) Math.min(99L, (encodedFrames * 100L) / expectedFrames);
+                    int timePercent = expectedMs <= 0
+                            ? 0
+                            : (int) Math.min(99L, (encodedMs * 100L) / expectedMs);
+                    int candidatePercent = encodedFrames > 0 ? framePercent : timePercent;
+                    int monotonicPercent = lastPercent.updateAndGet(previous ->
+                            Math.max(previous, candidatePercent));
+
+                    report(progressListener, new Progress(
+                            attempt,
+                            totalAttempts,
+                            profile.fps,
+                            profile.quality,
+                            monotonicPercent,
+                            encodedMs,
+                            expectedMs,
+                            output.isFile() ? output.length() : 0,
+                            false
+                    ));
+                }
+        );
+
+        try {
+            completed.await();
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Конвертация была прервана", interrupted);
+        }
+
+        FFmpegSession session = sessionRef.get();
+        if (session == null) {
+            return new EncodeOutcome(false, "FFmpeg session unavailable");
+        }
+
         boolean success = ReturnCode.isSuccess(session.getReturnCode())
                 && output.isFile()
                 && output.length() > 0;
         return new EncodeOutcome(success, session.getAllLogsAsString());
+    }
+
+    private static void report(ProgressListener listener, Progress progress) {
+        if (listener != null) listener.onProgress(progress);
+    }
+
+    private static long estimateDurationMs(Context context, Uri uri) {
+        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
+        try {
+            retriever.setDataSource(context, uri);
+            String raw = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
+            if (raw != null) {
+                long duration = Long.parseLong(raw);
+                if (duration > 0) {
+                    return Math.min(duration, MAX_DURATION_SECONDS * 1000L);
+                }
+            }
+        } catch (Throwable ignored) {
+        } finally {
+            try {
+                retriever.release();
+            } catch (Throwable ignored) {
+            }
+        }
+        return MAX_DURATION_SECONDS * 1000L;
     }
 
     private static boolean isAnimatedWebp(File file) {
