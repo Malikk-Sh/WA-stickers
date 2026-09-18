@@ -23,6 +23,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.RandomAccessFile;
+import java.util.Locale;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -135,7 +136,15 @@ final class AnimatedStickerConverter {
             throw new IOException("Не удалось создать временную папку");
         }
 
-        long expectedDurationMs = estimateDurationMs(context, sourceUri);
+        long sourceDurationMs = estimateSourceDurationMs(context, sourceUri);
+        long startOffsetMs = resolveStartOffsetMs(sourceUri, sourceDurationMs);
+        long expectedDurationMs = VideoTrimPolicy.clipDurationMs(sourceDurationMs, startOffsetMs);
+        if (startOffsetMs > 0) {
+            BugLogStore.appendApp("Video trim selected: startMs=" + startOffsetMs
+                    + ", sourceDurationMs=" + sourceDurationMs
+                    + ", clipDurationMs=" + expectedDurationMs);
+        }
+
         File input = new File(tempDir, "input_" + System.nanoTime() + guessExtension(context, sourceUri));
         copyUri(context, sourceUri, input);
         report(progressListener, ProgressStage.PREPARING, 100, 0, 0, 0, 0, input.length());
@@ -146,7 +155,9 @@ final class AnimatedStickerConverter {
             report(progressListener, ProgressStage.INSPECTING, 0, 0, 0, 0, 0, input.length());
             WebpInfo webp = inspectWebp(input);
             if (webp.valid && webp.animated && webp.totalDurationMs > 0) {
-                expectedDurationMs = Math.min(webp.totalDurationMs, MAX_DURATION_SECONDS * 1000L);
+                sourceDurationMs = webp.totalDurationMs;
+                startOffsetMs = resolveStartOffsetMs(sourceUri, sourceDurationMs);
+                expectedDurationMs = VideoTrimPolicy.clipDurationMs(sourceDurationMs, startOffsetMs);
             }
             report(progressListener, ProgressStage.INSPECTING, 100, 0, 0, 0, 0, input.length());
 
@@ -158,7 +169,7 @@ final class AnimatedStickerConverter {
                         ? "unknown" : webp.minFrameDurationMs)
                         + ", bytes=" + input.length());
 
-                if (isDirectlyWhatsAppCompatible(webp, input.length())) {
+                if (startOffsetMs == 0 && isDirectlyWhatsAppCompatible(webp, input.length())) {
                     report(progressListener, ProgressStage.PASSTHROUGH, 40, 0, 0,
                             webp.approximateFps(), 100, input.length());
                     copyFile(input, output);
@@ -168,7 +179,7 @@ final class AnimatedStickerConverter {
                     return new Result(webp.approximateFps(), 100, input.length());
                 }
 
-                if (isAnimationStructureCompatible(webp)) {
+                if (startOffsetMs == 0 && isAnimationStructureCompatible(webp)) {
                     try {
                         report(progressListener, ProgressStage.RESIZING, 10, 0, 0,
                                 webp.approximateFps(), 100, input.length());
@@ -201,6 +212,9 @@ final class AnimatedStickerConverter {
                     }
                 }
 
+                if (startOffsetMs > 0) {
+                    BugLogStore.appendApp("Animated fast path skipped because a custom start offset is selected");
+                }
                 BugLogStore.appendApp("Animated WebP fallback: trying FFmpeg conversion");
             }
 
@@ -216,6 +230,7 @@ final class AnimatedStickerConverter {
                         candidate,
                         profile,
                         "libwebp_anim",
+                        startOffsetMs,
                         expectedDurationMs,
                         attempt,
                         progressListener
@@ -229,6 +244,7 @@ final class AnimatedStickerConverter {
                             candidate,
                             profile,
                             "libwebp",
+                            startOffsetMs,
                             expectedDurationMs,
                             attempt,
                             progressListener
@@ -279,29 +295,33 @@ final class AnimatedStickerConverter {
             throw new IOException("Не удалось создать временную папку");
         }
 
+        long startOffsetMs = VideoTrimStore.getStartOffsetMs(sourceUri);
         File input = new File(tempDir, "tray_input_" + System.nanoTime() + guessExtension(context, sourceUri));
         copyUri(context, sourceUri, input);
         try {
-            Bitmap firstFrame = BitmapFactory.decodeFile(input.getAbsolutePath());
-            if (firstFrame != null) {
-                try {
-                    writeTrayBitmap(firstFrame, trayFile);
-                    BugLogStore.appendApp("Tray icon created with Android BitmapFactory");
-                    return;
-                } finally {
-                    firstFrame.recycle();
+            if (startOffsetMs == 0) {
+                Bitmap firstFrame = BitmapFactory.decodeFile(input.getAbsolutePath());
+                if (firstFrame != null) {
+                    try {
+                        writeTrayBitmap(firstFrame, trayFile);
+                        BugLogStore.appendApp("Tray icon created with Android BitmapFactory");
+                        return;
+                    } finally {
+                        firstFrame.recycle();
+                    }
                 }
             }
 
             String filter = "scale=96:96:force_original_aspect_ratio=decrease:flags=lanczos,"
                     + "pad=96:96:(ow-iw)/2:(oh-ih)/2:color=0x00000000";
-            String command = "-y -hide_banner -loglevel error -i " + q(input)
+            String seek = startOffsetMs > 0 ? " -ss " + secondsArg(startOffsetMs) : "";
+            String command = "-y -hide_banner -loglevel error" + seek + " -i " + q(input)
                     + " -frames:v 1 -vf \"" + filter + "\" " + q(trayFile);
 
             try {
                 var session = FFmpegKit.execute(command);
                 String log = session.getAllLogsAsString();
-                BugLogStore.appendFfmpeg(log);
+                BugLogStore.appendFfmpeg("trayStartMs=" + startOffsetMs + "\n" + log);
                 if (!ReturnCode.isSuccess(session.getReturnCode()) || !trayFile.isFile()) {
                     throw new IOException("Не удалось создать иконку набора: " + compactLog(log));
                 }
@@ -409,6 +429,7 @@ final class AnimatedStickerConverter {
             File output,
             AnimatedStickerProfiles.Profile profile,
             String encoder,
+            long startOffsetMs,
             long expectedDurationMs,
             int attempt,
             ProgressListener progressListener
@@ -418,8 +439,10 @@ final class AnimatedStickerConverter {
                 + ",pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000"
                 + ",format=yuva420p";
 
-        String command = "-y -hide_banner -loglevel error -i " + q(input)
-                + " -t " + MAX_DURATION_SECONDS
+        long durationMs = Math.max(1L, Math.min(expectedDurationMs, MAX_DURATION_SECONDS * 1000L));
+        String seek = startOffsetMs > 0 ? " -ss " + secondsArg(startOffsetMs) : "";
+        String command = "-y -hide_banner -loglevel error" + seek + " -i " + q(input)
+                + " -t " + secondsArg(durationMs)
                 + " -an -vf \"" + filter + "\""
                 + " -c:v " + encoder
                 + " -lossless 0 -preset picture -compression_level 6"
@@ -428,7 +451,6 @@ final class AnimatedStickerConverter {
 
         CountDownLatch completed = new CountDownLatch(1);
         AtomicReference<FFmpegSession> sessionRef = new AtomicReference<>();
-        long durationMs = Math.max(1L, Math.min(expectedDurationMs, MAX_DURATION_SECONDS * 1000L));
         long expectedFrames = Math.max(1L, Math.round(durationMs * profile.fps / 1000.0));
 
         try {
@@ -468,8 +490,11 @@ final class AnimatedStickerConverter {
         }
 
         String log = session.getAllLogsAsString();
-        BugLogStore.appendFfmpeg("encoder=" + encoder + ", fps=" + profile.fps
-                + ", quality=" + profile.quality + "\n" + log);
+        BugLogStore.appendFfmpeg("encoder=" + encoder
+                + ", fps=" + profile.fps
+                + ", quality=" + profile.quality
+                + ", startMs=" + startOffsetMs
+                + ", durationMs=" + durationMs + "\n" + log);
         boolean success = ReturnCode.isSuccess(session.getReturnCode())
                 && output.isFile()
                 && output.length() > 0;
@@ -498,16 +523,22 @@ final class AnimatedStickerConverter {
         ));
     }
 
-    private static long estimateDurationMs(Context context, Uri uri) {
+    private static long resolveStartOffsetMs(Uri uri, long sourceDurationMs) {
+        long requested = VideoTrimStore.getStartOffsetMs(uri);
+        if (sourceDurationMs > 0) {
+            return VideoTrimPolicy.clampStartMs(sourceDurationMs, requested);
+        }
+        return Math.max(0L, requested);
+    }
+
+    private static long estimateSourceDurationMs(Context context, Uri uri) {
         MediaMetadataRetriever retriever = new MediaMetadataRetriever();
         try {
             retriever.setDataSource(context, uri);
             String rawDuration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
             if (rawDuration != null) {
                 long duration = Long.parseLong(rawDuration);
-                if (duration > 0) {
-                    return Math.min(duration, MAX_DURATION_SECONDS * 1000L);
-                }
+                if (duration > 0) return duration;
             }
         } catch (Throwable ignored) {
         } finally {
@@ -516,7 +547,11 @@ final class AnimatedStickerConverter {
             } catch (Throwable ignored) {
             }
         }
-        return MAX_DURATION_SECONDS * 1000L;
+        return -1L;
+    }
+
+    private static String secondsArg(long milliseconds) {
+        return String.format(Locale.US, "%.3f", Math.max(0L, milliseconds) / 1000.0);
     }
 
     private static void writeTrayBitmap(Bitmap source, File trayFile) throws IOException {
@@ -618,7 +653,7 @@ final class AnimatedStickerConverter {
         if (name != null) {
             int dot = name.lastIndexOf('.');
             if (dot >= 0 && dot < name.length() - 1) {
-                String ext = name.substring(dot).toLowerCase();
+                String ext = name.substring(dot).toLowerCase(Locale.US);
                 if (ext.length() <= 8) return ext;
             }
         }
