@@ -99,6 +99,7 @@ public class MainActivity extends Activity {
     private int diagnosticItemIndex = -1;
     private Uri diagnosticItemUri;
     private Uri coverUri;
+    private volatile boolean activityDestroyed;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -740,8 +741,7 @@ public class MainActivity extends Activity {
         String requestKey = previewLoader.requestKey(uri);
         image.setTag(requestKey);
         image.setImageDrawable(null);
-        previewLoader.load(uri, (loadedKey, bitmap) -> runOnUiThread(() -> {
-            if (isFinishing() || (Build.VERSION.SDK_INT >= 17 && isDestroyed())) return;
+        previewLoader.load(uri, (loadedKey, bitmap) -> postUi(() -> {
             Object tag = image.getTag();
             if (!(tag instanceof String) || !loadedKey.equals(tag)) return;
             if (bitmap != null) image.setImageBitmap(bitmap);
@@ -903,7 +903,7 @@ public class MainActivity extends Activity {
                 if (buildSession.isCancelRequested()) {
                     addRemainingForRetry(work, i, failures);
                     final int cancelFrom = i;
-                    runOnUiThread(() -> markCancelledFrom(cancelFrom));
+                    postUi(() -> markCancelledFrom(cancelFrom));
                     break;
                 }
 
@@ -914,7 +914,7 @@ public class MainActivity extends Activity {
                         + describeUri(itemUri));
 
                 final int index = i;
-                runOnUiThread(() -> {
+                postUi(() -> {
                     updateProgress(index, work.size(),
                             (buildSession.isAnimated() ? "Конвертирую " : "Обрабатываю ")
                                     + (index + 1) + " из " + work.size() + "…");
@@ -930,12 +930,12 @@ public class MainActivity extends Activity {
                             new StickerPackBuilder.ProgressListener() {
                                 @Override
                                 public void onStaticProgress(int percent, String detail) {
-                                    runOnUiThread(() -> updateFileProgress(index, percent, detail));
+                                    postUi(() -> updateFileProgress(index, percent, detail));
                                 }
 
                                 @Override
                                 public void onAnimatedProgress(AnimatedStickerConverter.Progress progress) {
-                                    runOnUiThread(() -> updateAnimatedFileProgress(index, progress));
+                                    postUi(() -> updateAnimatedFileProgress(index, progress));
                                 }
                             }
                     );
@@ -944,14 +944,14 @@ public class MainActivity extends Activity {
                             + (result.animated() ? ", fps=" + result.fps + ", quality=" + result.quality : ""));
                     String detail = formatBytes(result.bytes)
                             + (result.animated() ? " · " + result.fps + " FPS · q" + result.quality : "");
-                    runOnUiThread(() -> completeFileProgress(index, detail));
+                    postUi(() -> completeFileProgress(index, detail));
                 } catch (Throwable itemError) {
                     //noinspection ResultOfMethodCallIgnored
                     target.delete();
                     if (buildSession.isCancelRequested()) {
                         addRemainingForRetry(work, i, failures);
                         final int cancelFrom = i;
-                        runOnUiThread(() -> markCancelledFrom(cancelFrom));
+                        postUi(() -> markCancelledFrom(cancelFrom));
                         break;
                     }
 
@@ -963,11 +963,11 @@ public class MainActivity extends Activity {
                             ? "неизвестная ошибка конвертации"
                             : itemError.getMessage();
                     BugLogStore.appendApp("Item failed: " + reason);
-                    runOnUiThread(() -> failFileProgress(index, reason));
+                    postUi(() -> failFileProgress(index, reason));
                 }
 
                 final int completed = i + 1;
-                runOnUiThread(() -> updateProgress(
+                postUi(() -> updateProgress(
                         completed,
                         work.size(),
                         completed == work.size()
@@ -976,6 +976,10 @@ public class MainActivity extends Activity {
             }
 
             buildSession.setFailures(failures);
+            if (activityDestroyed) {
+                discardPendingBuild();
+                return;
+            }
 
             if (buildSession.shouldAutoFinalize()) {
                 finalizePendingPackOnWorker(0);
@@ -988,7 +992,7 @@ public class MainActivity extends Activity {
                 lastBugLog = buildBugLog(lastItemError, buildSession.isAnimated(), work);
                 saveBugLog(lastBugLog);
             }
-            runOnUiThread(() -> showPendingBatchResult(buildSession.isCancelRequested()));
+            postUi(() -> showPendingBatchResult(buildSession.isCancelRequested()));
         } catch (Throwable fatalError) {
             buildSession.setFailures(new ArrayList<>(work));
             lastBugLog = buildBugLog(fatalError, buildSession.isAnimated(), work);
@@ -996,7 +1000,7 @@ public class MainActivity extends Activity {
             BugLogStore.appendApp("Draft creation failed: " + fatalError);
             discardPendingBuild();
 
-            runOnUiThread(() -> {
+            postUi(() -> {
                 processing = false;
                 lastOperationFailed = true;
                 String message = fatalError.getMessage() == null
@@ -1075,7 +1079,11 @@ public class MainActivity extends Activity {
             } catch (Throwable error) {
                 lastBugLog = buildBugLog(error, buildSession.isAnimated(), new ArrayList<>(selectedUris));
                 saveBugLog(lastBugLog);
-                runOnUiThread(() -> {
+                if (activityDestroyed) {
+                    discardPendingBuild();
+                    return;
+                }
+                postUi(() -> {
                     processing = false;
                     lastOperationFailed = true;
                     if (buildSession.isCancelRequested()) {
@@ -1096,7 +1104,7 @@ public class MainActivity extends Activity {
         File packDir = buildSession.packDir();
         if (!buildSession.isActive() || packDir == null) throw new IOException("Черновик набора больше недоступен");
         if (!buildSession.canFinalize()) throw new IOException("Для набора нужно минимум 3 готовых стикера");
-        if (buildSession.isCancelRequested()) throw new IOException("Завершение отменено");
+        if (activityDestroyed || buildSession.isCancelRequested()) throw new IOException("Завершение отменено");
 
         diagnosticItemIndex = -1;
         diagnosticItemUri = null;
@@ -1104,7 +1112,7 @@ public class MainActivity extends Activity {
         Uri traySource = buildSession.traySource();
         if (traySource == null) throw new IOException("Не найден источник для иконки набора");
         new StickerPackBuilder(this, buildSession.isAnimated()).createTrayIcon(traySource, tray);
-        if (buildSession.isCancelRequested()) {
+        if (activityDestroyed || buildSession.isCancelRequested()) {
             //noinspection ResultOfMethodCallIgnored
             tray.delete();
             throw new IOException("Завершение отменено");
@@ -1119,6 +1127,7 @@ public class MainActivity extends Activity {
                 String.valueOf(System.currentTimeMillis()),
                 buildSession.isAnimated()
         );
+        if (activityDestroyed || buildSession.isCancelRequested()) throw new IOException("Завершение отменено");
         PackStore.addPack(this, pack);
         currentPack = pack;
 
@@ -1130,7 +1139,7 @@ public class MainActivity extends Activity {
         boolean wasAnimated = buildSession.isAnimated();
         clearPendingBuildState();
 
-        runOnUiThread(() -> {
+        postUi(() -> {
             processing = false;
             lastOperationFailed = false;
             finishProgressSuccess(pack.stickerCount, skippedCount);
@@ -1485,12 +1494,21 @@ public class MainActivity extends Activity {
         file.delete();
     }
 
+    private void postUi(Runnable action) {
+        if (action == null || activityDestroyed) return;
+        runOnUiThread(() -> {
+            if (activityDestroyed || isFinishing() || (Build.VERSION.SDK_INT >= 17 && isDestroyed())) return;
+            action.run();
+        });
+    }
+
     private int dp(int value) {
         return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
     @Override
     protected void onDestroy() {
+        activityDestroyed = true;
         buildSession.requestCancel();
         try {
             FFmpegKit.cancel();
