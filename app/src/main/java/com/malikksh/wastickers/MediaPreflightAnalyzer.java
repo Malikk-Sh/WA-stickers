@@ -14,14 +14,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
-final class MediaPreflightAnalyzer implements AutoCloseable {
-    interface Callback {
-        void onResult(Result result);
-    }
-
+final class MediaPreflightAnalyzer {
     static final class Result {
         final String key;
         final Uri uri;
@@ -61,9 +55,7 @@ final class MediaPreflightAnalyzer implements AutoCloseable {
         String sizeLabel() {
             if (sizeBytes < 0) return "размер неизвестен";
             if (sizeBytes < 1024L) return sizeBytes + " B";
-            if (sizeBytes < 1024L * 1024L) {
-                return Math.round(sizeBytes / 1024f) + " KB";
-            }
+            if (sizeBytes < 1024L * 1024L) return Math.round(sizeBytes / 1024f) + " KB";
             return String.format(Locale.US, "%.1f MB", sizeBytes / (1024f * 1024f));
         }
 
@@ -74,52 +66,26 @@ final class MediaPreflightAnalyzer implements AutoCloseable {
     }
 
     private final Context appContext;
-    private final ExecutorService executor = Executors.newFixedThreadPool(2);
     private final Map<String, Result> cache = new HashMap<>();
-    private final Map<String, List<Callback>> inFlight = new HashMap<>();
-    private boolean closed;
 
     MediaPreflightAnalyzer(Context context) {
         appContext = context.getApplicationContext();
     }
 
-    void analyze(Uri uri, Callback callback) {
-        if (uri == null || callback == null) return;
-        String key = uri.toString();
-        synchronized (this) {
-            if (closed) return;
+    synchronized List<Result> analyze(List<Uri> uris) {
+        List<Result> results = new ArrayList<>();
+        if (uris == null) return results;
+        for (Uri uri : uris) {
+            if (uri == null) continue;
+            String key = uri.toString();
             Result cached = cache.get(key);
-            if (cached != null) {
-                callback.onResult(cached);
-                return;
+            if (cached == null) {
+                cached = inspect(uri);
+                cache.put(key, cached);
             }
-            List<Callback> waiting = inFlight.get(key);
-            if (waiting != null) {
-                waiting.add(callback);
-                return;
-            }
-            waiting = new ArrayList<>();
-            waiting.add(callback);
-            inFlight.put(key, waiting);
+            results.add(cached);
         }
-
-        executor.execute(() -> {
-            Result result = inspect(uri);
-            List<Callback> callbacks;
-            synchronized (MediaPreflightAnalyzer.this) {
-                if (closed) return;
-                cache.put(key, result);
-                callbacks = inFlight.remove(key);
-            }
-            if (callbacks != null) {
-                for (Callback item : callbacks) {
-                    try {
-                        item.onResult(result);
-                    } catch (Throwable ignored) {
-                    }
-                }
-            }
-        });
+        return results;
     }
 
     private Result inspect(Uri uri) {
@@ -145,9 +111,7 @@ final class MediaPreflightAnalyzer implements AutoCloseable {
                     String value = cursor.getString(nameIndex);
                     if (value != null && !value.trim().isEmpty()) displayName = value;
                 }
-                if (sizeIndex >= 0 && !cursor.isNull(sizeIndex)) {
-                    sizeBytes = cursor.getLong(sizeIndex);
-                }
+                if (sizeIndex >= 0 && !cursor.isNull(sizeIndex)) sizeBytes = cursor.getLong(sizeIndex);
             }
         } catch (Throwable ignored) {
         }
@@ -162,12 +126,9 @@ final class MediaPreflightAnalyzer implements AutoCloseable {
             MediaMetadataRetriever retriever = new MediaMetadataRetriever();
             try {
                 retriever.setDataSource(appContext, uri);
-                width = parseInt(retriever.extractMetadata(
-                        MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH));
-                height = parseInt(retriever.extractMetadata(
-                        MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT));
-                durationMs = parseLong(retriever.extractMetadata(
-                        MediaMetadataRetriever.METADATA_KEY_DURATION));
+                width = parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH));
+                height = parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT));
+                durationMs = parseLong(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION));
                 readable = width > 0 && height > 0;
             } catch (Throwable ignored) {
             } finally {
@@ -219,13 +180,5 @@ final class MediaPreflightAnalyzer implements AutoCloseable {
         } catch (NumberFormatException ignored) {
             return -1L;
         }
-    }
-
-    @Override
-    public synchronized void close() {
-        closed = true;
-        inFlight.clear();
-        cache.clear();
-        executor.shutdownNow();
     }
 }
