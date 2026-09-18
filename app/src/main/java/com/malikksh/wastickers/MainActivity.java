@@ -887,137 +887,138 @@ public class MainActivity extends Activity {
     }
 
     private void processBatch(List<Uri> work) {
-        List<Uri> failures = new ArrayList<>();
-        Throwable lastItemError = null;
-        int lastFailureIndex = -1;
-        Uri lastFailureUri = null;
         StickerPackBuilder builder = new StickerPackBuilder(this, buildSession.isAnimated());
-
-        try {
-            File packDir = buildSession.packDir();
-            if (packDir == null || (!packDir.mkdirs() && !packDir.isDirectory())) {
-                throw new IOException("Не удалось создать папку набора");
-            }
-
-            for (int i = 0; i < work.size(); i++) {
-                if (buildSession.isCancelRequested()) {
-                    addRemainingForRetry(work, i, failures);
-                    final int cancelFrom = i;
-                    postUi(() -> markCancelledFrom(cancelFrom));
-                    break;
-                }
-
-                Uri itemUri = work.get(i);
-                diagnosticItemIndex = i;
-                diagnosticItemUri = itemUri;
-                BugLogStore.appendApp("Item " + (i + 1) + "/" + work.size() + ": "
-                        + describeUri(itemUri));
-
-                final int index = i;
-                postUi(() -> {
-                    updateProgress(index, work.size(),
-                            (buildSession.isAnimated() ? "Конвертирую " : "Обрабатываю ")
-                                    + (index + 1) + " из " + work.size() + "…");
-                    updateFileProgress(index, 0,
-                            buildSession.isAnimated() ? "Подготовка к конвертации…" : "Чтение изображения…");
-                });
-
-                File target = new File(packDir, (buildSession.successCount() + 1) + ".webp");
-                try {
-                    StickerPackBuilder.ItemResult result = builder.convert(
+        PackBuildCoordinator<Uri> coordinator = new PackBuildCoordinator<>(buildSession);
+        PackBuildCoordinator.RunResult<Uri> result = coordinator.run(
+                work,
+                (itemUri, target, progress) -> {
+                    StickerPackBuilder.ItemResult converted = builder.convert(
                             itemUri,
                             target,
                             new StickerPackBuilder.ProgressListener() {
                                 @Override
                                 public void onStaticProgress(int percent, String detail) {
-                                    postUi(() -> updateFileProgress(index, percent, detail));
+                                    progress.onStaticProgress(percent, detail);
                                 }
 
                                 @Override
-                                public void onAnimatedProgress(AnimatedStickerConverter.Progress progress) {
-                                    postUi(() -> updateAnimatedFileProgress(index, progress));
+                                public void onAnimatedProgress(AnimatedStickerConverter.Progress animatedProgress) {
+                                    progress.onAnimatedProgress(animatedProgress);
                                 }
                             }
                     );
-                    buildSession.recordSuccess(itemUri, result.fps, result.quality);
-                    BugLogStore.appendApp("Item converted: bytes=" + result.bytes
-                            + (result.animated() ? ", fps=" + result.fps + ", quality=" + result.quality : ""));
-                    String detail = formatBytes(result.bytes)
-                            + (result.animated() ? " · " + result.fps + " FPS · q" + result.quality : "");
-                    postUi(() -> completeFileProgress(index, detail));
-                } catch (Throwable itemError) {
-                    //noinspection ResultOfMethodCallIgnored
-                    target.delete();
-                    if (buildSession.isCancelRequested()) {
-                        addRemainingForRetry(work, i, failures);
-                        final int cancelFrom = i;
-                        postUi(() -> markCancelledFrom(cancelFrom));
-                        break;
-                    }
+                    return new PackBuildCoordinator.ItemResult(
+                            converted.bytes,
+                            converted.fps,
+                            converted.quality
+                    );
+                },
+                createBuildCoordinatorListener(work)
+        );
 
-                    lastItemError = itemError;
-                    lastFailureIndex = i;
-                    lastFailureUri = itemUri;
-                    failures.add(itemUri);
-                    String reason = itemError.getMessage() == null
-                            ? "неизвестная ошибка конвертации"
-                            : itemError.getMessage();
-                    BugLogStore.appendApp("Item failed: " + reason);
-                    postUi(() -> failFileProgress(index, reason));
-                }
-
-                final int completed = i + 1;
-                postUi(() -> updateProgress(
-                        completed,
-                        work.size(),
-                        completed == work.size()
-                                ? "Проверены все файлы."
-                                : "Проверено " + completed + " из " + work.size() + "."));
-            }
-
-            buildSession.setFailures(failures);
-            if (activityDestroyed) {
-                discardPendingBuild();
-                return;
-            }
-
-            if (buildSession.shouldAutoFinalize()) {
-                finalizePendingPackOnWorker(0);
-                return;
-            }
-
-            if (lastItemError != null) {
-                diagnosticItemIndex = lastFailureIndex;
-                diagnosticItemUri = lastFailureUri;
-                lastBugLog = buildBugLog(lastItemError, buildSession.isAnimated(), work);
-                saveBugLog(lastBugLog);
-            }
-            postUi(() -> showPendingBatchResult(buildSession.isCancelRequested()));
-        } catch (Throwable fatalError) {
-            buildSession.setFailures(new ArrayList<>(work));
-            lastBugLog = buildBugLog(fatalError, buildSession.isAnimated(), work);
-            saveBugLog(lastBugLog);
-            BugLogStore.appendApp("Draft creation failed: " + fatalError);
+        if (activityDestroyed) {
             discardPendingBuild();
-
-            postUi(() -> {
-                processing = false;
-                lastOperationFailed = true;
-                String message = fatalError.getMessage() == null
-                        ? "не удалось создать набор"
-                        : fatalError.getMessage();
-                statusText.setText("Ошибка: " + message);
-                showProgressError();
-                updateUiState();
-            });
+            return;
         }
+        if (result.isFatal()) {
+            handleBatchFatal(result.fatalError, work);
+            return;
+        }
+        if (result.autoFinalize) {
+            try {
+                finalizePendingPackOnWorker(0);
+            } catch (Throwable finalizeError) {
+                handleBatchFatal(finalizeError, work);
+            }
+            return;
+        }
+        if (result.lastItemError != null) {
+            diagnosticItemIndex = result.lastFailureIndex;
+            diagnosticItemUri = result.lastFailureItem;
+            lastBugLog = buildBugLog(result.lastItemError, buildSession.isAnimated(), work);
+            saveBugLog(lastBugLog);
+        }
+        postUi(() -> showPendingBatchResult(result.cancelled));
     }
 
-    private void addRemainingForRetry(List<Uri> work, int startIndex, List<Uri> failures) {
-        for (int i = Math.max(0, startIndex); i < work.size(); i++) {
-            Uri uri = work.get(i);
-            if (!failures.contains(uri)) failures.add(uri);
-        }
+    private PackBuildCoordinator.Listener<Uri> createBuildCoordinatorListener(List<Uri> work) {
+        return new PackBuildCoordinator.Listener<Uri>() {
+            @Override
+            public void onItemStarted(int index, int total, Uri itemUri) {
+                diagnosticItemIndex = index;
+                diagnosticItemUri = itemUri;
+                BugLogStore.appendApp("Item " + (index + 1) + "/" + total + ": " + describeUri(itemUri));
+                postUi(() -> {
+                    updateProgress(index, total,
+                            (buildSession.isAnimated() ? "Конвертирую " : "Обрабатываю ")
+                                    + (index + 1) + " из " + total + "…");
+                    updateFileProgress(index, 0,
+                            buildSession.isAnimated() ? "Подготовка к конвертации…" : "Чтение изображения…");
+                });
+            }
+
+            @Override
+            public void onStaticProgress(int index, int percent, String detail) {
+                postUi(() -> updateFileProgress(index, percent, detail));
+            }
+
+            @Override
+            public void onAnimatedProgress(int index, AnimatedStickerConverter.Progress progress) {
+                postUi(() -> updateAnimatedFileProgress(index, progress));
+            }
+
+            @Override
+            public void onItemSucceeded(int index, Uri itemUri, PackBuildCoordinator.ItemResult result) {
+                BugLogStore.appendApp("Item converted: bytes=" + result.bytes
+                        + (result.animated() ? ", fps=" + result.fps + ", quality=" + result.quality : ""));
+                String detail = formatBytes(result.bytes)
+                        + (result.animated() ? " · " + result.fps + " FPS · q" + result.quality : "");
+                postUi(() -> completeFileProgress(index, detail));
+            }
+
+            @Override
+            public void onItemFailed(int index, Uri itemUri, Throwable error) {
+                String reason = error.getMessage() == null
+                        ? "неизвестная ошибка конвертации"
+                        : error.getMessage();
+                BugLogStore.appendApp("Item failed: " + reason);
+                postUi(() -> failFileProgress(index, reason));
+            }
+
+            @Override
+            public void onItemCompleted(int completed, int total) {
+                postUi(() -> updateProgress(
+                        completed,
+                        total,
+                        completed == total
+                                ? "Проверены все файлы."
+                                : "Проверено " + completed + " из " + total + "."));
+            }
+
+            @Override
+            public void onCancelledFrom(int startIndex) {
+                postUi(() -> markCancelledFrom(startIndex));
+            }
+        };
+    }
+
+    private void handleBatchFatal(Throwable fatalError, List<Uri> work) {
+        buildSession.setFailures(new ArrayList<>(work));
+        lastBugLog = buildBugLog(fatalError, buildSession.isAnimated(), work);
+        saveBugLog(lastBugLog);
+        BugLogStore.appendApp("Draft creation failed: " + fatalError);
+        discardPendingBuild();
+
+        postUi(() -> {
+            processing = false;
+            lastOperationFailed = true;
+            String message = fatalError.getMessage() == null
+                    ? "не удалось создать набор"
+                    : fatalError.getMessage();
+            statusText.setText("Ошибка: " + message);
+            showProgressError();
+            updateUiState();
+        });
     }
 
     private void cancelProcessing() {
