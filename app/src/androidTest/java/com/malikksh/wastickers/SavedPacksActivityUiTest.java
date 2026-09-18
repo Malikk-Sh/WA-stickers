@@ -1,6 +1,5 @@
 package com.malikksh.wastickers;
 
-import static androidx.test.espresso.Espresso.closeSoftKeyboard;
 import static androidx.test.espresso.Espresso.onView;
 import static androidx.test.espresso.action.ViewActions.click;
 import static androidx.test.espresso.action.ViewActions.replaceText;
@@ -54,7 +53,6 @@ public class SavedPacksActivityUiTest {
             onView(withContentDescription("Действия с набором Тестовый набор")).perform(click());
             onView(withText("Переименовать")).perform(click());
             onView(isAssignableFrom(EditText.class)).perform(replaceText("Новый набор"));
-            closeSoftKeyboard();
             onView(withText("Сохранить")).perform(click());
             onView(withText("Новый набор")).check(matches(isDisplayed()));
 
