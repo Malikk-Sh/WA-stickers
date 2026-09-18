@@ -11,6 +11,10 @@
         android:theme="@style/AppTheme">
 
         <activity
+            android:name=".VideoTrimActivity"
+            android:exported="false" />
+
+        <activity
             android:name=".SavedPacksActivity"
             android:exported="false" />
 

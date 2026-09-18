@@ -1,9 +1,12 @@
 package com.malikksh.wastickers;
 
+import android.content.ClipData;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
@@ -14,19 +17,25 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class HomeActivity extends MainActivity {
+    private static final int REQUEST_PICK_ANIMATED = 1002;
     private static final int REQUEST_SAVED_PACKS = 3001;
     private static final int CARD = 0xFFFFFFFF;
     private static final int TEXT = 0xFF14221D;
     private static final int MUTED = 0xFF6A7872;
     private static final int PRIMARY = 0xFF075E54;
 
+    private final ExecutorService trimExecutor = Executors.newSingleThreadExecutor();
     private TextView packsMeta;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        VideoTrimStore.clear();
         super.onCreate(savedInstanceState);
         injectSavedPacksCard();
         updateSavedPacksSummary();
@@ -43,7 +52,43 @@ public class HomeActivity extends MainActivity {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == REQUEST_SAVED_PACKS && resultCode == RESULT_OK) {
             recreate();
+            return;
         }
+
+        if (requestCode == REQUEST_PICK_ANIMATED && resultCode == RESULT_OK && data != null) {
+            List<Uri> incoming = extractUris(data);
+            if (!incoming.isEmpty()) prepareVideoTrim(incoming);
+        }
+    }
+
+    private List<Uri> extractUris(Intent data) {
+        List<Uri> result = new ArrayList<>();
+        ClipData clipData = data.getClipData();
+        if (clipData != null) {
+            for (int i = 0; i < clipData.getItemCount(); i++) {
+                Uri uri = clipData.getItemAt(i).getUri();
+                if (uri != null && !result.contains(uri)) result.add(uri);
+            }
+        } else if (data.getData() != null) {
+            result.add(data.getData());
+        }
+        return result;
+    }
+
+    private void prepareVideoTrim(List<Uri> incoming) {
+        trimExecutor.execute(() -> {
+            List<String> adjustable = VideoTrimStore.prepare(this, incoming);
+            if (adjustable.isEmpty()) return;
+            runOnUiThread(() -> {
+                if (isFinishing() || (Build.VERSION.SDK_INT >= 17 && isDestroyed())) return;
+                Intent intent = new Intent(this, VideoTrimActivity.class);
+                intent.putStringArrayListExtra(
+                        VideoTrimActivity.EXTRA_KEYS,
+                        new ArrayList<>(adjustable)
+                );
+                startActivity(intent);
+            });
+        });
     }
 
     private void injectSavedPacksCard() {
@@ -60,7 +105,7 @@ public class HomeActivity extends MainActivity {
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dpHome(18), dpHome(16), dpHome(18), dpHome(16));
         card.setBackground(roundedHome(CARD, 20));
-        if (android.os.Build.VERSION.SDK_INT >= 21) card.setElevation(dpHome(2));
+        if (Build.VERSION.SDK_INT >= 21) card.setElevation(dpHome(2));
 
         LinearLayout header = new LinearLayout(this);
         header.setGravity(Gravity.CENTER_VERTICAL);
@@ -146,5 +191,12 @@ public class HomeActivity extends MainActivity {
 
     private int dpHome(int value) {
         return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
+    @Override
+    protected void onDestroy() {
+        trimExecutor.shutdownNow();
+        VideoTrimStore.clear();
+        super.onDestroy();
     }
 }
