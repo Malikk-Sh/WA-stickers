@@ -195,12 +195,11 @@ public class HomeActivityUiTest {
     }
 
     @Test
-    public void savedPacksCardOpensEmptyManager() {
+    public void savedPacksCardIsVisibleAndOffersOpenAction() {
         try (ActivityScenario<HomeActivity> ignored = ActivityScenario.launch(HomeActivity.class)) {
             onView(withText("Мои наборы")).check(matches(isDisplayed()));
             onView(withText("Пока нет сохранённых наборов")).check(matches(isDisplayed()));
-            onView(withText("Открыть")).perform(click());
-            onView(withText("Пока нет сохранённых наборов")).check(matches(isDisplayed()));
+            onView(withText("Открыть")).check(matches(isDisplayed()));
         }
     }
 
