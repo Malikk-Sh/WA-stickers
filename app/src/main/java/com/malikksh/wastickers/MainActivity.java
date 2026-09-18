@@ -70,8 +70,7 @@ public class MainActivity extends Activity {
     private final List<ProgressBar> fileProgressBars = new ArrayList<>();
     private final List<String> fileProgressNames = new ArrayList<>();
     private final List<Uri> pendingFailedUris = new ArrayList<>();
-    private final EditorDraftState<Uri> photoEditorDraft = new EditorDraftState<>();
-    private final EditorDraftState<Uri> animatedEditorDraft = new EditorDraftState<>();
+    private final EditorStateController<Uri> editorStateController = new EditorStateController<>();
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
     private EditText packName;
@@ -488,28 +487,22 @@ public class MainActivity extends Activity {
         cancelRequested = false;
     }
 
-    private EditorDraftState<Uri> editorDraft(boolean animated) {
-        return animated ? animatedEditorDraft : photoEditorDraft;
-    }
-
-    private void saveEditorDraft(boolean animated) {
-        String name = packName == null ? "" : packName.getText().toString();
-        editorDraft(animated).capture(selectedUris, coverUri, name);
-    }
-
-    private void restoreEditorDraft(boolean animated) {
-        EditorDraftState<Uri> draft = editorDraft(animated);
-        draft.restoreItemsInto(selectedUris);
-        coverUri = draft.cover();
-        if (packName != null) packName.setText(draft.name());
-    }
-
     private void setAnimatedMode(boolean animated) {
         if (processing || animatedMode == animated) return;
-        saveEditorDraft(animatedMode);
+        String currentName = packName == null ? "" : packName.getText().toString();
+        EditorStateController.Snapshot<Uri> next = editorStateController.switchMode(
+                animatedMode,
+                animated,
+                selectedUris,
+                coverUri,
+                currentName
+        );
         invalidateCurrentPack();
         animatedMode = animated;
-        restoreEditorDraft(animatedMode);
+        selectedUris.clear();
+        selectedUris.addAll(next.items());
+        coverUri = next.cover();
+        if (packName != null) packName.setText(next.name());
         renderPreviews();
         updateModeUi();
         updateUiState();
