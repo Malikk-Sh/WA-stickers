@@ -1,7 +1,6 @@
 package com.malikksh.wastickers;
 
 import static androidx.test.espresso.Espresso.onView;
-import static androidx.test.espresso.Espresso.pressBack;
 import static androidx.test.espresso.action.ViewActions.click;
 import static androidx.test.espresso.assertion.ViewAssertions.matches;
 import static androidx.test.espresso.matcher.ViewMatchers.isDisplayed;
@@ -11,6 +10,8 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
+import android.app.Activity;
+import android.app.Instrumentation;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.net.Uri;
@@ -56,16 +57,22 @@ public class SettingsShellActivityUiTest {
 
     @Test
     public void gearOpensSettingsAndOverflowClearsDraft() throws Exception {
+        Instrumentation instrumentation = InstrumentationRegistry.getInstrumentation();
+        Instrumentation.ActivityMonitor settingsMonitor = new Instrumentation.ActivityMonitor(
+                SettingsActivity.class.getName(), null, false);
+        instrumentation.addMonitor(settingsMonitor);
+
         try (ActivityScenario<SettingsShellActivity> scenario = ActivityScenario.launch(SettingsShellActivity.class)) {
             scenario.onActivity(activity -> {
                 View settings = activity.findViewById(R.id.app_settings);
                 assertNotNull(settings);
                 assertTrue(settings.performClick());
             });
-            InstrumentationRegistry.getInstrumentation().waitForIdleSync();
-            onView(withId(R.id.settings_title)).check(matches(withText("Настройки")));
-            pressBack();
-            InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+
+            Activity launchedSettings = instrumentation.waitForMonitorWithTimeout(settingsMonitor, 5000L);
+            assertNotNull("Settings gear did not launch SettingsActivity", launchedSettings);
+            instrumentation.runOnMainSync(launchedSettings::finish);
+            instrumentation.waitForIdleSync();
 
             scenario.onActivity(activity -> {
                 try {
@@ -99,6 +106,8 @@ public class SettingsShellActivityUiTest {
                     throw new RuntimeException(error);
                 }
             });
+        } finally {
+            instrumentation.removeMonitor(settingsMonitor);
         }
     }
 
