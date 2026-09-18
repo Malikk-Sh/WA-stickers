@@ -8,4 +8,12 @@
     <item name="create_media_counter" type="id" />
     <item name="create_pick_media" type="id" />
     <item name="create_continue" type="id" />
+    <item name="media_mode_photo" type="id" />
+    <item name="media_mode_animated" type="id" />
+    <item name="media_summary" type="id" />
+    <item name="media_add_more" type="id" />
+    <item name="media_grid" type="id" />
+    <item name="media_detail" type="id" />
+    <item name="media_clear" type="id" />
+    <item name="media_continue" type="id" />
 </resources>
