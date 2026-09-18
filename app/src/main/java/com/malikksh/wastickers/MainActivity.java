@@ -80,6 +80,8 @@ public class MainActivity extends Activity {
     private final List<ProgressBar> fileProgressBars = new ArrayList<>();
     private final List<String> fileProgressNames = new ArrayList<>();
     private final List<Uri> pendingFailedUris = new ArrayList<>();
+    private final EditorDraftState<Uri> photoEditorDraft = new EditorDraftState<>();
+    private final EditorDraftState<Uri> animatedEditorDraft = new EditorDraftState<>();
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
     private EditText packName;
@@ -208,7 +210,7 @@ public class MainActivity extends Activity {
         modeCard.addView(text("Тип набора", 17, TEXT, Typeface.BOLD));
 
         TextView modeHint = text(
-                "Статичные и анимированные стикеры должны быть в разных наборах WhatsApp.",
+                "Статичные и анимированные стикеры должны быть в разных наборах WhatsApp. Выбор каждого режима сохраняется отдельно.",
                 12, MUTED, Typeface.NORMAL);
         LinearLayout.LayoutParams modeHintParams = matchWrap();
         modeHintParams.topMargin = dp(5);
@@ -492,12 +494,28 @@ public class MainActivity extends Activity {
         cancelRequested = false;
     }
 
+    private EditorDraftState<Uri> editorDraft(boolean animated) {
+        return animated ? animatedEditorDraft : photoEditorDraft;
+    }
+
+    private void saveEditorDraft(boolean animated) {
+        String name = packName == null ? "" : packName.getText().toString();
+        editorDraft(animated).capture(selectedUris, coverUri, name);
+    }
+
+    private void restoreEditorDraft(boolean animated) {
+        EditorDraftState<Uri> draft = editorDraft(animated);
+        draft.restoreItemsInto(selectedUris);
+        coverUri = draft.cover();
+        if (packName != null) packName.setText(draft.name());
+    }
+
     private void setAnimatedMode(boolean animated) {
         if (processing || animatedMode == animated) return;
-        animatedMode = animated;
-        selectedUris.clear();
-        coverUri = null;
+        saveEditorDraft(animatedMode);
         invalidateCurrentPack();
+        animatedMode = animated;
+        restoreEditorDraft(animatedMode);
         renderPreviews();
         updateModeUi();
         updateUiState();
@@ -854,8 +872,8 @@ public class MainActivity extends Activity {
                 statusText.setText("Набор «" + currentPack.name + "» готов к добавлению в WhatsApp.");
             } else if (selectedUris.isEmpty()) {
                 statusText.setText(animatedMode
-                        ? "Выберите минимум 3 анимации или видео."
-                        : "Выберите минимум 3 фотографии.");
+                        ? "Выберите минимум 3 анимации или видео. Фото-черновик сохранён отдельно."
+                        : "Выберите минимум 3 фотографии. Черновик анимации сохранён отдельно.");
             } else if (selectedUris.size() < MIN_STICKERS) {
                 statusText.setText("Добавьте ещё " + (MIN_STICKERS - selectedUris.size())
                         + (animatedMode ? " файла." : " фото."));
