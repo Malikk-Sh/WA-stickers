@@ -41,4 +41,12 @@
     <item name="build_status" type="id" />
     <item name="build_primary" type="id" />
     <item name="build_secondary" type="id" />
+    <item name="packs_panel" type="id" />
+    <item name="packs_filter_all" type="id" />
+    <item name="packs_filter_photo" type="id" />
+    <item name="packs_filter_animated" type="id" />
+    <item name="packs_stats" type="id" />
+    <item name="packs_list" type="id" />
+    <item name="packs_empty" type="id" />
+    <item name="packs_create_first" type="id" />
 </resources>
