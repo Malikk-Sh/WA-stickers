@@ -1,6 +1,7 @@
 package com.malikksh.wastickers;
 
 import android.app.AlertDialog;
+import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.Intent;
 import android.graphics.Color;
@@ -17,6 +18,7 @@ import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -28,6 +30,7 @@ public class HomeActivity extends MainActivity {
     private static final int REQUEST_PICK_ANIMATED = 1002;
     private static final int REQUEST_SAVED_PACKS = 3001;
     private static final String TRIM_STATE_PREFIX = "home.video_trim.";
+    private static final String TRIM_PERSISTENT_KEY = "home_video_trim";
     private static final int CARD = 0xFFFFFFFF;
     private static final int TEXT = 0xFF14221D;
     private static final int MUTED = 0xFF6A7872;
@@ -47,7 +50,11 @@ public class HomeActivity extends MainActivity {
         if (savedInstanceState != null) {
             VideoTrimStore.restoreFromBundle(savedInstanceState, TRIM_STATE_PREFIX);
             EditorInstanceStateBridge.restore(this, savedInstanceState);
+        } else {
+            VideoTrimStore.restorePersistent(this, TRIM_PERSISTENT_KEY);
+            EditorInstanceStateBridge.restorePersistent(this);
         }
+        EditorInstanceStateBridge.setGalleryClickListener(this, v -> openPersistentMediaPicker());
         preflightAnalyzer = new MediaPreflightAnalyzer(this);
         injectSavedPacksCard();
         updateSavedPacksSummary();
@@ -58,6 +65,13 @@ public class HomeActivity extends MainActivity {
         EditorInstanceStateBridge.save(this, outState);
         VideoTrimStore.saveToBundle(outState, TRIM_STATE_PREFIX);
         super.onSaveInstanceState(outState);
+    }
+
+    @Override
+    protected void onPause() {
+        EditorInstanceStateBridge.savePersistent(this);
+        VideoTrimStore.savePersistent(this, TRIM_PERSISTENT_KEY);
+        super.onPause();
     }
 
     @Override
@@ -77,8 +91,76 @@ public class HomeActivity extends MainActivity {
         if ((requestCode == REQUEST_PICK_PHOTOS || requestCode == REQUEST_PICK_ANIMATED)
                 && resultCode == RESULT_OK && data != null) {
             List<Uri> incoming = extractUris(data);
+            persistIncomingPermissions(data, incoming);
+            EditorInstanceStateBridge.savePersistent(this);
             if (!incoming.isEmpty()) {
                 prepareSelectionReport(incoming, requestCode == REQUEST_PICK_ANIMATED);
+            }
+        }
+    }
+
+    private void openPersistentMediaPicker() {
+        boolean animated = EditorInstanceStateBridge.isAnimatedMode(this);
+        int requestCode = animated ? REQUEST_PICK_ANIMATED : REQUEST_PICK_PHOTOS;
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType(animated ? "*/*" : "image/*");
+        intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+        if (animated) {
+            intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{
+                    "image/gif",
+                    "image/webp",
+                    "video/mp4",
+                    "video/webm",
+                    "video/quicktime",
+                    "video/x-matroska",
+                    "video/*"
+            });
+        }
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        String title = animated ? "Выберите GIF, WebP или видео" : "Выберите фото";
+        try {
+            startActivityForResult(Intent.createChooser(intent, title), requestCode);
+        } catch (ActivityNotFoundException first) {
+            Intent fallback = new Intent(Intent.ACTION_GET_CONTENT);
+            fallback.addCategory(Intent.CATEGORY_OPENABLE);
+            fallback.setType(animated ? "*/*" : "image/*");
+            fallback.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+            if (animated) {
+                fallback.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{
+                        "image/gif",
+                        "image/webp",
+                        "video/mp4",
+                        "video/webm",
+                        "video/quicktime",
+                        "video/x-matroska",
+                        "video/*"
+                });
+            }
+            try {
+                startActivityForResult(Intent.createChooser(fallback, title), requestCode);
+            } catch (ActivityNotFoundException second) {
+                Toast.makeText(this,
+                        animated ? "Не найдено приложение для выбора файлов" : "Галерея не найдена",
+                        Toast.LENGTH_LONG).show();
+            }
+        }
+    }
+
+    private void persistIncomingPermissions(Intent data, List<Uri> incoming) {
+        if (data == null || incoming == null || incoming.isEmpty()) return;
+        int takeFlags = data.getFlags()
+                & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        if ((takeFlags & Intent.FLAG_GRANT_READ_URI_PERMISSION) == 0) {
+            takeFlags |= Intent.FLAG_GRANT_READ_URI_PERMISSION;
+        }
+        for (Uri uri : incoming) {
+            try {
+                getContentResolver().takePersistableUriPermission(uri, takeFlags);
+            } catch (Throwable ignored) {
+                // ACTION_GET_CONTENT fallback may not offer a persistable grant. Such URIs are
+                // validated and safely dropped if they are no longer readable on a later launch.
             }
         }
     }

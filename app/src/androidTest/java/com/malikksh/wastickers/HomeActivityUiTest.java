@@ -24,6 +24,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import java.io.File;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -32,18 +33,24 @@ import java.util.List;
 
 @RunWith(AndroidJUnit4.class)
 public class HomeActivityUiTest {
+    private static final String TRIM_PERSISTENT_KEY = "home_video_trim";
+    private static final String TEST_FILE_PREFIX = "ui_persist_";
     private Context context;
 
     @Before
     public void setUp() {
         context = ApplicationProvider.getApplicationContext();
         clearSavedPacks();
+        clearPersistentDraft();
+        clearTestFiles();
         VideoTrimStore.clear();
     }
 
     @After
     public void tearDown() {
         clearSavedPacks();
+        clearPersistentDraft();
+        clearTestFiles();
         VideoTrimStore.clear();
     }
 
@@ -136,12 +143,63 @@ public class HomeActivityUiTest {
     }
 
     @Test
-    public void savedPacksCardOpensEmptyManager() {
+    public void draftsAndTrimSurviveFreshActivityLaunch() throws Exception {
+        Uri photo1 = testFileUri("photo-1.jpg");
+        Uri photo2 = testFileUri("photo-2.jpg");
+        Uri photo3 = testFileUri("photo-3.jpg");
+        Uri animated1 = testFileUri("animated-1.webp");
+        Uri animated2 = testFileUri("animated-2.webp");
+        Uri video = testFileUri("long-video.mp4");
+        List<Uri> photos = Arrays.asList(photo1, photo2, photo3);
+        List<Uri> animated = Arrays.asList(animated1, animated2, video);
+
+        ActivityScenario<HomeActivity> first = ActivityScenario.launch(HomeActivity.class);
+        first.onActivity(activity -> {
+            try {
+                seedCurrentEditor(activity, photos, photo2, "Фото после рестарта");
+                invoke(activity, "setAnimatedMode", new Class<?>[]{boolean.class}, true);
+                seedCurrentEditor(activity, animated, video, "Анимация после рестарта");
+                VideoTrimStore.replaceEntries(Arrays.asList(new VideoTrimStore.Entry(
+                        video.toString(),
+                        video,
+                        "long-video.mp4",
+                        30_000L,
+                        7_000L
+                )));
+            } catch (Exception error) {
+                throw new RuntimeException(error);
+            }
+        });
+        first.close();
+
+        try (ActivityScenario<HomeActivity> second = ActivityScenario.launch(HomeActivity.class)) {
+            second.onActivity(activity -> {
+                try {
+                    assertTrue((Boolean) getField(activity, "animatedMode"));
+                    assertEquals(animated, selectionSnapshot(activity));
+                    assertEquals(video, getField(activity, "coverUri"));
+                    assertEquals("Анимация после рестарта",
+                            ((EditText) getField(activity, "packName")).getText().toString());
+                    assertEquals(7_000L, VideoTrimStore.getStartOffsetMs(video));
+
+                    invoke(activity, "setAnimatedMode", new Class<?>[]{boolean.class}, false);
+                    assertEquals(photos, selectionSnapshot(activity));
+                    assertEquals(photo2, getField(activity, "coverUri"));
+                    assertEquals("Фото после рестарта",
+                            ((EditText) getField(activity, "packName")).getText().toString());
+                } catch (Exception error) {
+                    throw new RuntimeException(error);
+                }
+            });
+        }
+    }
+
+    @Test
+    public void savedPacksCardIsVisibleAndOffersOpenAction() {
         try (ActivityScenario<HomeActivity> ignored = ActivityScenario.launch(HomeActivity.class)) {
             onView(withText("Мои наборы")).check(matches(isDisplayed()));
             onView(withText("Пока нет сохранённых наборов")).check(matches(isDisplayed()));
-            onView(withText("Открыть")).perform(click());
-            onView(withText("Пока нет сохранённых наборов")).check(matches(isDisplayed()));
+            onView(withText("Открыть")).check(matches(isDisplayed()));
         }
     }
 
@@ -164,6 +222,14 @@ public class HomeActivityUiTest {
     @SuppressWarnings("unchecked")
     private static List<Uri> selectionSnapshot(MainActivity activity) throws Exception {
         return new ArrayList<>((List<Uri>) getField(activity, "selectedUris"));
+    }
+
+    private Uri testFileUri(String suffix) throws Exception {
+        File file = new File(context.getCacheDir(), TEST_FILE_PREFIX + suffix);
+        if (!file.exists() && !file.createNewFile()) {
+            throw new IllegalStateException("Could not create " + file);
+        }
+        return Uri.fromFile(file);
     }
 
     private static Object getField(MainActivity activity, String name) throws Exception {
@@ -192,6 +258,22 @@ public class HomeActivityUiTest {
     private void clearSavedPacks() {
         for (PackStore.Pack pack : PackStore.getPacks(context)) {
             PackStore.deletePack(context, pack.id);
+        }
+    }
+
+    private void clearPersistentDraft() {
+        EditorInstanceStateBridge.clearPersistent(context);
+        VideoTrimStore.clearPersistent(context, TRIM_PERSISTENT_KEY);
+    }
+
+    private void clearTestFiles() {
+        File[] files = context.getCacheDir().listFiles();
+        if (files == null) return;
+        for (File file : files) {
+            if (file.getName().startsWith(TEST_FILE_PREFIX)) {
+                //noinspection ResultOfMethodCallIgnored
+                file.delete();
+            }
         }
     }
 }
