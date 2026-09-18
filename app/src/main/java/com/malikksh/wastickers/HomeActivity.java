@@ -17,11 +17,11 @@ import android.widget.TextView;
 import java.util.List;
 
 public class HomeActivity extends MainActivity {
+    private static final int REQUEST_SAVED_PACKS = 3001;
     private static final int CARD = 0xFFFFFFFF;
     private static final int TEXT = 0xFF14221D;
     private static final int MUTED = 0xFF6A7872;
     private static final int PRIMARY = 0xFF075E54;
-    private static final int SOFT = 0xFFEAF5EF;
 
     private TextView packsMeta;
 
@@ -36,6 +36,14 @@ public class HomeActivity extends MainActivity {
     protected void onResume() {
         super.onResume();
         updateSavedPacksSummary();
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_SAVED_PACKS && resultCode == RESULT_OK) {
+            recreate();
+        }
     }
 
     private void injectSavedPacksCard() {
@@ -76,7 +84,8 @@ public class HomeActivity extends MainActivity {
         open.setTextColor(Color.WHITE);
         open.setTypeface(Typeface.create("sans", Typeface.BOLD));
         open.setBackground(roundedHome(PRIMARY, 13));
-        open.setOnClickListener(v -> startActivity(new Intent(this, SavedPacksActivity.class)));
+        open.setOnClickListener(v -> startActivityForResult(
+                new Intent(this, SavedPacksActivity.class), REQUEST_SAVED_PACKS));
         LinearLayout.LayoutParams openParams = new LinearLayout.LayoutParams(dpHome(92), dpHome(46));
         openParams.leftMargin = dpHome(10);
         header.addView(open, openParams);
