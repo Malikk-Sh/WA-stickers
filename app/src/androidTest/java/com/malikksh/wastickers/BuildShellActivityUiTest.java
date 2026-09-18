@@ -41,10 +41,10 @@ public class BuildShellActivityUiTest {
                             writeImage(activity, "build_shell_three.png", 0xFF075E54)
                     );
                     seedSelection(activity, items, "Build UI test");
-                    activity.refreshBuildPanelForTest();
                     View nav = activity.findViewById(R.id.nav_build);
                     assertNotNull(nav);
                     nav.performClick();
+                    activity.refreshBuildPanelForTest();
                 } catch (Exception error) {
                     throw new RuntimeException(error);
                 }
@@ -84,10 +84,10 @@ public class BuildShellActivityUiTest {
                     session.recordSuccess(items.get(1), 0, 0);
                     session.recordSuccess(items.get(2), 0, 0);
                     session.setFailures(new ArrayList<>(Arrays.asList(items.get(3))));
-                    activity.refreshBuildPanelForTest();
                     View nav = activity.findViewById(R.id.nav_build);
                     assertNotNull(nav);
                     nav.performClick();
+                    activity.refreshBuildPanelForTest();
                 } catch (Exception error) {
                     throw new RuntimeException(error);
                 }
@@ -123,10 +123,10 @@ public class BuildShellActivityUiTest {
                     );
                     session.setAutoFinalizeAllowed(false);
                     setMainField(activity, "processing", true);
-                    activity.refreshBuildPanelForTest();
                     View nav = activity.findViewById(R.id.nav_build);
                     assertNotNull(nav);
                     nav.performClick();
+                    activity.refreshBuildPanelForTest();
                 } catch (Exception error) {
                     throw new RuntimeException(error);
                 }
