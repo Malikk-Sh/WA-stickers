@@ -1,17 +1,26 @@
 package com.malikksh.wastickers;
 
+import android.content.Context;
+import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.ParcelFileDescriptor;
+import android.view.View;
+import android.widget.Button;
 import android.widget.EditText;
 import android.widget.TextView;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.File;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Persists the legacy programmatic editor across Activity recreation.
+ * Persists the legacy programmatic editor across Activity recreation and fresh app launches.
  *
  * MainActivity still owns its UI state privately. Keeping the reflection in one small bridge lets
  * lifecycle persistence stay isolated from conversion/build logic until that editor state moves to
@@ -23,6 +32,8 @@ final class EditorInstanceStateBridge {
     private static final String KEY_WAS_PROCESSING = PREFIX + "was_processing";
     private static final String KEY_HAD_PENDING_BUILD = PREFIX + "had_pending_build";
     private static final String KEY_CURRENT_PACK_ID = PREFIX + "current_pack_id";
+    private static final String PREFS = "editor_persistent_draft";
+    private static final String PREF_STATE = "state_json";
     private static final int MAX_RESTORED_ITEMS = 30;
 
     private EditorInstanceStateBridge() {}
@@ -101,8 +112,7 @@ final class EditorInstanceStateBridge {
                     || savedState.getBoolean(KEY_HAD_PENDING_BUILD, false)) {
                 TextView status = (TextView) getField(activity, "statusText");
                 if (status != null) {
-                    status.setText("Редактор восстановлен после пересоздания экрана. "
-                            + "Незавершённая обработка была остановлена — создайте набор снова.");
+                    status.setText("Редактор восстановлен. Незавершённая обработка была остановлена — создайте набор снова.");
                 }
             }
             return true;
@@ -110,6 +120,139 @@ final class EditorInstanceStateBridge {
             BugLogStore.appendApp("Could not restore editor instance state: " + error);
             return false;
         }
+    }
+
+    static void savePersistent(MainActivity activity) {
+        if (activity == null) return;
+        Bundle state = new Bundle();
+        save(activity, state);
+        if (!state.containsKey(KEY_ACTIVE_ANIMATED)) return;
+        try {
+            JSONObject root = new JSONObject();
+            root.put("activeAnimated", state.getBoolean(KEY_ACTIVE_ANIMATED, false));
+            root.put("wasProcessing", state.getBoolean(KEY_WAS_PROCESSING, false));
+            root.put("hadPendingBuild", state.getBoolean(KEY_HAD_PENDING_BUILD, false));
+            root.put("currentPackId", state.getString(KEY_CURRENT_PACK_ID));
+            root.put("photo", snapshotToJson(state, "photo"));
+            root.put("animated", snapshotToJson(state, "animated"));
+            activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                    .edit()
+                    .putString(PREF_STATE, root.toString())
+                    .commit();
+        } catch (Throwable error) {
+            BugLogStore.appendApp("Could not persist editor draft: " + error);
+        }
+    }
+
+    static boolean restorePersistent(MainActivity activity) {
+        if (activity == null) return false;
+        SharedPreferences preferences = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        String raw = preferences.getString(PREF_STATE, null);
+        if (raw == null || raw.trim().isEmpty()) return false;
+        try {
+            JSONObject root = new JSONObject(raw);
+            Bundle state = new Bundle();
+            state.putBoolean(KEY_ACTIVE_ANIMATED, root.optBoolean("activeAnimated", false));
+            state.putBoolean(KEY_WAS_PROCESSING, root.optBoolean("wasProcessing", false));
+            state.putBoolean(KEY_HAD_PENDING_BUILD, root.optBoolean("hadPendingBuild", false));
+            String currentPackId = root.optString("currentPackId", null);
+            if (currentPackId != null && !currentPackId.isEmpty()) {
+                state.putString(KEY_CURRENT_PACK_ID, currentPackId);
+            }
+            jsonToSnapshot(activity, state, "photo", root.optJSONObject("photo"));
+            jsonToSnapshot(activity, state, "animated", root.optJSONObject("animated"));
+            return restore(activity, state);
+        } catch (Throwable error) {
+            BugLogStore.appendApp("Could not restore persistent editor draft: " + error);
+            preferences.edit().remove(PREF_STATE).apply();
+            return false;
+        }
+    }
+
+    static void clearPersistent(Context context) {
+        if (context == null) return;
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .remove(PREF_STATE)
+                .commit();
+    }
+
+    static boolean isAnimatedMode(MainActivity activity) {
+        if (activity == null) return false;
+        try {
+            return (Boolean) getField(activity, "animatedMode");
+        } catch (Throwable error) {
+            BugLogStore.appendApp("Could not read editor mode: " + error);
+            return false;
+        }
+    }
+
+    static void setGalleryClickListener(MainActivity activity, View.OnClickListener listener) {
+        if (activity == null || listener == null) return;
+        try {
+            Button gallery = (Button) getField(activity, "galleryButton");
+            if (gallery != null) gallery.setOnClickListener(listener);
+        } catch (Throwable error) {
+            BugLogStore.appendApp("Could not install persistent media picker: " + error);
+        }
+    }
+
+    static boolean canReadUri(Context context, Uri uri) {
+        if (context == null || uri == null) return false;
+        String scheme = uri.getScheme();
+        if ("file".equalsIgnoreCase(scheme)) {
+            String path = uri.getPath();
+            return path != null && new File(path).isFile();
+        }
+        if ("content".equalsIgnoreCase(scheme)) {
+            try (ParcelFileDescriptor descriptor =
+                         context.getContentResolver().openFileDescriptor(uri, "r")) {
+                return descriptor != null;
+            } catch (Throwable ignored) {
+                return false;
+            }
+        }
+        return false;
+    }
+
+    private static JSONObject snapshotToJson(Bundle state, String slot) throws Exception {
+        JSONObject object = new JSONObject();
+        JSONArray items = new JSONArray();
+        ArrayList<String> storedItems = state.getStringArrayList(key(slot, "items"));
+        if (storedItems != null) {
+            for (String item : storedItems) if (item != null) items.put(item);
+        }
+        object.put("items", items);
+        object.put("cover", state.getString(key(slot, "cover")));
+        object.put("name", state.getString(key(slot, "name"), ""));
+        return object;
+    }
+
+    private static void jsonToSnapshot(
+            MainActivity activity,
+            Bundle state,
+            String slot,
+            JSONObject object
+    ) {
+        ArrayList<String> items = new ArrayList<>();
+        if (object != null) {
+            JSONArray storedItems = object.optJSONArray("items");
+            if (storedItems != null) {
+                for (int i = 0; i < storedItems.length() && items.size() < MAX_RESTORED_ITEMS; i++) {
+                    String raw = storedItems.optString(i, null);
+                    if (raw == null) continue;
+                    Uri uri = Uri.parse(raw);
+                    if (canReadUri(activity, uri)) items.add(raw);
+                }
+            }
+        }
+        state.putStringArrayList(key(slot, "items"), items);
+
+        String rawCover = object == null ? null : object.optString("cover", null);
+        if (rawCover != null && items.contains(rawCover)) {
+            state.putString(key(slot, "cover"), rawCover);
+        }
+        state.putString(key(slot, "name"), object == null ? "" : object.optString("name", ""));
     }
 
     private static void writeSnapshot(
