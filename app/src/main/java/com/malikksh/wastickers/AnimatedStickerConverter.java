@@ -125,28 +125,40 @@ final class AnimatedStickerConverter {
                         ? "unknown" : webp.minFrameDurationMs)
                         + ", bytes=" + input.length());
 
-                if (isAnimationPayloadWhatsAppCompatible(webp, input.length())) {
-                    if (webp.width == REQUIRED_SIZE && webp.height == REQUIRED_SIZE) {
-                        copyFile(input, output);
-                        BugLogStore.appendApp("Animated WebP passthrough: already 512x512; original bytes preserved");
-                        return new Result(webp.approximateFps(), 100, input.length());
-                    }
+                if (isDirectlyWhatsAppCompatible(webp, input.length())) {
+                    copyFile(input, output);
+                    BugLogStore.appendApp("Animated WebP passthrough: already 512x512; original bytes preserved");
+                    return new Result(webp.approximateFps(), 100, input.length());
+                }
 
-                    if (webp.width <= REQUIRED_SIZE && webp.height <= REQUIRED_SIZE) {
-                        normalizeAnimatedWebpCanvas(input, output, webp);
-                        WebpInfo normalized = inspectWebp(output);
-                        if (isDirectlyWhatsAppCompatible(normalized, output.length())) {
-                            BugLogStore.appendApp("Animated WebP lossless canvas normalization: "
-                                    + webp.width + "x" + webp.height + " -> 512x512; frame bitstreams unchanged");
-                            return new Result(normalized.approximateFps(), 100, output.length());
+                if (isAnimationStructureCompatible(webp)) {
+                    try {
+                        BugLogStore.appendApp("Animated WebP pixel resize via native libwebp: "
+                                + webp.width + "x" + webp.height + " -> 512x512, visible content target 480px");
+                        Result resized = AnimatedWebpResizer.resize(
+                                context,
+                                input,
+                                output,
+                                webp.approximateFps()
+                        );
+                        WebpInfo resizedInfo = inspectWebp(output);
+                        if (isDirectlyWhatsAppCompatible(resizedInfo, output.length())) {
+                            BugLogStore.appendApp("libwebp upscale success: 512x512, fps=" + resized.fps
+                                    + ", quality=" + resized.quality + ", bytes=" + resized.bytes);
+                            return resized;
                         }
                         //noinspection ResultOfMethodCallIgnored
                         output.delete();
-                        BugLogStore.appendApp("Lossless WebP canvas normalization validation failed; trying FFmpeg");
+                        BugLogStore.appendApp("libwebp produced a file that failed WhatsApp validation; falling back to FFmpeg");
+                    } catch (Throwable resizeError) {
+                        //noinspection ResultOfMethodCallIgnored
+                        output.delete();
+                        BugLogStore.appendApp("libwebp animated resize failed: " + describeThrowable(resizeError)
+                                + "; falling back to FFmpeg");
                     }
                 }
 
-                BugLogStore.appendApp("Animated WebP requires pixel re-encode; trying FFmpeg conversion");
+                BugLogStore.appendApp("Animated WebP fallback: trying FFmpeg conversion");
             }
 
             for (Profile profile : PROFILES) {
@@ -242,7 +254,7 @@ final class AnimatedStickerConverter {
         }
     }
 
-    private static boolean isAnimationPayloadWhatsAppCompatible(WebpInfo info, long bytes) {
+    private static boolean isAnimationStructureCompatible(WebpInfo info) {
         return info.valid
                 && info.animated
                 && info.width > 0
@@ -253,94 +265,15 @@ final class AnimatedStickerConverter {
                 && info.minFrameDurationMs != Integer.MAX_VALUE
                 && info.minFrameDurationMs >= MIN_FRAME_DURATION_MS
                 && info.maxFrameRight <= info.width
-                && info.maxFrameBottom <= info.height
-                && bytes > 0
-                && bytes <= TARGET_ANIMATED_BYTES;
+                && info.maxFrameBottom <= info.height;
     }
 
     private static boolean isDirectlyWhatsAppCompatible(WebpInfo info, long bytes) {
-        return isAnimationPayloadWhatsAppCompatible(info, bytes)
+        return isAnimationStructureCompatible(info)
                 && info.width == REQUIRED_SIZE
-                && info.height == REQUIRED_SIZE;
-    }
-
-    /**
-     * Enlarges an animated WebP canvas to 512x512 without decoding/re-encoding a single frame.
-     * VP8/VP8L frame payloads remain byte-for-byte unchanged. We only change the VP8X canvas
-     * size and translate every ANMF frame rectangle by the same even-pixel offset.
-     */
-    private static void normalizeAnimatedWebpCanvas(File input, File output, WebpInfo sourceInfo)
-            throws IOException {
-        if (sourceInfo.width <= 0 || sourceInfo.height <= 0
-                || sourceInfo.width > REQUIRED_SIZE || sourceInfo.height > REQUIRED_SIZE) {
-            throw new IOException("WebP canvas нельзя расширить lossless до 512x512");
-        }
-
-        copyFile(input, output);
-
-        int dx = evenCenterOffset(REQUIRED_SIZE, sourceInfo.width);
-        int dy = evenCenterOffset(REQUIRED_SIZE, sourceInfo.height);
-        boolean patchedVp8x = false;
-        int patchedFrames = 0;
-
-        try (RandomAccessFile raf = new RandomAccessFile(output, "rw")) {
-            if (!"RIFF".equals(readFourCc(raf))) throw new IOException("Некорректный RIFF WebP");
-            readUInt32LE(raf);
-            if (!"WEBP".equals(readFourCc(raf))) throw new IOException("Некорректный WEBP контейнер");
-
-            while (raf.getFilePointer() + 8 <= raf.length()) {
-                String chunk = readFourCc(raf);
-                long chunkSize = readUInt32LE(raf);
-                long dataStart = raf.getFilePointer();
-                long dataEnd = dataStart + chunkSize;
-                if (chunkSize < 0 || dataEnd < dataStart || dataEnd > raf.length()) {
-                    throw new IOException("Повреждённый WebP chunk: " + chunk);
-                }
-
-                if ("VP8X".equals(chunk) && chunkSize >= 10) {
-                    raf.seek(dataStart);
-                    int flags = raf.readUnsignedByte();
-                    raf.seek(dataStart);
-                    raf.write(flags | 0x02); // animation feature flag
-                    writeUInt24LE(raf, dataStart + 4, REQUIRED_SIZE - 1);
-                    writeUInt24LE(raf, dataStart + 7, REQUIRED_SIZE - 1);
-                    patchedVp8x = true;
-                } else if ("ANMF".equals(chunk) && chunkSize >= 16) {
-                    raf.seek(dataStart);
-                    int oldX = readUInt24LE(raf) * 2;
-                    int oldY = readUInt24LE(raf) * 2;
-                    int frameWidth = readUInt24LE(raf) + 1;
-                    int frameHeight = readUInt24LE(raf) + 1;
-
-                    int newX = oldX + dx;
-                    int newY = oldY + dy;
-                    if ((newX & 1) != 0 || (newY & 1) != 0
-                            || newX < 0 || newY < 0
-                            || newX + frameWidth > REQUIRED_SIZE
-                            || newY + frameHeight > REQUIRED_SIZE) {
-                        throw new IOException("Не удалось корректно центрировать ANMF кадр в 512x512");
-                    }
-
-                    writeUInt24LE(raf, dataStart, newX / 2);
-                    writeUInt24LE(raf, dataStart + 3, newY / 2);
-                    patchedFrames++;
-                }
-
-                long next = dataEnd + (chunkSize & 1L);
-                raf.seek(next);
-            }
-        }
-
-        if (!patchedVp8x || patchedFrames != sourceInfo.frameCount) {
-            //noinspection ResultOfMethodCallIgnored
-            output.delete();
-            throw new IOException("Не удалось обновить все chunks animated WebP");
-        }
-    }
-
-    private static int evenCenterOffset(int target, int source) {
-        int offset = Math.max(0, (target - source) / 2);
-        return offset & ~1;
+                && info.height == REQUIRED_SIZE
+                && bytes > 0
+                && bytes <= TARGET_ANIMATED_BYTES;
     }
 
     private static WebpInfo inspectWebp(File file) {
@@ -395,7 +328,8 @@ final class AnimatedStickerConverter {
             info.valid = hasVp8x
                     && info.width > 0
                     && info.height > 0
-                    && (!info.animated || (info.maxFrameRight <= info.width && info.maxFrameBottom <= info.height));
+                    && (!info.animated
+                    || (info.maxFrameRight <= info.width && info.maxFrameBottom <= info.height));
         } catch (IOException ignored) {
             return new WebpInfo();
         }
@@ -483,14 +417,6 @@ final class AnimatedStickerConverter {
         int b1 = raf.readUnsignedByte();
         int b2 = raf.readUnsignedByte();
         return b0 | (b1 << 8) | (b2 << 16);
-    }
-
-    private static void writeUInt24LE(RandomAccessFile raf, long position, int value) throws IOException {
-        if (value < 0 || value > 0xFFFFFF) throw new IOException("24-bit WebP value out of range");
-        raf.seek(position);
-        raf.write(value & 0xFF);
-        raf.write((value >> 8) & 0xFF);
-        raf.write((value >> 16) & 0xFF);
     }
 
     private static String compactLog(String log) {
