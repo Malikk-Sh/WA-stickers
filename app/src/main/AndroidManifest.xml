@@ -32,6 +32,10 @@
 
         <activity
             android:name=".BuildShellActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".PacksShellActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
