@@ -5,15 +5,9 @@ import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.ClipboardManager;
-import android.content.ContentResolver;
 import android.content.Intent;
 import android.database.Cursor;
-import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
-import android.graphics.Canvas;
 import android.graphics.Color;
-import android.graphics.Paint;
-import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
@@ -39,11 +33,9 @@ import android.widget.Toast;
 
 import com.arthenica.ffmpegkit.FFmpegKit;
 
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
@@ -61,7 +53,6 @@ public class MainActivity extends Activity {
     private static final int REQUEST_ADD_TO_WHATSAPP = 200;
     private static final int MIN_STICKERS = 3;
     private static final int MAX_STICKERS = 30;
-    private static final int MAX_STATIC_BYTES = 100 * 1024;
 
     private static final int BG = 0xFFF5F8F6;
     private static final int CARD = 0xFFFFFFFF;
@@ -101,8 +92,6 @@ public class MainActivity extends Activity {
     private Button bugLogButton;
     private PreviewLoader previewLoader;
 
-    // Important: this is only the pack created successfully in the CURRENT editor session.
-    // We deliberately do not restore an old pack here, otherwise WhatsApp can receive stale pack ids.
     private PackStore.Pack currentPack;
     private boolean processing;
     private boolean animatedMode;
@@ -112,8 +101,6 @@ public class MainActivity extends Activity {
     private Uri diagnosticItemUri;
     private Uri coverUri;
 
-    // An unfinished pack stays private until it either completes or the user explicitly
-    // chooses to create a pack from the successful stickers. This lets retries reuse work.
     private volatile boolean cancelRequested;
     private boolean pendingBuildActive;
     private String pendingPackId;
@@ -712,9 +699,7 @@ public class MainActivity extends Activity {
                     case DragEvent.ACTION_DROP:
                         frame.setAlpha(1f);
                         Object state = event.getLocalState();
-                        if (state instanceof Integer) {
-                            moveSticker((Integer) state, index);
-                        }
+                        if (state instanceof Integer) moveSticker((Integer) state, index);
                         return true;
                     case DragEvent.ACTION_DRAG_ENDED:
                         frame.setAlpha(1f);
@@ -758,9 +743,7 @@ public class MainActivity extends Activity {
             remove.setOnClickListener(v -> {
                 if (!processing && index >= 0 && index < selectedUris.size()) {
                     Uri removed = selectedUris.remove(index);
-                    if (removed.equals(coverUri)) {
-                        coverUri = selectedUris.isEmpty() ? null : selectedUris.get(0);
-                    }
+                    if (removed.equals(coverUri)) coverUri = selectedUris.isEmpty() ? null : selectedUris.get(0);
                     invalidateCurrentPack();
                     renderPreviews();
                     updateUiState();
@@ -946,6 +929,7 @@ public class MainActivity extends Activity {
         Throwable lastItemError = null;
         int lastFailureIndex = -1;
         Uri lastFailureUri = null;
+        StickerPackBuilder builder = new StickerPackBuilder(this, pendingPackAnimated);
 
         try {
             if (pendingPackDir == null
@@ -978,32 +962,28 @@ public class MainActivity extends Activity {
 
                 File target = new File(pendingPackDir, (pendingSuccessCount + 1) + ".webp");
                 try {
-                    if (pendingPackAnimated) {
-                        AnimatedStickerConverter.Result result = AnimatedStickerConverter.convert(
-                                this,
-                                itemUri,
-                                target,
-                                progress -> runOnUiThread(() ->
-                                        updateAnimatedFileProgress(index, progress))
-                        );
-                        pendingLastFps = result.fps;
-                        pendingLastQuality = result.quality;
-                        BugLogStore.appendApp("Item converted: bytes=" + result.bytes
-                                + ", fps=" + result.fps + ", quality=" + result.quality);
-                        runOnUiThread(() -> completeFileProgress(index,
-                                formatBytes(result.bytes) + " · " + result.fps + " FPS · q" + result.quality));
-                    } else {
-                        runOnUiThread(() -> updateFileProgress(index, 20, "Чтение изображения…"));
-                        Bitmap sticker = makeSticker(itemUri);
-                        try {
-                            runOnUiThread(() -> updateFileProgress(index, 65, "Сжатие WebP…"));
-                            writeWebpUnderLimit(sticker, target);
-                        } finally {
-                            sticker.recycle();
-                        }
-                        BugLogStore.appendApp("Item converted: bytes=" + target.length());
-                        runOnUiThread(() -> completeFileProgress(index, formatBytes(target.length())));
-                    }
+                    StickerPackBuilder.ItemResult result = builder.convert(
+                            itemUri,
+                            target,
+                            new StickerPackBuilder.ProgressListener() {
+                                @Override
+                                public void onStaticProgress(int percent, String detail) {
+                                    runOnUiThread(() -> updateFileProgress(index, percent, detail));
+                                }
+
+                                @Override
+                                public void onAnimatedProgress(AnimatedStickerConverter.Progress progress) {
+                                    runOnUiThread(() -> updateAnimatedFileProgress(index, progress));
+                                }
+                            }
+                    );
+                    pendingLastFps = result.fps;
+                    pendingLastQuality = result.quality;
+                    BugLogStore.appendApp("Item converted: bytes=" + result.bytes
+                            + (result.animated() ? ", fps=" + result.fps + ", quality=" + result.quality : ""));
+                    String detail = formatBytes(result.bytes)
+                            + (result.animated() ? " · " + result.fps + " FPS · q" + result.quality : "");
+                    runOnUiThread(() -> completeFileProgress(index, detail));
 
                     if (pendingTraySourceUri == null || itemUri.equals(pendingPreferredTraySourceUri)) {
                         pendingTraySourceUri = itemUri;
@@ -1092,9 +1072,7 @@ public class MainActivity extends Activity {
         } catch (Throwable error) {
             BugLogStore.appendApp("FFmpeg cancel failed: " + error);
         }
-        if (statusText != null) {
-            statusText.setText("Останавливаю обработку. Уже готовые стикеры будут сохранены в черновике…");
-        }
+        if (statusText != null) statusText.setText("Останавливаю обработку. Уже готовые стикеры будут сохранены в черновике…");
         if (progressText != null) {
             progressText.setText("Остановка текущей операции…");
             progressText.setVisibility(View.VISIBLE);
@@ -1161,23 +1139,15 @@ public class MainActivity extends Activity {
     }
 
     private void finalizePendingPackOnWorker(int skippedCount) throws IOException {
-        if (!pendingBuildActive || pendingPackDir == null) {
-            throw new IOException("Черновик набора больше недоступен");
-        }
-        if (!BatchResultPolicy.canFinalize(pendingSuccessCount)) {
-            throw new IOException("Для набора нужно минимум 3 готовых стикера");
-        }
+        if (!pendingBuildActive || pendingPackDir == null) throw new IOException("Черновик набора больше недоступен");
+        if (!BatchResultPolicy.canFinalize(pendingSuccessCount)) throw new IOException("Для набора нужно минимум 3 готовых стикера");
         if (cancelRequested) throw new IOException("Завершение отменено");
 
         diagnosticItemIndex = -1;
         diagnosticItemUri = null;
         File tray = new File(pendingPackDir, "tray.png");
         if (pendingTraySourceUri == null) throw new IOException("Не найден источник для иконки набора");
-        if (pendingPackAnimated) {
-            AnimatedStickerConverter.createTrayIcon(this, pendingTraySourceUri, tray);
-        } else {
-            createTrayIcon(pendingTraySourceUri, tray);
-        }
+        new StickerPackBuilder(this, pendingPackAnimated).createTrayIcon(pendingTraySourceUri, tray);
         if (cancelRequested) {
             //noinspection ResultOfMethodCallIgnored
             tray.delete();
@@ -1251,7 +1221,6 @@ public class MainActivity extends Activity {
         fileProgressBars.clear();
         fileProgressNames.clear();
         if (fileProgressContainer == null) return;
-
         fileProgressContainer.removeAllViews();
         fileProgressContainer.setVisibility(View.VISIBLE);
 
@@ -1283,25 +1252,15 @@ public class MainActivity extends Activity {
     private void updateAnimatedFileProgress(int index, AnimatedStickerConverter.Progress progress) {
         String detail;
         switch (progress.stage) {
-            case PREPARING:
-                detail = "Подготовка файла";
-                break;
-            case INSPECTING:
-                detail = "Проверка WebP";
-                break;
-            case PASSTHROUGH:
-                detail = "Файл уже подходит WhatsApp";
-                break;
-            case RESIZING:
-                detail = "Изменение размера animated WebP";
-                break;
+            case PREPARING: detail = "Подготовка файла"; break;
+            case INSPECTING: detail = "Проверка WebP"; break;
+            case PASSTHROUGH: detail = "Файл уже подходит WhatsApp"; break;
+            case RESIZING: detail = "Изменение размера animated WebP"; break;
             case CHECKING:
                 detail = "Проверка размера · " + formatBytes(progress.candidateBytes)
                         + " · " + progress.fps + " FPS · q" + progress.quality;
                 break;
-            case DONE:
-                detail = "Завершение";
-                break;
+            case DONE: detail = "Завершение"; break;
             case ENCODING:
             default:
                 detail = "Кодирование · попытка " + progress.attempt + "/" + progress.totalAttempts
@@ -1332,24 +1291,21 @@ public class MainActivity extends Activity {
         ProgressBar itemBar = fileProgressBars.get(index);
         TextView label = fileProgressLabels.get(index);
         itemBar.setProgress(100);
-        label.setText((index + 1) + ". " + progressName(index)
-                + " · Готово\n" + detail);
+        label.setText((index + 1) + ". " + progressName(index) + " · Готово\n" + detail);
         label.setTextColor(PRIMARY);
     }
 
     private void failFileProgress(int index, String reason) {
         if (index < 0 || index >= fileProgressLabels.size()) return;
         TextView label = fileProgressLabels.get(index);
-        label.setText((index + 1) + ". " + progressName(index)
-                + " · Ошибка\n" + reason);
+        label.setText((index + 1) + ". " + progressName(index) + " · Ошибка\n" + reason);
         label.setTextColor(ERROR);
     }
 
     private void markCancelledFrom(int startIndex) {
         for (int i = Math.max(0, startIndex); i < fileProgressLabels.size(); i++) {
             TextView label = fileProgressLabels.get(i);
-            label.setText((i + 1) + ". " + progressName(i)
-                    + " · Не обработано\nОстановлено пользователем");
+            label.setText((i + 1) + ". " + progressName(i) + " · Не обработано\nОстановлено пользователем");
             label.setTextColor(MUTED);
         }
     }
@@ -1433,17 +1389,11 @@ public class MainActivity extends Activity {
         report.append("Successful in draft: ").append(pendingSuccessCount).append('\n');
         report.append("Waiting for retry: ").append(pendingFailedUris.size()).append('\n');
 
-        if (diagnosticItemIndex >= 0) {
-            report.append("Failed item: ").append(diagnosticItemIndex + 1).append(" / ").append(work.size()).append('\n');
-        }
-        if (diagnosticItemUri != null) {
-            report.append("Failed file: ").append(describeUri(diagnosticItemUri)).append('\n');
-        }
+        if (diagnosticItemIndex >= 0) report.append("Failed item: ").append(diagnosticItemIndex + 1).append(" / ").append(work.size()).append('\n');
+        if (diagnosticItemUri != null) report.append("Failed file: ").append(describeUri(diagnosticItemUri)).append('\n');
 
         report.append("\nFiles:\n");
-        for (int i = 0; i < work.size(); i++) {
-            report.append(i + 1).append(". ").append(describeUri(work.get(i))).append('\n');
-        }
+        for (int i = 0; i < work.size(); i++) report.append(i + 1).append(". ").append(describeUri(work.get(i))).append('\n');
 
         report.append("\nException:\n").append(stackTrace(error));
         String ffmpeg = BugLogStore.snapshot();
@@ -1538,107 +1488,17 @@ public class MainActivity extends Activity {
         }
     }
 
-    private Bitmap makeSticker(Uri uri) throws IOException {
-        Bitmap source = decodeSampled(uri, 1600);
-        if (source == null) throw new IOException("Не удалось прочитать изображение");
-
-        Bitmap output = Bitmap.createBitmap(512, 512, Bitmap.Config.ARGB_8888);
-        Canvas canvas = new Canvas(output);
-        canvas.drawColor(Color.TRANSPARENT);
-
-        float scale = Math.min(512f / source.getWidth(), 512f / source.getHeight());
-        float width = source.getWidth() * scale;
-        float height = source.getHeight() * scale;
-        float left = (512f - width) / 2f;
-        float top = (512f - height) / 2f;
-
-        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
-        canvas.drawBitmap(source, null, new RectF(left, top, left + width, top + height), paint);
-        source.recycle();
-        return output;
-    }
-
-    private Bitmap decodeSampled(Uri uri, int maxSide) throws IOException {
-        ContentResolver resolver = getContentResolver();
-        BitmapFactory.Options bounds = new BitmapFactory.Options();
-        bounds.inJustDecodeBounds = true;
-        try (InputStream input = resolver.openInputStream(uri)) {
-            if (input == null) throw new IOException("Файл недоступен");
-            BitmapFactory.decodeStream(input, null, bounds);
-        }
-
-        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
-            throw new IOException("Неподдерживаемое изображение");
-        }
-
-        int sample = 1;
-        int largest = Math.max(bounds.outWidth, bounds.outHeight);
-        while (largest / sample > maxSide * 2) sample *= 2;
-
-        BitmapFactory.Options options = new BitmapFactory.Options();
-        options.inSampleSize = Math.max(1, sample);
-        options.inPreferredConfig = Bitmap.Config.ARGB_8888;
-        try (InputStream input = resolver.openInputStream(uri)) {
-            if (input == null) throw new IOException("Файл недоступен");
-            Bitmap bitmap = BitmapFactory.decodeStream(input, null, options);
-            if (bitmap == null) throw new IOException("Неподдерживаемое изображение");
-            return bitmap;
-        }
-    }
-
-    private void writeWebpUnderLimit(Bitmap bitmap, File target) throws IOException {
-        Bitmap.CompressFormat format = Build.VERSION.SDK_INT >= 30
-                ? Bitmap.CompressFormat.WEBP_LOSSY
-                : Bitmap.CompressFormat.WEBP;
-
-        byte[] best = null;
-        for (int quality = 92; quality >= 8; quality -= 6) {
-            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-            if (!bitmap.compress(format, quality, bytes)) {
-                throw new IOException("Ошибка конвертации WebP");
-            }
-            best = bytes.toByteArray();
-            if (best.length <= MAX_STATIC_BYTES) break;
-        }
-
-        if (best == null || best.length > MAX_STATIC_BYTES) {
-            throw new IOException("Стикер не удалось сжать до 100 КБ");
-        }
-
-        try (FileOutputStream output = new FileOutputStream(target)) {
-            output.write(best);
-        }
-    }
-
-    private void createTrayIcon(Uri sourceUri, File trayFile) throws IOException {
-        Bitmap source = makeSticker(sourceUri);
-        Bitmap icon = Bitmap.createScaledBitmap(source, 96, 96, true);
-        try (FileOutputStream output = new FileOutputStream(trayFile)) {
-            if (!icon.compress(Bitmap.CompressFormat.PNG, 100, output)) {
-                throw new IOException("Не удалось сохранить иконку набора");
-            }
-        } finally {
-            source.recycle();
-            if (icon != source) icon.recycle();
-        }
-        if (trayFile.length() > 50 * 1024) {
-            throw new IOException("Иконка набора превышает 50 КБ");
-        }
-    }
-
     private void addCurrentPackToWhatsApp() {
         if (currentPack == null) {
             Toast.makeText(this, "Сначала успешно создайте новый набор", Toast.LENGTH_SHORT).show();
             return;
         }
-
         if (currentPack.animated != animatedMode) {
             currentPack = null;
             updateUiState();
             Toast.makeText(this, "Текущий набор устарел. Создайте набор заново.", Toast.LENGTH_LONG).show();
             return;
         }
-
         File firstSticker = PackStore.getStickerFile(this, currentPack.id, "1.webp");
         if (!firstSticker.isFile()) {
             currentPack = null;
@@ -1646,7 +1506,6 @@ public class MainActivity extends Activity {
             Toast.makeText(this, "Файлы набора не найдены. Создайте набор заново.", Toast.LENGTH_LONG).show();
             return;
         }
-
         String authority = getPackageName() + ".stickercontentprovider";
         Intent intent = new Intent("com.whatsapp.intent.action.ENABLE_STICKER_PACK");
         intent.putExtra("sticker_pack_id", currentPack.id);
@@ -1663,9 +1522,7 @@ public class MainActivity extends Activity {
         if (file == null || !file.exists()) return;
         if (file.isDirectory()) {
             File[] files = file.listFiles();
-            if (files != null) {
-                for (File child : files) deleteRecursively(child);
-            }
+            if (files != null) for (File child : files) deleteRecursively(child);
         }
         //noinspection ResultOfMethodCallIgnored
         file.delete();
