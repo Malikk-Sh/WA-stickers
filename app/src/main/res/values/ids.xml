@@ -28,4 +28,17 @@
     <item name="trim_next" type="id" />
     <item name="trim_cancel" type="id" />
     <item name="trim_done" type="id" />
+    <item name="build_panel" type="id" />
+    <item name="build_summary" type="id" />
+    <item name="build_cover" type="id" />
+    <item name="build_pack_name" type="id" />
+    <item name="build_type" type="id" />
+    <item name="build_overall" type="id" />
+    <item name="build_progress" type="id" />
+    <item name="build_progress_label" type="id" />
+    <item name="build_stage" type="id" />
+    <item name="build_file_list" type="id" />
+    <item name="build_status" type="id" />
+    <item name="build_primary" type="id" />
+    <item name="build_secondary" type="id" />
 </resources>
