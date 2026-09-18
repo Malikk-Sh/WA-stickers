@@ -147,10 +147,21 @@ final class AnimatedStickerConverter {
                     "pad=96:96:(ow-iw)/2:(oh-ih)/2:color=0x00000000";
             String command = "-y -hide_banner -loglevel error -i " + q(input) +
                     " -frames:v 1 -vf \"" + filter + "\" " + q(trayFile);
-            var session = FFmpegKit.execute(command);
-            if (!ReturnCode.isSuccess(session.getReturnCode()) || !trayFile.isFile()) {
-                throw new IOException("Не удалось создать иконку набора: " + compactLog(session.getAllLogsAsString()));
+
+            try {
+                var session = FFmpegKit.execute(command);
+                String log = session.getAllLogsAsString();
+                BugLogStore.appendFfmpeg(log);
+                if (!ReturnCode.isSuccess(session.getReturnCode()) || !trayFile.isFile()) {
+                    throw new IOException("Не удалось создать иконку набора: " + compactLog(log));
+                }
+            } catch (Throwable ffmpegError) {
+                String message = "FFmpegKit не удалось запустить для иконки: " + describeThrowable(ffmpegError);
+                BugLogStore.appendFfmpeg(message);
+                if (ffmpegError instanceof IOException) throw (IOException) ffmpegError;
+                throw new IOException(message, ffmpegError);
             }
+
             if (trayFile.length() > 50 * 1024) {
                 throw new IOException("Иконка набора превышает 50 КБ");
             }
@@ -174,11 +185,20 @@ final class AnimatedStickerConverter {
                 " -quality " + profile.quality +
                 " -loop 0 -f webp " + q(output);
 
-        var session = FFmpegKit.execute(command);
-        boolean success = ReturnCode.isSuccess(session.getReturnCode())
-                && output.isFile()
-                && output.length() > 0;
-        return new EncodeOutcome(success, session.getAllLogsAsString());
+        try {
+            var session = FFmpegKit.execute(command);
+            String log = session.getAllLogsAsString();
+            BugLogStore.appendFfmpeg("encoder=" + encoder + ", fps=" + profile.fps
+                    + ", quality=" + profile.quality + "\n" + log);
+            boolean success = ReturnCode.isSuccess(session.getReturnCode())
+                    && output.isFile()
+                    && output.length() > 0;
+            return new EncodeOutcome(success, log);
+        } catch (Throwable ffmpegError) {
+            String message = "FFmpegKit startup/execute failure: " + describeThrowable(ffmpegError);
+            BugLogStore.appendFfmpeg(message);
+            return new EncodeOutcome(false, message);
+        }
     }
 
     private static boolean isAnimatedWebp(File file) {
@@ -217,6 +237,12 @@ final class AnimatedStickerConverter {
             compact = compact.substring(compact.length() - 360);
         }
         return compact;
+    }
+
+    private static String describeThrowable(Throwable error) {
+        if (error == null) return "unknown";
+        String message = error.getMessage();
+        return error.getClass().getName() + (message == null || message.isEmpty() ? "" : ": " + message);
     }
 
     private static void copyUri(Context context, Uri uri, File target) throws IOException {
