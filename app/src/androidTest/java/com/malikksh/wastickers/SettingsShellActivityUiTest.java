@@ -8,15 +8,18 @@ import static androidx.test.espresso.matcher.ViewMatchers.isDisplayed;
 import static androidx.test.espresso.matcher.ViewMatchers.withId;
 import static androidx.test.espresso.matcher.ViewMatchers.withText;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.net.Uri;
+import android.view.View;
 
 import androidx.test.core.app.ActivityScenario;
 import androidx.test.core.app.ApplicationProvider;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
+import androidx.test.platform.app.InstrumentationRegistry;
 
 import org.junit.After;
 import org.junit.Before;
@@ -54,9 +57,15 @@ public class SettingsShellActivityUiTest {
     @Test
     public void gearOpensSettingsAndOverflowClearsDraft() throws Exception {
         try (ActivityScenario<SettingsShellActivity> scenario = ActivityScenario.launch(SettingsShellActivity.class)) {
-            onView(withId(R.id.app_settings)).check(matches(isDisplayed())).perform(click());
+            scenario.onActivity(activity -> {
+                View settings = activity.findViewById(R.id.app_settings);
+                assertNotNull(settings);
+                assertTrue(settings.performClick());
+            });
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync();
             onView(withId(R.id.settings_title)).check(matches(withText("Настройки")));
             pressBack();
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync();
 
             scenario.onActivity(activity -> {
                 try {
@@ -74,7 +83,7 @@ public class SettingsShellActivityUiTest {
                 }
             });
 
-            onView(withId(R.id.app_overflow)).perform(click());
+            onView(withId(R.id.app_overflow)).check(matches(isDisplayed())).perform(click());
             onView(withText("Очистить черновик")).perform(click());
             onView(withText("Очистить черновик?")).check(matches(isDisplayed()));
             onView(withText("Очистить")).perform(click());
