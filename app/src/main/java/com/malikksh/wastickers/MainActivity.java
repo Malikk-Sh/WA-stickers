@@ -69,8 +69,8 @@ public class MainActivity extends Activity {
     private final List<TextView> fileProgressLabels = new ArrayList<>();
     private final List<ProgressBar> fileProgressBars = new ArrayList<>();
     private final List<String> fileProgressNames = new ArrayList<>();
-    private final List<Uri> pendingFailedUris = new ArrayList<>();
     private final EditorStateController<Uri> editorStateController = new EditorStateController<>();
+    private final PackBuildSession<Uri> buildSession = new PackBuildSession<>();
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
     private EditText packName;
@@ -99,18 +99,6 @@ public class MainActivity extends Activity {
     private int diagnosticItemIndex = -1;
     private Uri diagnosticItemUri;
     private Uri coverUri;
-
-    private volatile boolean cancelRequested;
-    private boolean pendingBuildActive;
-    private String pendingPackId;
-    private String pendingPackName;
-    private File pendingPackDir;
-    private boolean pendingPackAnimated;
-    private int pendingSuccessCount;
-    private Uri pendingTraySourceUri;
-    private Uri pendingPreferredTraySourceUri;
-    private int pendingLastFps;
-    private int pendingLastQuality;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -466,25 +454,15 @@ public class MainActivity extends Activity {
     }
 
     private void discardPendingBuild() {
-        if (pendingBuildActive && pendingPackDir != null) {
-            deleteRecursively(pendingPackDir);
+        File pendingDir = buildSession.packDir();
+        if (buildSession.isActive() && pendingDir != null) {
+            deleteRecursively(pendingDir);
         }
         clearPendingBuildState();
     }
 
     private void clearPendingBuildState() {
-        pendingBuildActive = false;
-        pendingPackId = null;
-        pendingPackName = null;
-        pendingPackDir = null;
-        pendingPackAnimated = false;
-        pendingSuccessCount = 0;
-        pendingTraySourceUri = null;
-        pendingPreferredTraySourceUri = null;
-        pendingLastFps = 0;
-        pendingLastQuality = 0;
-        pendingFailedUris.clear();
-        cancelRequested = false;
+        buildSession.reset();
     }
 
     private void setAnimatedMode(boolean animated) {
@@ -775,7 +753,7 @@ public class MainActivity extends Activity {
             cancelProcessing();
             return;
         }
-        if (pendingBuildActive && !pendingFailedUris.isEmpty()) {
+        if (buildSession.isActive() && buildSession.hasFailures()) {
             retryFailedItems();
             return;
         }
@@ -784,7 +762,7 @@ public class MainActivity extends Activity {
 
     private void handleAddAction() {
         if (processing) return;
-        if (pendingBuildActive && BatchResultPolicy.canFinalize(pendingSuccessCount)) {
+        if (buildSession.isActive() && buildSession.canFinalize()) {
             finalizePendingPackAsync();
             return;
         }
@@ -810,11 +788,11 @@ public class MainActivity extends Activity {
         if (createButton != null) {
             if (processing) {
                 styleButton(createButton, ERROR, Color.WHITE);
-                createButton.setText(cancelRequested ? "Останавливаю…" : "Отменить обработку");
-                createButton.setEnabled(!cancelRequested);
-            } else if (pendingBuildActive && !pendingFailedUris.isEmpty()) {
+                createButton.setText(buildSession.isCancelRequested() ? "Останавливаю…" : "Отменить обработку");
+                createButton.setEnabled(!buildSession.isCancelRequested());
+            } else if (buildSession.isActive() && buildSession.hasFailures()) {
                 styleButton(createButton, GREEN, 0xFF073B2B);
-                createButton.setText("Повторить ошибки (" + pendingFailedUris.size() + ")");
+                createButton.setText("Повторить ошибки (" + buildSession.failureCount() + ")");
                 createButton.setEnabled(true);
             } else {
                 styleButton(createButton, GREEN, 0xFF073B2B);
@@ -826,8 +804,8 @@ public class MainActivity extends Activity {
         }
 
         if (addButton != null) {
-            if (!processing && pendingBuildActive && BatchResultPolicy.canFinalize(pendingSuccessCount)) {
-                addButton.setText("Создать из готовых (" + pendingSuccessCount + ")");
+            if (!processing && buildSession.isActive() && buildSession.canFinalize()) {
+                addButton.setText("Создать из готовых (" + buildSession.successCount() + ")");
                 addButton.setEnabled(true);
             } else {
                 addButton.setText("Добавить в WhatsApp");
@@ -874,45 +852,36 @@ public class MainActivity extends Activity {
         Uri preferredCover = coverUri != null && work.contains(coverUri) ? coverUri : work.get(0);
 
         invalidateCurrentPack();
-        pendingPackAnimated = animatedMode;
-        pendingPackName = finalName;
-        pendingPackId = (pendingPackAnimated ? "animated_" : "pack_") + System.currentTimeMillis();
-        pendingPackDir = PackStore.getPackDir(this, pendingPackId);
-        pendingSuccessCount = 0;
-        pendingTraySourceUri = null;
-        pendingPreferredTraySourceUri = preferredCover;
-        pendingLastFps = 0;
-        pendingLastQuality = 0;
-        pendingFailedUris.clear();
-        pendingBuildActive = true;
+        String packId = (animatedMode ? "animated_" : "pack_") + System.currentTimeMillis();
+        File packDir = PackStore.getPackDir(this, packId);
+        buildSession.begin(packId, finalName, packDir, animatedMode, preferredCover);
 
         diagnosticItemIndex = -1;
         diagnosticItemUri = null;
         BugLogStore.reset();
-        BugLogStore.appendApp("Starting draft pack. mode=" + (pendingPackAnimated ? "animated" : "static")
+        BugLogStore.appendApp("Starting draft pack. mode=" + (buildSession.isAnimated() ? "animated" : "static")
                 + ", items=" + work.size()
                 + ", customCover=" + describeUri(preferredCover));
         startBatch(work, false);
     }
 
     private void retryFailedItems() {
-        if (processing || !pendingBuildActive || pendingFailedUris.isEmpty()) return;
-        List<Uri> retry = new ArrayList<>(pendingFailedUris);
-        pendingFailedUris.clear();
+        if (processing || !buildSession.isActive() || !buildSession.hasFailures()) return;
+        List<Uri> retry = buildSession.takeFailuresForRetry();
         BugLogStore.appendApp("Retrying failed/remaining items: " + retry.size());
         startBatch(retry, true);
     }
 
     private void startBatch(List<Uri> work, boolean retry) {
-        if (!pendingBuildActive || work.isEmpty()) return;
-        cancelRequested = false;
+        if (!buildSession.isActive() || work.isEmpty()) return;
+        buildSession.beginBatch();
         processing = true;
         lastOperationFailed = false;
         lastBugLog = "";
         statusText.setText(retry ? "Повторяю неудачные файлы…"
-                : (pendingPackAnimated ? "Создаю анимированные стикеры…" : "Создаю стикеры…"));
+                : (buildSession.isAnimated() ? "Создаю анимированные стикеры…" : "Создаю стикеры…"));
         prepareFileProgress(work);
-        startProgress(work.size(), pendingPackAnimated);
+        startProgress(work.size(), buildSession.isAnimated());
         updateUiState();
         executor.execute(() -> processBatch(work));
     }
@@ -922,16 +891,16 @@ public class MainActivity extends Activity {
         Throwable lastItemError = null;
         int lastFailureIndex = -1;
         Uri lastFailureUri = null;
-        StickerPackBuilder builder = new StickerPackBuilder(this, pendingPackAnimated);
+        StickerPackBuilder builder = new StickerPackBuilder(this, buildSession.isAnimated());
 
         try {
-            if (pendingPackDir == null
-                    || (!pendingPackDir.mkdirs() && !pendingPackDir.isDirectory())) {
+            File packDir = buildSession.packDir();
+            if (packDir == null || (!packDir.mkdirs() && !packDir.isDirectory())) {
                 throw new IOException("Не удалось создать папку набора");
             }
 
             for (int i = 0; i < work.size(); i++) {
-                if (cancelRequested) {
+                if (buildSession.isCancelRequested()) {
                     addRemainingForRetry(work, i, failures);
                     final int cancelFrom = i;
                     runOnUiThread(() -> markCancelledFrom(cancelFrom));
@@ -947,13 +916,13 @@ public class MainActivity extends Activity {
                 final int index = i;
                 runOnUiThread(() -> {
                     updateProgress(index, work.size(),
-                            (pendingPackAnimated ? "Конвертирую " : "Обрабатываю ")
+                            (buildSession.isAnimated() ? "Конвертирую " : "Обрабатываю ")
                                     + (index + 1) + " из " + work.size() + "…");
                     updateFileProgress(index, 0,
-                            pendingPackAnimated ? "Подготовка к конвертации…" : "Чтение изображения…");
+                            buildSession.isAnimated() ? "Подготовка к конвертации…" : "Чтение изображения…");
                 });
 
-                File target = new File(pendingPackDir, (pendingSuccessCount + 1) + ".webp");
+                File target = new File(packDir, (buildSession.successCount() + 1) + ".webp");
                 try {
                     StickerPackBuilder.ItemResult result = builder.convert(
                             itemUri,
@@ -970,22 +939,16 @@ public class MainActivity extends Activity {
                                 }
                             }
                     );
-                    pendingLastFps = result.fps;
-                    pendingLastQuality = result.quality;
+                    buildSession.recordSuccess(itemUri, result.fps, result.quality);
                     BugLogStore.appendApp("Item converted: bytes=" + result.bytes
                             + (result.animated() ? ", fps=" + result.fps + ", quality=" + result.quality : ""));
                     String detail = formatBytes(result.bytes)
                             + (result.animated() ? " · " + result.fps + " FPS · q" + result.quality : "");
                     runOnUiThread(() -> completeFileProgress(index, detail));
-
-                    if (pendingTraySourceUri == null || itemUri.equals(pendingPreferredTraySourceUri)) {
-                        pendingTraySourceUri = itemUri;
-                    }
-                    pendingSuccessCount++;
                 } catch (Throwable itemError) {
                     //noinspection ResultOfMethodCallIgnored
                     target.delete();
-                    if (cancelRequested) {
+                    if (buildSession.isCancelRequested()) {
                         addRemainingForRetry(work, i, failures);
                         final int cancelFrom = i;
                         runOnUiThread(() -> markCancelledFrom(cancelFrom));
@@ -1012,10 +975,9 @@ public class MainActivity extends Activity {
                                 : "Проверено " + completed + " из " + work.size() + "."));
             }
 
-            pendingFailedUris.clear();
-            pendingFailedUris.addAll(failures);
+            buildSession.setFailures(failures);
 
-            if (BatchResultPolicy.shouldAutoFinalize(pendingFailedUris.size(), cancelRequested)) {
+            if (buildSession.shouldAutoFinalize()) {
                 finalizePendingPackOnWorker(0);
                 return;
             }
@@ -1023,15 +985,13 @@ public class MainActivity extends Activity {
             if (lastItemError != null) {
                 diagnosticItemIndex = lastFailureIndex;
                 diagnosticItemUri = lastFailureUri;
-                lastBugLog = buildBugLog(lastItemError, pendingPackAnimated, work);
+                lastBugLog = buildBugLog(lastItemError, buildSession.isAnimated(), work);
                 saveBugLog(lastBugLog);
             }
-            runOnUiThread(() -> showPendingBatchResult(cancelRequested));
+            runOnUiThread(() -> showPendingBatchResult(buildSession.isCancelRequested()));
         } catch (Throwable fatalError) {
-            List<Uri> failedWork = new ArrayList<>(work);
-            pendingFailedUris.clear();
-            pendingFailedUris.addAll(failedWork);
-            lastBugLog = buildBugLog(fatalError, pendingPackAnimated, work);
+            buildSession.setFailures(new ArrayList<>(work));
+            lastBugLog = buildBugLog(fatalError, buildSession.isAnimated(), work);
             saveBugLog(lastBugLog);
             BugLogStore.appendApp("Draft creation failed: " + fatalError);
             discardPendingBuild();
@@ -1057,8 +1017,8 @@ public class MainActivity extends Activity {
     }
 
     private void cancelProcessing() {
-        if (!processing || cancelRequested) return;
-        cancelRequested = true;
+        if (!processing || buildSession.isCancelRequested()) return;
+        buildSession.requestCancel();
         BugLogStore.appendApp("Cancellation requested by user");
         try {
             FFmpegKit.cancel();
@@ -1076,20 +1036,21 @@ public class MainActivity extends Activity {
     private void showPendingBatchResult(boolean cancelled) {
         processing = false;
         lastOperationFailed = true;
-        int remaining = pendingFailedUris.size();
+        int remaining = buildSession.failureCount();
+        int successful = buildSession.successCount();
         if (cancelled) {
-            statusText.setText("Обработка остановлена. Готово " + pendingSuccessCount
+            statusText.setText("Обработка остановлена. Готово " + successful
                     + ", осталось " + remaining + ". Можно продолжить с оставшихся файлов.");
-            progressText.setText("Остановлено · готово " + pendingSuccessCount + " · осталось " + remaining);
-        } else if (BatchResultPolicy.canFinalize(pendingSuccessCount)) {
-            statusText.setText("Готово " + pendingSuccessCount + " стикеров, не удалось " + remaining
+            progressText.setText("Остановлено · готово " + successful + " · осталось " + remaining);
+        } else if (buildSession.canFinalize()) {
+            statusText.setText("Готово " + successful + " стикеров, не удалось " + remaining
                     + ". Повторите ошибки или создайте набор из готовых.");
-            progressText.setText("Частичный результат · готово " + pendingSuccessCount
+            progressText.setText("Частичный результат · готово " + successful
                     + " · ошибок " + remaining);
         } else {
-            statusText.setText("Готово " + pendingSuccessCount + ", не удалось " + remaining
+            statusText.setText("Готово " + successful + ", не удалось " + remaining
                     + ". Для набора нужно минимум 3 стикера — повторите ошибки.");
-            progressText.setText("Нужно ещё " + Math.max(0, MIN_STICKERS - pendingSuccessCount)
+            progressText.setText("Нужно ещё " + Math.max(0, MIN_STICKERS - successful)
                     + " успешных стикера.");
         }
         progressText.setVisibility(View.VISIBLE);
@@ -1097,12 +1058,12 @@ public class MainActivity extends Activity {
     }
 
     private void finalizePendingPackAsync() {
-        if (processing || !pendingBuildActive || !BatchResultPolicy.canFinalize(pendingSuccessCount)) return;
-        int skippedCount = pendingFailedUris.size();
+        if (processing || !buildSession.isActive() || !buildSession.canFinalize()) return;
+        int skippedCount = buildSession.failureCount();
         processing = true;
-        cancelRequested = false;
+        buildSession.beginBatch();
         lastOperationFailed = false;
-        statusText.setText("Завершаю набор из " + pendingSuccessCount + " готовых стикеров…");
+        statusText.setText("Завершаю набор из " + buildSession.successCount() + " готовых стикеров…");
         if (progressText != null) {
             progressText.setText("Создаю иконку и metadata набора…");
             progressText.setVisibility(View.VISIBLE);
@@ -1112,12 +1073,12 @@ public class MainActivity extends Activity {
             try {
                 finalizePendingPackOnWorker(skippedCount);
             } catch (Throwable error) {
-                lastBugLog = buildBugLog(error, pendingPackAnimated, new ArrayList<>(selectedUris));
+                lastBugLog = buildBugLog(error, buildSession.isAnimated(), new ArrayList<>(selectedUris));
                 saveBugLog(lastBugLog);
                 runOnUiThread(() -> {
                     processing = false;
                     lastOperationFailed = true;
-                    if (cancelRequested) {
+                    if (buildSession.isCancelRequested()) {
                         statusText.setText("Завершение набора остановлено. Готовые стикеры остаются в черновике.");
                         progressText.setText("Завершение остановлено.");
                     } else {
@@ -1132,28 +1093,31 @@ public class MainActivity extends Activity {
     }
 
     private void finalizePendingPackOnWorker(int skippedCount) throws IOException {
-        if (!pendingBuildActive || pendingPackDir == null) throw new IOException("Черновик набора больше недоступен");
-        if (!BatchResultPolicy.canFinalize(pendingSuccessCount)) throw new IOException("Для набора нужно минимум 3 готовых стикера");
-        if (cancelRequested) throw new IOException("Завершение отменено");
+        File packDir = buildSession.packDir();
+        if (!buildSession.isActive() || packDir == null) throw new IOException("Черновик набора больше недоступен");
+        if (!buildSession.canFinalize()) throw new IOException("Для набора нужно минимум 3 готовых стикера");
+        if (buildSession.isCancelRequested()) throw new IOException("Завершение отменено");
 
         diagnosticItemIndex = -1;
         diagnosticItemUri = null;
-        File tray = new File(pendingPackDir, "tray.png");
-        if (pendingTraySourceUri == null) throw new IOException("Не найден источник для иконки набора");
-        new StickerPackBuilder(this, pendingPackAnimated).createTrayIcon(pendingTraySourceUri, tray);
-        if (cancelRequested) {
+        File tray = new File(packDir, "tray.png");
+        Uri traySource = buildSession.traySource();
+        if (traySource == null) throw new IOException("Не найден источник для иконки набора");
+        new StickerPackBuilder(this, buildSession.isAnimated()).createTrayIcon(traySource, tray);
+        if (buildSession.isCancelRequested()) {
             //noinspection ResultOfMethodCallIgnored
             tray.delete();
             throw new IOException("Завершение отменено");
         }
         BugLogStore.appendApp("Tray icon created: bytes=" + tray.length());
 
+        int stickerCount = buildSession.successCount();
         PackStore.Pack pack = new PackStore.Pack(
-                pendingPackId,
-                pendingPackName,
-                pendingSuccessCount,
+                buildSession.packId(),
+                buildSession.packName(),
+                stickerCount,
                 String.valueOf(System.currentTimeMillis()),
-                pendingPackAnimated
+                buildSession.isAnimated()
         );
         PackStore.addPack(this, pack);
         currentPack = pack;
@@ -1161,9 +1125,9 @@ public class MainActivity extends Activity {
         String authority = getPackageName() + ".stickercontentprovider";
         getContentResolver().notifyChange(Uri.parse("content://" + authority + "/metadata"), null);
 
-        int finalFps = pendingLastFps;
-        int finalQuality = pendingLastQuality;
-        boolean wasAnimated = pendingPackAnimated;
+        int finalFps = buildSession.lastFps();
+        int finalQuality = buildSession.lastQuality();
+        boolean wasAnimated = buildSession.isAnimated();
         clearPendingBuildState();
 
         runOnUiThread(() -> {
@@ -1379,8 +1343,8 @@ public class MainActivity extends Activity {
         report.append("Device: ").append(Build.MANUFACTURER).append(' ').append(Build.MODEL).append('\n');
         report.append("Mode: ").append(makeAnimated ? "animated" : "static").append('\n');
         report.append("Selected files: ").append(work.size()).append('\n');
-        report.append("Successful in draft: ").append(pendingSuccessCount).append('\n');
-        report.append("Waiting for retry: ").append(pendingFailedUris.size()).append('\n');
+        report.append("Successful in draft: ").append(buildSession.successCount()).append('\n');
+        report.append("Waiting for retry: ").append(buildSession.failureCount()).append('\n');
 
         if (diagnosticItemIndex >= 0) report.append("Failed item: ").append(diagnosticItemIndex + 1).append(" / ").append(work.size()).append('\n');
         if (diagnosticItemUri != null) report.append("Failed file: ").append(describeUri(diagnosticItemUri)).append('\n');
@@ -1527,7 +1491,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        cancelRequested = true;
+        buildSession.requestCancel();
         try {
             FFmpegKit.cancel();
         } catch (Throwable ignored) {
