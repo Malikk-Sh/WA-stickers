@@ -33,4 +33,13 @@ public class StickerOrderPolicyTest {
         assertFalse(StickerOrderPolicy.move(items, 1, 1));
         assertEquals(Arrays.asList("a", "b"), items);
     }
+
+    @Test
+    public void nullAndEmptySelectionsAreSafeNoOps() {
+        assertFalse(StickerOrderPolicy.move(null, 0, 0));
+
+        List<String> empty = new ArrayList<>();
+        assertFalse(StickerOrderPolicy.move(empty, 0, 0));
+        assertTrue(empty.isEmpty());
+    }
 }
