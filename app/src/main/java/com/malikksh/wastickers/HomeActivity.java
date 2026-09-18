@@ -1,5 +1,6 @@
 package com.malikksh.wastickers;
 
+import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.Intent;
 import android.graphics.Color;
@@ -23,20 +24,26 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class HomeActivity extends MainActivity {
+    private static final int REQUEST_PICK_PHOTOS = 1001;
     private static final int REQUEST_PICK_ANIMATED = 1002;
     private static final int REQUEST_SAVED_PACKS = 3001;
     private static final int CARD = 0xFFFFFFFF;
     private static final int TEXT = 0xFF14221D;
     private static final int MUTED = 0xFF6A7872;
     private static final int PRIMARY = 0xFF075E54;
+    private static final int SOFT = 0xFFEAF5EF;
+    private static final int ERROR = 0xFFB3261E;
+    private static final int WARNING = 0xFF8A5A00;
 
-    private final ExecutorService trimExecutor = Executors.newSingleThreadExecutor();
+    private final ExecutorService selectionExecutor = Executors.newSingleThreadExecutor();
     private TextView packsMeta;
+    private MediaPreflightAnalyzer preflightAnalyzer;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         VideoTrimStore.clear();
         super.onCreate(savedInstanceState);
+        preflightAnalyzer = new MediaPreflightAnalyzer(this);
         injectSavedPacksCard();
         updateSavedPacksSummary();
     }
@@ -55,9 +62,12 @@ public class HomeActivity extends MainActivity {
             return;
         }
 
-        if (requestCode == REQUEST_PICK_ANIMATED && resultCode == RESULT_OK && data != null) {
+        if ((requestCode == REQUEST_PICK_PHOTOS || requestCode == REQUEST_PICK_ANIMATED)
+                && resultCode == RESULT_OK && data != null) {
             List<Uri> incoming = extractUris(data);
-            if (!incoming.isEmpty()) prepareVideoTrim(incoming);
+            if (!incoming.isEmpty()) {
+                prepareSelectionReport(incoming, requestCode == REQUEST_PICK_ANIMATED);
+            }
         }
     }
 
@@ -75,20 +85,120 @@ public class HomeActivity extends MainActivity {
         return result;
     }
 
-    private void prepareVideoTrim(List<Uri> incoming) {
-        trimExecutor.execute(() -> {
-            List<String> adjustable = VideoTrimStore.prepare(this, incoming);
-            if (adjustable.isEmpty()) return;
+    private void prepareSelectionReport(List<Uri> incoming, boolean animatedSelection) {
+        selectionExecutor.execute(() -> {
+            List<MediaPreflightAnalyzer.Result> results = preflightAnalyzer.analyze(incoming);
+            List<String> adjustable = animatedSelection
+                    ? VideoTrimStore.prepare(this, incoming)
+                    : new ArrayList<>();
             runOnUiThread(() -> {
                 if (isFinishing() || (Build.VERSION.SDK_INT >= 17 && isDestroyed())) return;
-                Intent intent = new Intent(this, VideoTrimActivity.class);
-                intent.putStringArrayListExtra(
-                        VideoTrimActivity.EXTRA_KEYS,
-                        new ArrayList<>(adjustable)
-                );
-                startActivity(intent);
+                showPreflightDialog(results, adjustable);
             });
         });
+    }
+
+    private void showPreflightDialog(List<MediaPreflightAnalyzer.Result> results,
+                                     List<String> adjustable) {
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dpHome(20), dpHome(8), dpHome(20), dpHome(8));
+        scroll.addView(content, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        int warnings = 0;
+        int errors = 0;
+        for (MediaPreflightAnalyzer.Result result : results) {
+            if (result.assessment.severity == MediaPreflightPolicy.Severity.ERROR) errors++;
+            if (result.assessment.severity == MediaPreflightPolicy.Severity.WARNING) warnings++;
+        }
+
+        StringBuilder summaryText = new StringBuilder()
+                .append("Проверено: ").append(results.size());
+        if (warnings > 0) summaryText.append(" · предупреждений: ").append(warnings);
+        if (errors > 0) summaryText.append(" · проблем: ").append(errors);
+        if (!adjustable.isEmpty()) summaryText.append(" · длинных видео: ").append(adjustable.size());
+
+        TextView summary = textHome(summaryText.toString(), 12, MUTED, Typeface.NORMAL);
+        content.addView(summary, matchWrapHome());
+
+        for (int i = 0; i < results.size(); i++) {
+            MediaPreflightAnalyzer.Result result = results.get(i);
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.VERTICAL);
+            row.setPadding(dpHome(12), dpHome(10), dpHome(12), dpHome(10));
+            row.setBackground(roundedHome(0xFFF7FAF8, 14));
+            LinearLayout.LayoutParams rowParams = matchWrapHome();
+            rowParams.topMargin = dpHome(8);
+            content.addView(row, rowParams);
+
+            TextView name = textHome((i + 1) + ". " + result.displayName,
+                    13, TEXT, Typeface.BOLD);
+            name.setMaxLines(2);
+            row.addView(name, matchWrapHome());
+
+            StringBuilder metadata = new StringBuilder(result.kindLabel())
+                    .append(" · ").append(result.sizeLabel())
+                    .append(" · ").append(result.dimensionsLabel());
+            if (result.video && result.durationMs >= 0) {
+                metadata.append(" · ").append(MediaPreflightPolicy.formatDuration(result.durationMs));
+            }
+            TextView meta = textHome(metadata.toString(), 11, MUTED, Typeface.NORMAL);
+            LinearLayout.LayoutParams metaParams = matchWrapHome();
+            metaParams.topMargin = dpHome(3);
+            row.addView(meta, metaParams);
+
+            String noteText = result.assessment.message;
+            if (result.video && result.durationMs > MediaPreflightPolicy.LONG_VIDEO_MS) {
+                String trim = MediaPreflightPolicy.formatTrimWindow(
+                        VideoTrimStore.getStartOffsetMs(result.uri), result.durationMs);
+                if (!trim.isEmpty()) noteText += "\n" + trim + " будет конвертирован";
+            }
+            TextView note = textHome(noteText, 11,
+                    preflightColor(result.assessment.severity), Typeface.NORMAL);
+            note.setLineSpacing(0, 1.05f);
+            LinearLayout.LayoutParams noteParams = matchWrapHome();
+            noteParams.topMargin = dpHome(4);
+            row.addView(note, noteParams);
+        }
+
+        boolean hasTrim = !adjustable.isEmpty();
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("Проверка выбранных файлов")
+                .setView(scroll)
+                .setPositiveButton(hasTrim ? "Настроить фрагменты" : "Готово", (d, which) -> {
+                    if (hasTrim) launchVideoTrim(adjustable);
+                })
+                .create();
+        dialog.setCanceledOnTouchOutside(!hasTrim);
+        dialog.setCancelable(!hasTrim);
+        dialog.show();
+    }
+
+    private int preflightColor(MediaPreflightPolicy.Severity severity) {
+        switch (severity) {
+            case ERROR:
+                return ERROR;
+            case WARNING:
+                return WARNING;
+            case INFO:
+                return PRIMARY;
+            case OK:
+            default:
+                return MUTED;
+        }
+    }
+
+    private void launchVideoTrim(List<String> adjustable) {
+        if (adjustable == null || adjustable.isEmpty()) return;
+        Intent intent = new Intent(this, VideoTrimActivity.class);
+        intent.putStringArrayListExtra(
+                VideoTrimActivity.EXTRA_KEYS,
+                new ArrayList<>(adjustable)
+        );
+        startActivity(intent);
     }
 
     private void injectSavedPacksCard() {
@@ -195,7 +305,7 @@ public class HomeActivity extends MainActivity {
 
     @Override
     protected void onDestroy() {
-        trimExecutor.shutdownNow();
+        selectionExecutor.shutdownNow();
         VideoTrimStore.clear();
         super.onDestroy();
     }
