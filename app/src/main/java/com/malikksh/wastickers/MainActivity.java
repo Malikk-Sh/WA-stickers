@@ -22,6 +22,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.provider.MediaStore;
 import android.provider.OpenableColumns;
+import android.view.DragEvent;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -107,6 +108,7 @@ public class MainActivity extends Activity {
     private String lastBugLog = "";
     private int diagnosticItemIndex = -1;
     private Uri diagnosticItemUri;
+    private Uri coverUri;
 
     // An unfinished pack stays private until it either completes or the user explicitly
     // chooses to create a pack from the successful stickers. This lets retries reuse work.
@@ -118,6 +120,7 @@ public class MainActivity extends Activity {
     private boolean pendingPackAnimated;
     private int pendingSuccessCount;
     private Uri pendingTraySourceUri;
+    private Uri pendingPreferredTraySourceUri;
     private int pendingLastFps;
     private int pendingLastQuality;
 
@@ -482,6 +485,7 @@ public class MainActivity extends Activity {
         pendingPackAnimated = false;
         pendingSuccessCount = 0;
         pendingTraySourceUri = null;
+        pendingPreferredTraySourceUri = null;
         pendingLastFps = 0;
         pendingLastQuality = 0;
         pendingFailedUris.clear();
@@ -492,6 +496,7 @@ public class MainActivity extends Activity {
         if (processing || animatedMode == animated) return;
         animatedMode = animated;
         selectedUris.clear();
+        coverUri = null;
         invalidateCurrentPack();
         renderPreviews();
         updateModeUi();
@@ -505,11 +510,11 @@ public class MainActivity extends Activity {
 
         if (animatedMode) {
             mediaTitle.setText("2  Анимации и видео");
-            mediaHint.setText("Выберите 3–30 файлов: GIF, анимированный WebP, MP4, WebM, MOV, MKV и другие видеоформаты.");
+            mediaHint.setText("Выберите 3–30 файлов. Удерживайте превью, чтобы поменять порядок; ★ выбирает обложку набора.");
             actionHint.setText("До 10 секунд на стикер. Ошибки отдельных файлов не сбрасывают уже готовые стикеры: их можно повторить отдельно.");
         } else {
             mediaTitle.setText("2  Фотографии");
-            mediaHint.setText("Нужно выбрать 3–30 фото. Фон не удаляется, белая обводка не добавляется.");
+            mediaHint.setText("Нужно 3–30 фото. Удерживайте превью, чтобы поменять порядок; ★ выбирает обложку набора.");
             actionHint.setText("Каждое фото помещается целиком в 512×512 WebP до 100 КБ. Ошибочный файл можно повторить без обработки готовых заново.");
         }
     }
@@ -611,6 +616,7 @@ public class MainActivity extends Activity {
             }
         }
 
+        if (coverUri == null && !selectedUris.isEmpty()) coverUri = selectedUris.get(0);
         if (changed) invalidateCurrentPack();
         renderPreviews();
         updateUiState();
@@ -621,6 +627,7 @@ public class MainActivity extends Activity {
         previewContainer.removeAllViews();
 
         if (selectedUris.isEmpty()) {
+            coverUri = null;
             TextView empty = text(
                     animatedMode ? "Выбранные анимации появятся здесь" : "Выбранные фото появятся здесь",
                     13, MUTED, Typeface.NORMAL);
@@ -631,9 +638,12 @@ public class MainActivity extends Activity {
             return;
         }
 
+        if (coverUri == null || !selectedUris.contains(coverUri)) coverUri = selectedUris.get(0);
+
         for (int i = 0; i < selectedUris.size(); i++) {
             final int index = i;
             Uri uri = selectedUris.get(i);
+            boolean isCover = uri.equals(coverUri);
 
             FrameLayout frame = new FrameLayout(this);
             LinearLayout.LayoutParams frameParams = new LinearLayout.LayoutParams(dp(96), dp(96));
@@ -643,13 +653,52 @@ public class MainActivity extends Activity {
             ImageView image = new ImageView(this);
             image.setScaleType(ImageView.ScaleType.CENTER_CROP);
             image.setBackground(rounded(0xFFE9EFEC, 15));
-            image.setContentDescription("Стикер " + (i + 1) + " из " + selectedUris.size());
+            image.setContentDescription("Стикер " + (i + 1) + " из " + selectedUris.size()
+                    + (isCover ? ", выбран как обложка" : "")
+                    + ". Удерживайте для изменения порядка.");
             if (Build.VERSION.SDK_INT >= 21) image.setClipToOutline(true);
             Bitmap preview = loadPreview(uri);
             if (preview != null) image.setImageBitmap(preview);
             frame.addView(image, new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT));
+
+            frame.setOnLongClickListener(v -> {
+                if (processing) return false;
+                ClipData dragData = ClipData.newPlainText("sticker", String.valueOf(index));
+                View.DragShadowBuilder shadow = new View.DragShadowBuilder(frame);
+                if (Build.VERSION.SDK_INT >= 24) {
+                    frame.startDragAndDrop(dragData, shadow, Integer.valueOf(index), 0);
+                } else {
+                    //noinspection deprecation
+                    frame.startDrag(dragData, shadow, Integer.valueOf(index), 0);
+                }
+                return true;
+            });
+            frame.setOnDragListener((v, event) -> {
+                switch (event.getAction()) {
+                    case DragEvent.ACTION_DRAG_STARTED:
+                        return !processing && event.getLocalState() instanceof Integer;
+                    case DragEvent.ACTION_DRAG_ENTERED:
+                        frame.setAlpha(0.72f);
+                        return true;
+                    case DragEvent.ACTION_DRAG_EXITED:
+                        frame.setAlpha(1f);
+                        return true;
+                    case DragEvent.ACTION_DROP:
+                        frame.setAlpha(1f);
+                        Object state = event.getLocalState();
+                        if (state instanceof Integer) {
+                            moveSticker((Integer) state, index);
+                        }
+                        return true;
+                    case DragEvent.ACTION_DRAG_ENDED:
+                        frame.setAlpha(1f);
+                        return true;
+                    default:
+                        return true;
+                }
+            });
 
             if (animatedMode) {
                 TextView play = text("▶", 13, Color.WHITE, Typeface.BOLD);
@@ -661,13 +710,33 @@ public class MainActivity extends Activity {
                 frame.addView(play, playParams);
             }
 
+            TextView cover = text(isCover ? "★" : "☆", 18, isCover ? 0xFF073B2B : PRIMARY, Typeface.BOLD);
+            cover.setGravity(Gravity.CENTER);
+            cover.setContentDescription(isCover ? "Текущая обложка набора" : "Сделать стикер " + (i + 1) + " обложкой");
+            cover.setBackground(rounded(isCover ? 0xE625D366 : 0xEFFFFFFF, 12));
+            cover.setOnClickListener(v -> {
+                if (processing || uri.equals(coverUri)) return;
+                coverUri = uri;
+                invalidateCurrentPack();
+                renderPreviews();
+                updateUiState();
+            });
+            FrameLayout.LayoutParams coverParams = new FrameLayout.LayoutParams(dp(28), dp(28));
+            coverParams.gravity = Gravity.BOTTOM | Gravity.START;
+            coverParams.bottomMargin = dp(4);
+            coverParams.leftMargin = dp(4);
+            frame.addView(cover, coverParams);
+
             TextView remove = text("×", 18, Color.WHITE, Typeface.BOLD);
             remove.setGravity(Gravity.CENTER);
             remove.setContentDescription("Удалить стикер " + (i + 1));
             remove.setBackground(rounded(0xCC17231F, 12));
             remove.setOnClickListener(v -> {
                 if (!processing && index >= 0 && index < selectedUris.size()) {
-                    selectedUris.remove(index);
+                    Uri removed = selectedUris.remove(index);
+                    if (removed.equals(coverUri)) {
+                        coverUri = selectedUris.isEmpty() ? null : selectedUris.get(0);
+                    }
                     invalidateCurrentPack();
                     renderPreviews();
                     updateUiState();
@@ -679,6 +748,13 @@ public class MainActivity extends Activity {
             removeParams.rightMargin = dp(4);
             frame.addView(remove, removeParams);
         }
+    }
+
+    private void moveSticker(int fromIndex, int toIndex) {
+        if (processing || !StickerOrderPolicy.move(selectedUris, fromIndex, toIndex)) return;
+        invalidateCurrentPack();
+        renderPreviews();
+        updateUiState();
     }
 
     private Bitmap loadPreview(Uri uri) {
@@ -785,8 +861,8 @@ public class MainActivity extends Activity {
                         + (animatedMode ? " файла." : " фото."));
             } else {
                 statusText.setText(animatedMode
-                        ? "Анимации выбраны. Можно создавать набор."
-                        : "Фото выбраны. Можно создавать набор.");
+                        ? "Анимации выбраны. Можно менять порядок, обложку и создавать набор."
+                        : "Фото выбраны. Можно менять порядок, обложку и создавать набор.");
             }
         }
     }
@@ -802,6 +878,7 @@ public class MainActivity extends Activity {
                 ? (animatedMode ? "Мои анимированные стикеры" : "Мои стикеры")
                 : enteredName;
         List<Uri> work = new ArrayList<>(selectedUris);
+        Uri preferredCover = coverUri != null && work.contains(coverUri) ? coverUri : work.get(0);
 
         invalidateCurrentPack();
         pendingPackAnimated = animatedMode;
@@ -810,6 +887,7 @@ public class MainActivity extends Activity {
         pendingPackDir = PackStore.getPackDir(this, pendingPackId);
         pendingSuccessCount = 0;
         pendingTraySourceUri = null;
+        pendingPreferredTraySourceUri = preferredCover;
         pendingLastFps = 0;
         pendingLastQuality = 0;
         pendingFailedUris.clear();
@@ -819,7 +897,8 @@ public class MainActivity extends Activity {
         diagnosticItemUri = null;
         BugLogStore.reset();
         BugLogStore.appendApp("Starting draft pack. mode=" + (pendingPackAnimated ? "animated" : "static")
-                + ", items=" + work.size());
+                + ", items=" + work.size()
+                + ", customCover=" + describeUri(preferredCover));
         startBatch(work, false);
     }
 
@@ -909,7 +988,9 @@ public class MainActivity extends Activity {
                         runOnUiThread(() -> completeFileProgress(index, formatBytes(target.length())));
                     }
 
-                    if (pendingTraySourceUri == null) pendingTraySourceUri = itemUri;
+                    if (pendingTraySourceUri == null || itemUri.equals(pendingPreferredTraySourceUri)) {
+                        pendingTraySourceUri = itemUri;
+                    }
                     pendingSuccessCount++;
                 } catch (Throwable itemError) {
                     //noinspection ResultOfMethodCallIgnored
@@ -1074,11 +1155,11 @@ public class MainActivity extends Activity {
         diagnosticItemIndex = -1;
         diagnosticItemUri = null;
         File tray = new File(pendingPackDir, "tray.png");
+        if (pendingTraySourceUri == null) throw new IOException("Не найден источник для иконки набора");
         if (pendingPackAnimated) {
-            if (pendingTraySourceUri == null) throw new IOException("Не найден источник для иконки набора");
             AnimatedStickerConverter.createTrayIcon(this, pendingTraySourceUri, tray);
         } else {
-            createTrayIcon(new File(pendingPackDir, "1.webp"), tray);
+            createTrayIcon(pendingTraySourceUri, tray);
         }
         if (cancelRequested) {
             //noinspection ResultOfMethodCallIgnored
@@ -1512,17 +1593,17 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void createTrayIcon(File stickerFile, File trayFile) throws IOException {
-        Bitmap source = BitmapFactory.decodeFile(stickerFile.getAbsolutePath());
-        if (source == null) throw new IOException("Не удалось создать иконку набора");
+    private void createTrayIcon(Uri sourceUri, File trayFile) throws IOException {
+        Bitmap source = makeSticker(sourceUri);
         Bitmap icon = Bitmap.createScaledBitmap(source, 96, 96, true);
         try (FileOutputStream output = new FileOutputStream(trayFile)) {
             if (!icon.compress(Bitmap.CompressFormat.PNG, 100, output)) {
                 throw new IOException("Не удалось сохранить иконку набора");
             }
+        } finally {
+            source.recycle();
+            if (icon != source) icon.recycle();
         }
-        source.recycle();
-        if (icon != source) icon.recycle();
         if (trayFile.length() > 50 * 1024) {
             throw new IOException("Иконка набора превышает 50 КБ");
         }
