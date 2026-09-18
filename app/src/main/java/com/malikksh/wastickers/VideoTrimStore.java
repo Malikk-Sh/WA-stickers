@@ -1,11 +1,15 @@
 package com.malikksh.wastickers;
 
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.database.Cursor;
 import android.media.MediaMetadataRetriever;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.OpenableColumns;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -50,6 +54,7 @@ final class VideoTrimStore {
     }
 
     private static final Map<String, MutableEntry> ENTRIES = new LinkedHashMap<>();
+    private static final String PREFS = "video_trim_persistent";
 
     private VideoTrimStore() {}
 
@@ -176,6 +181,70 @@ final class VideoTrimStore {
             ));
         }
         replaceEntries(restored);
+    }
+
+    static synchronized void savePersistent(Context context, String key) {
+        if (context == null || key == null) return;
+        try {
+            JSONArray array = new JSONArray();
+            for (MutableEntry entry : ENTRIES.values()) {
+                JSONObject item = new JSONObject();
+                item.put("key", entry.key);
+                item.put("uri", entry.uri.toString());
+                item.put("name", entry.displayName);
+                item.put("durationMs", entry.durationMs);
+                item.put("startOffsetMs", VideoTrimPolicy.clampStartMs(
+                        entry.durationMs,
+                        entry.startOffsetMs
+                ));
+                array.put(item);
+            }
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                    .edit()
+                    .putString(key, array.toString())
+                    .commit();
+        } catch (Throwable error) {
+            BugLogStore.appendApp("Could not persist video trim state: " + error);
+        }
+    }
+
+    static synchronized void restorePersistent(Context context, String key) {
+        if (context == null || key == null) return;
+        SharedPreferences preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        String raw = preferences.getString(key, null);
+        if (raw == null || raw.trim().isEmpty()) return;
+        try {
+            JSONArray array = new JSONArray(raw);
+            List<Entry> restored = new ArrayList<>();
+            for (int i = 0; i < array.length(); i++) {
+                JSONObject item = array.optJSONObject(i);
+                if (item == null) continue;
+                String storedKey = item.optString("key", null);
+                String rawUri = item.optString("uri", null);
+                if (storedKey == null || rawUri == null) continue;
+                Uri uri = Uri.parse(rawUri);
+                if (!EditorInstanceStateBridge.canReadUri(context, uri)) continue;
+                restored.add(new Entry(
+                        storedKey,
+                        uri,
+                        item.optString("name", "Видео"),
+                        item.optLong("durationMs", -1L),
+                        item.optLong("startOffsetMs", 0L)
+                ));
+            }
+            replaceEntries(restored);
+        } catch (Throwable error) {
+            BugLogStore.appendApp("Could not restore persistent video trim state: " + error);
+            preferences.edit().remove(key).apply();
+        }
+    }
+
+    static void clearPersistent(Context context, String key) {
+        if (context == null || key == null) return;
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .remove(key)
+                .commit();
     }
 
     private static boolean isVideo(Context context, Uri uri) {
