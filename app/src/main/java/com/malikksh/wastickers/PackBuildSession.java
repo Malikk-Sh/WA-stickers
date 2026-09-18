@@ -20,6 +20,7 @@ final class PackBuildSession<T> {
     private int lastFps;
     private int lastQuality;
     private volatile boolean cancelRequested;
+    private boolean autoFinalizeAllowed = true;
 
     void begin(String packId, String packName, File packDir, boolean animated, T preferredTraySource) {
         reset();
@@ -76,8 +77,17 @@ final class PackBuildSession<T> {
         return cancelRequested;
     }
 
+    void setAutoFinalizeAllowed(boolean allowed) {
+        autoFinalizeAllowed = allowed;
+    }
+
+    boolean isAutoFinalizeAllowed() {
+        return autoFinalizeAllowed;
+    }
+
     boolean shouldAutoFinalize() {
-        return BatchResultPolicy.shouldAutoFinalize(failures.size(), cancelRequested);
+        return autoFinalizeAllowed
+                && BatchResultPolicy.shouldAutoFinalize(failures.size(), cancelRequested);
     }
 
     boolean canFinalize() {
@@ -133,5 +143,6 @@ final class PackBuildSession<T> {
         lastQuality = 0;
         failures.clear();
         cancelRequested = false;
+        autoFinalizeAllowed = true;
     }
 }
