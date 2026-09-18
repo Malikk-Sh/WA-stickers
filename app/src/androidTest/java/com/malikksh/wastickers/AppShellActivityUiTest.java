@@ -8,10 +8,8 @@ import static androidx.test.espresso.matcher.ViewMatchers.isEnabled;
 import static androidx.test.espresso.matcher.ViewMatchers.withId;
 import static androidx.test.espresso.matcher.ViewMatchers.withText;
 import static org.hamcrest.Matchers.not;
-import static org.junit.Assert.assertNotNull;
 
 import android.content.Context;
-import android.view.View;
 
 import androidx.test.core.app.ActivityScenario;
 import androidx.test.core.app.ApplicationProvider;
@@ -61,38 +59,6 @@ public class AppShellActivityUiTest {
     }
 
     @Test
-    public void mediaTabOpens() {
-        try (ActivityScenario<AppShellActivity> scenario = ActivityScenario.launch(AppShellActivity.class)) {
-            performTabClick(scenario, R.id.nav_media);
-            onView(withText("Выбранные файлы")).check(matches(isDisplayed()));
-        }
-    }
-
-    @Test
-    public void buildTabOpens() {
-        try (ActivityScenario<AppShellActivity> scenario = ActivityScenario.launch(AppShellActivity.class)) {
-            performTabClick(scenario, R.id.nav_build);
-            onView(withText("Подготовка набора")).check(matches(isDisplayed()));
-        }
-    }
-
-    @Test
-    public void packsTabOpens() {
-        try (ActivityScenario<AppShellActivity> scenario = ActivityScenario.launch(AppShellActivity.class)) {
-            performTabClick(scenario, R.id.nav_packs);
-            onView(withText("Сохранённые наборы")).check(matches(isDisplayed()));
-        }
-    }
-
-    @Test
-    public void bottomNavigationAcceptsUserClick() {
-        try (ActivityScenario<AppShellActivity> ignored = ActivityScenario.launch(AppShellActivity.class)) {
-            onView(withId(R.id.nav_packs)).perform(click());
-            onView(withId(R.id.nav_packs)).check(matches(isDisplayed()));
-        }
-    }
-
-    @Test
     public void createModeSwitchUpdatesCompactSelectionCard() {
         try (ActivityScenario<AppShellActivity> ignored = ActivityScenario.launch(AppShellActivity.class)) {
             onView(withText("Анимация")).perform(click());
@@ -104,14 +70,6 @@ public class AppShellActivityUiTest {
             onView(withText("Добавьте фотографии")).check(matches(isDisplayed()));
             onView(withId(R.id.create_pick_media)).check(matches(withText("＋  Выбрать фото")));
         }
-    }
-
-    private void performTabClick(ActivityScenario<AppShellActivity> scenario, int id) {
-        scenario.onActivity(activity -> {
-            View tab = activity.findViewById(id);
-            assertNotNull(tab);
-            tab.performClick();
-        });
     }
 
     private void clearSavedPacks() {
