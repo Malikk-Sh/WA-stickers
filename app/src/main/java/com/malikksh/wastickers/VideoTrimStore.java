@@ -4,6 +4,7 @@ import android.content.Context;
 import android.database.Cursor;
 import android.media.MediaMetadataRetriever;
 import android.net.Uri;
+import android.os.Bundle;
 import android.provider.OpenableColumns;
 
 import java.util.ArrayList;
@@ -104,6 +105,77 @@ final class VideoTrimStore {
         MutableEntry entry = ENTRIES.get(key);
         if (entry == null) return;
         entry.startOffsetMs = VideoTrimPolicy.clampStartMs(entry.durationMs, startOffsetMs);
+    }
+
+    static synchronized void replaceEntries(List<Entry> entries) {
+        ENTRIES.clear();
+        if (entries == null) return;
+        for (Entry entry : entries) {
+            if (entry == null || entry.key == null || entry.uri == null) continue;
+            ENTRIES.put(entry.key, new MutableEntry(
+                    entry.key,
+                    entry.uri,
+                    entry.displayName == null ? "Видео" : entry.displayName,
+                    entry.durationMs,
+                    VideoTrimPolicy.clampStartMs(entry.durationMs, entry.startOffsetMs)
+            ));
+        }
+    }
+
+    static synchronized void saveToBundle(Bundle outState, String prefix) {
+        if (outState == null) return;
+        String safePrefix = prefix == null ? "" : prefix;
+        ArrayList<String> keys = new ArrayList<>();
+        ArrayList<String> uris = new ArrayList<>();
+        ArrayList<String> names = new ArrayList<>();
+        long[] durations = new long[ENTRIES.size()];
+        long[] starts = new long[ENTRIES.size()];
+
+        int index = 0;
+        for (MutableEntry entry : ENTRIES.values()) {
+            keys.add(entry.key);
+            uris.add(entry.uri.toString());
+            names.add(entry.displayName);
+            durations[index] = entry.durationMs;
+            starts[index] = VideoTrimPolicy.clampStartMs(entry.durationMs, entry.startOffsetMs);
+            index++;
+        }
+
+        outState.putStringArrayList(safePrefix + "keys", keys);
+        outState.putStringArrayList(safePrefix + "uris", uris);
+        outState.putStringArrayList(safePrefix + "names", names);
+        outState.putLongArray(safePrefix + "durations", durations);
+        outState.putLongArray(safePrefix + "starts", starts);
+    }
+
+    static synchronized void restoreFromBundle(Bundle savedState, String prefix) {
+        if (savedState == null) return;
+        String safePrefix = prefix == null ? "" : prefix;
+        ArrayList<String> keys = savedState.getStringArrayList(safePrefix + "keys");
+        ArrayList<String> uris = savedState.getStringArrayList(safePrefix + "uris");
+        ArrayList<String> names = savedState.getStringArrayList(safePrefix + "names");
+        long[] durations = savedState.getLongArray(safePrefix + "durations");
+        long[] starts = savedState.getLongArray(safePrefix + "starts");
+        if (keys == null || uris == null || names == null || durations == null || starts == null) return;
+
+        int count = Math.min(
+                Math.min(keys.size(), uris.size()),
+                Math.min(names.size(), Math.min(durations.length, starts.length))
+        );
+        List<Entry> restored = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            String key = keys.get(i);
+            String rawUri = uris.get(i);
+            if (key == null || rawUri == null) continue;
+            restored.add(new Entry(
+                    key,
+                    Uri.parse(rawUri),
+                    names.get(i),
+                    durations[i],
+                    starts[i]
+            ));
+        }
+        replaceEntries(restored);
     }
 
     private static boolean isVideo(Context context, Uri uri) {
