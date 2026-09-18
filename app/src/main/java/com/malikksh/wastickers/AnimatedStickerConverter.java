@@ -21,18 +21,15 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.RandomAccessFile;
-import java.nio.charset.StandardCharsets;
 
 final class AnimatedStickerConverter {
     static final int MAX_ANIMATED_BYTES = 500 * 1024;
     static final int MAX_DURATION_SECONDS = 10;
 
-    // Keep a little headroom for WhatsApp builds that interpret "500 KB" as 500,000 bytes.
     private static final int TARGET_ANIMATED_BYTES = 490_000;
     private static final int REQUIRED_SIZE = 512;
     private static final int MIN_FRAME_DURATION_MS = 8;
 
-    // Preserve per-frame detail first. FPS is reduced before quality becomes aggressive.
     private static final Profile[] PROFILES = new Profile[]{
             new Profile(18, 92),
             new Profile(14, 92),
@@ -95,6 +92,8 @@ final class AnimatedStickerConverter {
         int frameCount;
         long totalDurationMs;
         int minFrameDurationMs = Integer.MAX_VALUE;
+        int maxFrameRight;
+        int maxFrameBottom;
 
         int approximateFps() {
             if (frameCount <= 0 || totalDurationMs <= 0) return 1;
@@ -117,9 +116,6 @@ final class AnimatedStickerConverter {
         File candidate = new File(tempDir, "candidate_" + System.nanoTime() + ".webp");
         String lastLog = "";
         try {
-            // Important fast path for sticker files from TikTok/Telegram/etc.
-            // FFmpeg 7.1 can fail to decode some valid animated WebP containers. If the file already
-            // satisfies WhatsApp's constraints, copying it unchanged gives the best possible quality.
             WebpInfo webp = inspectWebp(input);
             if (webp.valid && webp.animated) {
                 BugLogStore.appendApp("Animated WebP detected: " + webp.width + "x" + webp.height
@@ -129,13 +125,28 @@ final class AnimatedStickerConverter {
                         ? "unknown" : webp.minFrameDurationMs)
                         + ", bytes=" + input.length());
 
-                if (isDirectlyWhatsAppCompatible(webp, input.length())) {
-                    copyFile(input, output);
-                    BugLogStore.appendApp("Animated WebP passthrough: no re-encode, original bytes preserved");
-                    return new Result(webp.approximateFps(), 100, input.length());
+                if (isAnimationPayloadWhatsAppCompatible(webp, input.length())) {
+                    if (webp.width == REQUIRED_SIZE && webp.height == REQUIRED_SIZE) {
+                        copyFile(input, output);
+                        BugLogStore.appendApp("Animated WebP passthrough: already 512x512; original bytes preserved");
+                        return new Result(webp.approximateFps(), 100, input.length());
+                    }
+
+                    if (webp.width <= REQUIRED_SIZE && webp.height <= REQUIRED_SIZE) {
+                        normalizeAnimatedWebpCanvas(input, output, webp);
+                        WebpInfo normalized = inspectWebp(output);
+                        if (isDirectlyWhatsAppCompatible(normalized, output.length())) {
+                            BugLogStore.appendApp("Animated WebP lossless canvas normalization: "
+                                    + webp.width + "x" + webp.height + " -> 512x512; frame bitstreams unchanged");
+                            return new Result(normalized.approximateFps(), 100, output.length());
+                        }
+                        //noinspection ResultOfMethodCallIgnored
+                        output.delete();
+                        BugLogStore.appendApp("Lossless WebP canvas normalization validation failed; trying FFmpeg");
+                    }
                 }
 
-                BugLogStore.appendApp("Animated WebP is not directly WhatsApp-compatible; trying FFmpeg conversion");
+                BugLogStore.appendApp("Animated WebP requires pixel re-encode; trying FFmpeg conversion");
             }
 
             for (Profile profile : PROFILES) {
@@ -144,7 +155,6 @@ final class AnimatedStickerConverter {
                 EncodeOutcome outcome = encode(input, candidate, profile, "libwebp_anim");
                 lastLog = outcome.log;
 
-                // Some Android FFmpeg builds expose only the generic libwebp encoder.
                 if (!outcome.success) {
                     if (candidate.exists()) candidate.delete();
                     outcome = encode(input, candidate, profile, "libwebp");
@@ -162,8 +172,8 @@ final class AnimatedStickerConverter {
 
                 if (!isAnimatedWebp(candidate)) {
                     throw new IOException(
-                            "Файл не удалось превратить в анимацию: итоговый WebP содержит только один кадр. " +
-                            "FFmpeg: " + compactLog(lastLog));
+                            "Файл не удалось превратить в анимацию: итоговый WebP содержит только один кадр. "
+                                    + "FFmpeg: " + compactLog(lastLog));
                 }
 
                 long size = candidate.length();
@@ -174,8 +184,8 @@ final class AnimatedStickerConverter {
             }
 
             throw new IOException(
-                    "Даже после сильной оптимизации файл не помещается в лимит WhatsApp 500 КБ. " +
-                    "Попробуйте более короткий или менее динамичный фрагмент.");
+                    "Даже после сильной оптимизации файл не помещается в лимит WhatsApp 500 КБ. "
+                            + "Попробуйте более короткий или менее динамичный фрагмент.");
         } finally {
             //noinspection ResultOfMethodCallIgnored
             input.delete();
@@ -193,8 +203,6 @@ final class AnimatedStickerConverter {
         File input = new File(tempDir, "tray_input_" + System.nanoTime() + guessExtension(context, sourceUri));
         copyUri(context, sourceUri, input);
         try {
-            // Android's image decoder can read the first frame of animated WebP even for files that
-            // FFmpeg 7.1 rejects. Prefer it for the tray icon and keep FFmpeg as fallback.
             Bitmap firstFrame = BitmapFactory.decodeFile(input.getAbsolutePath());
             if (firstFrame != null) {
                 try {
@@ -206,10 +214,10 @@ final class AnimatedStickerConverter {
                 }
             }
 
-            String filter = "scale=96:96:force_original_aspect_ratio=decrease:flags=lanczos," +
-                    "pad=96:96:(ow-iw)/2:(oh-ih)/2:color=0x00000000";
-            String command = "-y -hide_banner -loglevel error -i " + q(input) +
-                    " -frames:v 1 -vf \"" + filter + "\" " + q(trayFile);
+            String filter = "scale=96:96:force_original_aspect_ratio=decrease:flags=lanczos,"
+                    + "pad=96:96:(ow-iw)/2:(oh-ih)/2:color=0x00000000";
+            String command = "-y -hide_banner -loglevel error -i " + q(input)
+                    + " -frames:v 1 -vf \"" + filter + "\" " + q(trayFile);
 
             try {
                 var session = FFmpegKit.execute(command);
@@ -234,18 +242,105 @@ final class AnimatedStickerConverter {
         }
     }
 
-    private static boolean isDirectlyWhatsAppCompatible(WebpInfo info, long bytes) {
+    private static boolean isAnimationPayloadWhatsAppCompatible(WebpInfo info, long bytes) {
         return info.valid
                 && info.animated
-                && info.width == REQUIRED_SIZE
-                && info.height == REQUIRED_SIZE
+                && info.width > 0
+                && info.height > 0
                 && info.frameCount > 0
                 && info.totalDurationMs > 0
                 && info.totalDurationMs <= MAX_DURATION_SECONDS * 1000L
                 && info.minFrameDurationMs != Integer.MAX_VALUE
                 && info.minFrameDurationMs >= MIN_FRAME_DURATION_MS
+                && info.maxFrameRight <= info.width
+                && info.maxFrameBottom <= info.height
                 && bytes > 0
                 && bytes <= TARGET_ANIMATED_BYTES;
+    }
+
+    private static boolean isDirectlyWhatsAppCompatible(WebpInfo info, long bytes) {
+        return isAnimationPayloadWhatsAppCompatible(info, bytes)
+                && info.width == REQUIRED_SIZE
+                && info.height == REQUIRED_SIZE;
+    }
+
+    /**
+     * Enlarges an animated WebP canvas to 512x512 without decoding/re-encoding a single frame.
+     * VP8/VP8L frame payloads remain byte-for-byte unchanged. We only change the VP8X canvas
+     * size and translate every ANMF frame rectangle by the same even-pixel offset.
+     */
+    private static void normalizeAnimatedWebpCanvas(File input, File output, WebpInfo sourceInfo)
+            throws IOException {
+        if (sourceInfo.width <= 0 || sourceInfo.height <= 0
+                || sourceInfo.width > REQUIRED_SIZE || sourceInfo.height > REQUIRED_SIZE) {
+            throw new IOException("WebP canvas нельзя расширить lossless до 512x512");
+        }
+
+        copyFile(input, output);
+
+        int dx = evenCenterOffset(REQUIRED_SIZE, sourceInfo.width);
+        int dy = evenCenterOffset(REQUIRED_SIZE, sourceInfo.height);
+        boolean patchedVp8x = false;
+        int patchedFrames = 0;
+
+        try (RandomAccessFile raf = new RandomAccessFile(output, "rw")) {
+            if (!"RIFF".equals(readFourCc(raf))) throw new IOException("Некорректный RIFF WebP");
+            readUInt32LE(raf);
+            if (!"WEBP".equals(readFourCc(raf))) throw new IOException("Некорректный WEBP контейнер");
+
+            while (raf.getFilePointer() + 8 <= raf.length()) {
+                String chunk = readFourCc(raf);
+                long chunkSize = readUInt32LE(raf);
+                long dataStart = raf.getFilePointer();
+                long dataEnd = dataStart + chunkSize;
+                if (chunkSize < 0 || dataEnd < dataStart || dataEnd > raf.length()) {
+                    throw new IOException("Повреждённый WebP chunk: " + chunk);
+                }
+
+                if ("VP8X".equals(chunk) && chunkSize >= 10) {
+                    raf.seek(dataStart);
+                    int flags = raf.readUnsignedByte();
+                    raf.seek(dataStart);
+                    raf.write(flags | 0x02); // animation feature flag
+                    writeUInt24LE(raf, dataStart + 4, REQUIRED_SIZE - 1);
+                    writeUInt24LE(raf, dataStart + 7, REQUIRED_SIZE - 1);
+                    patchedVp8x = true;
+                } else if ("ANMF".equals(chunk) && chunkSize >= 16) {
+                    raf.seek(dataStart);
+                    int oldX = readUInt24LE(raf) * 2;
+                    int oldY = readUInt24LE(raf) * 2;
+                    int frameWidth = readUInt24LE(raf) + 1;
+                    int frameHeight = readUInt24LE(raf) + 1;
+
+                    int newX = oldX + dx;
+                    int newY = oldY + dy;
+                    if ((newX & 1) != 0 || (newY & 1) != 0
+                            || newX < 0 || newY < 0
+                            || newX + frameWidth > REQUIRED_SIZE
+                            || newY + frameHeight > REQUIRED_SIZE) {
+                        throw new IOException("Не удалось корректно центрировать ANMF кадр в 512x512");
+                    }
+
+                    writeUInt24LE(raf, dataStart, newX / 2);
+                    writeUInt24LE(raf, dataStart + 3, newY / 2);
+                    patchedFrames++;
+                }
+
+                long next = dataEnd + (chunkSize & 1L);
+                raf.seek(next);
+            }
+        }
+
+        if (!patchedVp8x || patchedFrames != sourceInfo.frameCount) {
+            //noinspection ResultOfMethodCallIgnored
+            output.delete();
+            throw new IOException("Не удалось обновить все chunks animated WebP");
+        }
+    }
+
+    private static int evenCenterOffset(int target, int source) {
+        int offset = Math.max(0, (target - source) / 2);
+        return offset & ~1;
     }
 
     private static WebpInfo inspectWebp(File file) {
@@ -254,10 +349,10 @@ final class AnimatedStickerConverter {
 
         try (RandomAccessFile raf = new RandomAccessFile(file, "r")) {
             if (!"RIFF".equals(readFourCc(raf))) return info;
-            readUInt32LE(raf); // RIFF payload size
+            readUInt32LE(raf);
             if (!"WEBP".equals(readFourCc(raf))) return info;
-            info.valid = true;
 
+            boolean hasVp8x = false;
             boolean hasAnimChunk = false;
             boolean hasAnimationFlag = false;
 
@@ -266,100 +361,61 @@ final class AnimatedStickerConverter {
                 long chunkSize = readUInt32LE(raf);
                 long dataStart = raf.getFilePointer();
                 long dataEnd = dataStart + chunkSize;
-                if (chunkSize < 0 || dataEnd < dataStart || dataEnd > raf.length()) {
-                    info.valid = false;
-                    return info;
-                }
+                if (chunkSize < 0 || dataEnd < dataStart || dataEnd > raf.length()) return info;
 
                 if ("VP8X".equals(chunk) && chunkSize >= 10) {
+                    hasVp8x = true;
                     int flags = raf.readUnsignedByte();
                     hasAnimationFlag = (flags & 0x02) != 0;
                     raf.skipBytes(3);
                     info.width = readUInt24LE(raf) + 1;
                     info.height = readUInt24LE(raf) + 1;
-                } else if ("ANIM".equals(chunk)) {
+                } else if ("ANIM".equals(chunk) && chunkSize >= 6) {
                     hasAnimChunk = true;
                 } else if ("ANMF".equals(chunk) && chunkSize >= 16) {
-                    raf.seek(dataStart + 12);
+                    raf.seek(dataStart);
+                    int x = readUInt24LE(raf) * 2;
+                    int y = readUInt24LE(raf) * 2;
+                    int frameWidth = readUInt24LE(raf) + 1;
+                    int frameHeight = readUInt24LE(raf) + 1;
                     int duration = readUInt24LE(raf);
+
                     info.frameCount++;
                     info.totalDurationMs += duration;
                     info.minFrameDurationMs = Math.min(info.minFrameDurationMs, duration);
+                    info.maxFrameRight = Math.max(info.maxFrameRight, x + frameWidth);
+                    info.maxFrameBottom = Math.max(info.maxFrameBottom, y + frameHeight);
                 }
 
                 long next = dataEnd + (chunkSize & 1L);
-                if (next > raf.length()) break;
                 raf.seek(next);
             }
 
-            info.animated = (hasAnimationFlag || hasAnimChunk) && info.frameCount > 0;
-        } catch (Throwable error) {
-            BugLogStore.appendApp("WebP parser failed: " + describeThrowable(error));
-            info.valid = false;
+            info.animated = hasVp8x && hasAnimationFlag && hasAnimChunk && info.frameCount > 0;
+            info.valid = hasVp8x
+                    && info.width > 0
+                    && info.height > 0
+                    && (!info.animated || (info.maxFrameRight <= info.width && info.maxFrameBottom <= info.height));
+        } catch (IOException ignored) {
+            return new WebpInfo();
         }
+
         return info;
     }
 
-    private static String readFourCc(RandomAccessFile raf) throws IOException {
-        byte[] four = new byte[4];
-        raf.readFully(four);
-        return new String(four, StandardCharsets.US_ASCII);
-    }
-
-    private static long readUInt32LE(RandomAccessFile raf) throws IOException {
-        long b0 = raf.readUnsignedByte();
-        long b1 = raf.readUnsignedByte();
-        long b2 = raf.readUnsignedByte();
-        long b3 = raf.readUnsignedByte();
-        return b0 | (b1 << 8) | (b2 << 16) | (b3 << 24);
-    }
-
-    private static int readUInt24LE(RandomAccessFile raf) throws IOException {
-        int b0 = raf.readUnsignedByte();
-        int b1 = raf.readUnsignedByte();
-        int b2 = raf.readUnsignedByte();
-        return b0 | (b1 << 8) | (b2 << 16);
-    }
-
-    private static void writeTrayBitmap(Bitmap source, File trayFile) throws IOException {
-        Bitmap tray = Bitmap.createBitmap(96, 96, Bitmap.Config.ARGB_8888);
-        Canvas canvas = new Canvas(tray);
-        canvas.drawColor(Color.TRANSPARENT);
-
-        float scale = Math.min(96f / source.getWidth(), 96f / source.getHeight());
-        float width = source.getWidth() * scale;
-        float height = source.getHeight() * scale;
-        float left = (96f - width) / 2f;
-        float top = (96f - height) / 2f;
-        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
-        canvas.drawBitmap(source, null, new RectF(left, top, left + width, top + height), paint);
-
-        try (FileOutputStream output = new FileOutputStream(trayFile)) {
-            if (!tray.compress(Bitmap.CompressFormat.PNG, 100, output)) {
-                throw new IOException("Не удалось сохранить иконку набора");
-            }
-        } finally {
-            tray.recycle();
-        }
-
-        if (trayFile.length() > 50 * 1024) {
-            throw new IOException("Иконка набора превышает 50 КБ");
-        }
-    }
-
     private static EncodeOutcome encode(File input, File output, Profile profile, String encoder) {
-        String filter = "fps=" + profile.fps +
-                ",scale=512:512:force_original_aspect_ratio=decrease:flags=lanczos" +
-                ",pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000" +
-                ",format=yuva420p";
+        String filter = "fps=" + profile.fps
+                + ",scale=512:512:force_original_aspect_ratio=decrease:flags=lanczos"
+                + ",pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000"
+                + ",format=yuva420p";
 
-        String command = "-y -hide_banner -loglevel error -i " + q(input) +
-                " -t " + MAX_DURATION_SECONDS +
-                " -an -vf \"" + filter + "\"" +
-                " -c:v " + encoder +
-                " -lossless 0 -preset picture -compression_level 6" +
-                " -quality " + profile.quality +
-                " -loop 0 -f webp " + q(output);
+        String command = "-y -hide_banner -loglevel error -i " + q(input)
+                + " -t " + MAX_DURATION_SECONDS
+                + " -an -vf \"" + filter + "\""
+                + " -c:v " + encoder
+                + " -lossless 0 -preset picture -compression_level 6"
+                + " -quality " + profile.quality
+                + " -loop 0 -f webp " + q(output);
 
         try {
             var session = FFmpegKit.execute(command);
@@ -377,17 +433,70 @@ final class AnimatedStickerConverter {
         }
     }
 
+    private static void writeTrayBitmap(Bitmap source, File trayFile) throws IOException {
+        Bitmap tray = Bitmap.createBitmap(96, 96, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(tray);
+        canvas.drawColor(Color.TRANSPARENT);
+
+        float scale = Math.min(96f / source.getWidth(), 96f / source.getHeight());
+        float width = source.getWidth() * scale;
+        float height = source.getHeight() * scale;
+        float left = (96f - width) / 2f;
+        float top = (96f - height) / 2f;
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+        canvas.drawBitmap(source, null, new RectF(left, top, left + width, top + height), paint);
+
+        try (FileOutputStream output = new FileOutputStream(trayFile)) {
+            if (!tray.compress(Bitmap.CompressFormat.PNG, 100, output)) {
+                tray.recycle();
+                throw new IOException("Не удалось сохранить иконку набора");
+            }
+        }
+        tray.recycle();
+
+        if (trayFile.length() > 50 * 1024) {
+            throw new IOException("Иконка набора превышает 50 КБ");
+        }
+    }
+
     private static boolean isAnimatedWebp(File file) {
         WebpInfo info = inspectWebp(file);
         return info.valid && info.animated;
     }
 
+    private static String readFourCc(RandomAccessFile raf) throws IOException {
+        byte[] bytes = new byte[4];
+        raf.readFully(bytes);
+        return new String(bytes, java.nio.charset.StandardCharsets.US_ASCII);
+    }
+
+    private static long readUInt32LE(RandomAccessFile raf) throws IOException {
+        long b0 = raf.readUnsignedByte();
+        long b1 = raf.readUnsignedByte();
+        long b2 = raf.readUnsignedByte();
+        long b3 = raf.readUnsignedByte();
+        return b0 | (b1 << 8) | (b2 << 16) | (b3 << 24);
+    }
+
+    private static int readUInt24LE(RandomAccessFile raf) throws IOException {
+        int b0 = raf.readUnsignedByte();
+        int b1 = raf.readUnsignedByte();
+        int b2 = raf.readUnsignedByte();
+        return b0 | (b1 << 8) | (b2 << 16);
+    }
+
+    private static void writeUInt24LE(RandomAccessFile raf, long position, int value) throws IOException {
+        if (value < 0 || value > 0xFFFFFF) throw new IOException("24-bit WebP value out of range");
+        raf.seek(position);
+        raf.write(value & 0xFF);
+        raf.write((value >> 8) & 0xFF);
+        raf.write((value >> 16) & 0xFF);
+    }
+
     private static String compactLog(String log) {
         if (log == null || log.trim().isEmpty()) return "неизвестная ошибка";
         String compact = log.replace('\n', ' ').replace('\r', ' ').replaceAll("\\s+", " ").trim();
-        if (compact.length() > 360) {
-            compact = compact.substring(compact.length() - 360);
-        }
+        if (compact.length() > 360) compact = compact.substring(compact.length() - 360);
         return compact;
     }
 
@@ -404,9 +513,7 @@ final class AnimatedStickerConverter {
             if (input == null) throw new IOException("Файл недоступен");
             byte[] buffer = new byte[64 * 1024];
             int read;
-            while ((read = input.read(buffer)) != -1) {
-                output.write(buffer, 0, read);
-            }
+            while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
         }
     }
 
@@ -415,9 +522,7 @@ final class AnimatedStickerConverter {
              FileOutputStream output = new FileOutputStream(target)) {
             byte[] buffer = new byte[64 * 1024];
             int read;
-            while ((read = input.read(buffer)) != -1) {
-                output.write(buffer, 0, read);
-            }
+            while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
         }
     }
 
