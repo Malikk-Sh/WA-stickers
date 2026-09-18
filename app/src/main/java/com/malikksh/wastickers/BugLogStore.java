@@ -1,20 +1,22 @@
 package com.malikksh.wastickers;
 
-import com.arthenica.ffmpegkit.FFmpegKitConfig;
-
 final class BugLogStore {
     private static final int MAX_CHARS = 120_000;
     private static final StringBuilder LOG = new StringBuilder();
-    private static boolean installed;
 
     private BugLogStore() {}
 
+    /**
+     * Kept for source compatibility with the diagnostics UI.
+     *
+     * IMPORTANT: this method must not touch FFmpegKit. Initializing FFmpegKit from
+     * Activity.onCreate() can load native libraries before the UI exists and can
+     * crash the whole app on a device with an ABI/native-library problem.
+     * FFmpeg logs are appended lazily by AnimatedStickerConverter only while an
+     * animated conversion is actually running.
+     */
     static synchronized void install() {
-        if (installed) return;
-        FFmpegKitConfig.enableLogCallback(log -> {
-            if (log != null) append("FFmpeg", log.getMessage());
-        });
-        installed = true;
+        append("APP", "Bug logging ready; FFmpeg initialization deferred until conversion.");
     }
 
     static synchronized void reset() {
@@ -23,6 +25,10 @@ final class BugLogStore {
 
     static void appendApp(String message) {
         append("APP", message);
+    }
+
+    static void appendFfmpeg(String message) {
+        append("FFmpeg", message);
     }
 
     static synchronized String snapshot() {
