@@ -43,7 +43,7 @@ public class AppShellActivityUiTest {
     }
 
     @Test
-    public void redesignedShellStartsOnCreateAndExposesFourTabs() {
+    public void redesignedShellStartsOnCreate() {
         try (ActivityScenario<AppShellActivity> ignored = ActivityScenario.launch(AppShellActivity.class)) {
             onView(withText("WA Stickers")).check(matches(isDisplayed()));
             onView(withText("Ваши идеи в стикерах")).check(matches(isDisplayed()));
@@ -51,18 +51,34 @@ public class AppShellActivityUiTest {
             onView(withText("Добавьте фотографии")).check(matches(isDisplayed()));
             onView(withId(R.id.create_media_counter)).check(matches(withText("0 / 30")));
             onView(withId(R.id.create_continue)).check(matches(not(isEnabled())));
+            onView(withId(R.id.nav_create)).check(matches(isDisplayed()));
+            onView(withId(R.id.nav_media)).check(matches(isDisplayed()));
+            onView(withId(R.id.nav_build)).check(matches(isDisplayed()));
+            onView(withId(R.id.nav_packs)).check(matches(isDisplayed()));
+        }
+    }
 
+    @Test
+    public void mediaTabOpens() {
+        try (ActivityScenario<AppShellActivity> ignored = ActivityScenario.launch(AppShellActivity.class)) {
             onView(withId(R.id.nav_media)).perform(click());
             onView(withText("Выбранные файлы")).check(matches(isDisplayed()));
+        }
+    }
 
+    @Test
+    public void buildTabOpens() {
+        try (ActivityScenario<AppShellActivity> ignored = ActivityScenario.launch(AppShellActivity.class)) {
             onView(withId(R.id.nav_build)).perform(click());
             onView(withText("Подготовка набора")).check(matches(isDisplayed()));
+        }
+    }
 
+    @Test
+    public void packsTabOpens() {
+        try (ActivityScenario<AppShellActivity> ignored = ActivityScenario.launch(AppShellActivity.class)) {
             onView(withId(R.id.nav_packs)).perform(click());
             onView(withText("Сохранённые наборы")).check(matches(isDisplayed()));
-
-            onView(withId(R.id.nav_create)).perform(click());
-            onView(withText("Ваши идеи в стикерах")).check(matches(isDisplayed()));
         }
     }
 
