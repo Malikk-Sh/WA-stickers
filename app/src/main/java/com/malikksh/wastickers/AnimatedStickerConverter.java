@@ -9,10 +9,12 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.RectF;
+import android.media.MediaMetadataRetriever;
 import android.net.Uri;
 import android.provider.OpenableColumns;
 
 import com.arthenica.ffmpegkit.FFmpegKit;
+import com.arthenica.ffmpegkit.FFmpegSession;
 import com.arthenica.ffmpegkit.ReturnCode;
 
 import java.io.File;
@@ -21,6 +23,8 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.RandomAccessFile;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicReference;
 
 final class AnimatedStickerConverter {
     static final int MAX_ANIMATED_BYTES = 500 * 1024;
@@ -30,27 +34,47 @@ final class AnimatedStickerConverter {
     private static final int REQUIRED_SIZE = 512;
     private static final int MIN_FRAME_DURATION_MS = 8;
 
-    private static final Profile[] PROFILES = new Profile[]{
-            new Profile(18, 92),
-            new Profile(14, 92),
-            new Profile(10, 92),
-            new Profile(8, 92),
-            new Profile(6, 92),
-            new Profile(5, 92),
-            new Profile(4, 92),
-            new Profile(3, 92),
-            new Profile(2, 92),
-            new Profile(1, 92),
-            new Profile(3, 84),
-            new Profile(2, 84),
-            new Profile(1, 84),
-            new Profile(2, 76),
-            new Profile(1, 76),
-            new Profile(1, 66),
-            new Profile(1, 56),
-            new Profile(1, 46),
-            new Profile(1, 36)
-    };
+    enum ProgressStage {
+        PREPARING,
+        INSPECTING,
+        PASSTHROUGH,
+        RESIZING,
+        ENCODING,
+        CHECKING,
+        DONE
+    }
+
+    interface ProgressListener {
+        void onProgress(Progress progress);
+    }
+
+    static final class Progress {
+        final ProgressStage stage;
+        final int percent;
+        final int attempt;
+        final int totalAttempts;
+        final int fps;
+        final int quality;
+        final long candidateBytes;
+
+        Progress(
+                ProgressStage stage,
+                int percent,
+                int attempt,
+                int totalAttempts,
+                int fps,
+                int quality,
+                long candidateBytes
+        ) {
+            this.stage = stage;
+            this.percent = Math.max(0, Math.min(100, percent));
+            this.attempt = attempt;
+            this.totalAttempts = totalAttempts;
+            this.fps = fps;
+            this.quality = quality;
+            this.candidateBytes = candidateBytes;
+        }
+    }
 
     static final class Result {
         final int fps;
@@ -61,16 +85,6 @@ final class AnimatedStickerConverter {
             this.fps = fps;
             this.quality = quality;
             this.bytes = bytes;
-        }
-    }
-
-    private static final class Profile {
-        final int fps;
-        final int quality;
-
-        Profile(int fps, int quality) {
-            this.fps = fps;
-            this.quality = quality;
         }
     }
 
@@ -105,18 +119,37 @@ final class AnimatedStickerConverter {
     private AnimatedStickerConverter() {}
 
     static Result convert(Context context, Uri sourceUri, File output) throws IOException {
+        return convert(context, sourceUri, output, null);
+    }
+
+    static Result convert(
+            Context context,
+            Uri sourceUri,
+            File output,
+            ProgressListener progressListener
+    ) throws IOException {
+        report(progressListener, ProgressStage.PREPARING, 0, 0, 0, 0, 0, 0);
+
         File tempDir = new File(context.getCacheDir(), "animated_sticker_work");
         if (!tempDir.mkdirs() && !tempDir.isDirectory()) {
             throw new IOException("Не удалось создать временную папку");
         }
 
+        long expectedDurationMs = estimateDurationMs(context, sourceUri);
         File input = new File(tempDir, "input_" + System.nanoTime() + guessExtension(context, sourceUri));
         copyUri(context, sourceUri, input);
+        report(progressListener, ProgressStage.PREPARING, 100, 0, 0, 0, 0, input.length());
 
         File candidate = new File(tempDir, "candidate_" + System.nanoTime() + ".webp");
         String lastLog = "";
         try {
+            report(progressListener, ProgressStage.INSPECTING, 0, 0, 0, 0, 0, input.length());
             WebpInfo webp = inspectWebp(input);
+            if (webp.valid && webp.animated && webp.totalDurationMs > 0) {
+                expectedDurationMs = Math.min(webp.totalDurationMs, MAX_DURATION_SECONDS * 1000L);
+            }
+            report(progressListener, ProgressStage.INSPECTING, 100, 0, 0, 0, 0, input.length());
+
             if (webp.valid && webp.animated) {
                 BugLogStore.appendApp("Animated WebP detected: " + webp.width + "x" + webp.height
                         + ", frames=" + webp.frameCount
@@ -126,13 +159,19 @@ final class AnimatedStickerConverter {
                         + ", bytes=" + input.length());
 
                 if (isDirectlyWhatsAppCompatible(webp, input.length())) {
+                    report(progressListener, ProgressStage.PASSTHROUGH, 40, 0, 0,
+                            webp.approximateFps(), 100, input.length());
                     copyFile(input, output);
                     BugLogStore.appendApp("Animated WebP passthrough: already 512x512; original bytes preserved");
+                    report(progressListener, ProgressStage.DONE, 100, 0, 0,
+                            webp.approximateFps(), 100, output.length());
                     return new Result(webp.approximateFps(), 100, input.length());
                 }
 
                 if (isAnimationStructureCompatible(webp)) {
                     try {
+                        report(progressListener, ProgressStage.RESIZING, 10, 0, 0,
+                                webp.approximateFps(), 100, input.length());
                         BugLogStore.appendApp("Animated WebP pixel resize via native libwebp: "
                                 + webp.width + "x" + webp.height + " -> 512x512, visible content target 480px");
                         Result resized = AnimatedWebpResizer.resize(
@@ -141,10 +180,14 @@ final class AnimatedStickerConverter {
                                 output,
                                 webp.approximateFps()
                         );
+                        report(progressListener, ProgressStage.RESIZING, 90, 0, 0,
+                                resized.fps, resized.quality, resized.bytes);
                         WebpInfo resizedInfo = inspectWebp(output);
                         if (isDirectlyWhatsAppCompatible(resizedInfo, output.length())) {
                             BugLogStore.appendApp("libwebp upscale success: 512x512, fps=" + resized.fps
                                     + ", quality=" + resized.quality + ", bytes=" + resized.bytes);
+                            report(progressListener, ProgressStage.DONE, 100, 0, 0,
+                                    resized.fps, resized.quality, resized.bytes);
                             return resized;
                         }
                         //noinspection ResultOfMethodCallIgnored
@@ -161,15 +204,35 @@ final class AnimatedStickerConverter {
                 BugLogStore.appendApp("Animated WebP fallback: trying FFmpeg conversion");
             }
 
-            for (Profile profile : PROFILES) {
+            for (int profileIndex = 0; profileIndex < AnimatedStickerProfiles.size(); profileIndex++) {
+                AnimatedStickerProfiles.Profile profile = AnimatedStickerProfiles.get(profileIndex);
+                int attempt = profileIndex + 1;
                 if (candidate.exists()) candidate.delete();
 
-                EncodeOutcome outcome = encode(input, candidate, profile, "libwebp_anim");
+                report(progressListener, ProgressStage.ENCODING, 0, attempt,
+                        AnimatedStickerProfiles.size(), profile.fps, profile.quality, 0);
+                EncodeOutcome outcome = encode(
+                        input,
+                        candidate,
+                        profile,
+                        "libwebp_anim",
+                        expectedDurationMs,
+                        attempt,
+                        progressListener
+                );
                 lastLog = outcome.log;
 
                 if (!outcome.success) {
                     if (candidate.exists()) candidate.delete();
-                    outcome = encode(input, candidate, profile, "libwebp");
+                    outcome = encode(
+                            input,
+                            candidate,
+                            profile,
+                            "libwebp",
+                            expectedDurationMs,
+                            attempt,
+                            progressListener
+                    );
                     lastLog = outcome.log;
                 }
 
@@ -189,8 +252,12 @@ final class AnimatedStickerConverter {
                 }
 
                 long size = candidate.length();
+                report(progressListener, ProgressStage.CHECKING, 100, attempt,
+                        AnimatedStickerProfiles.size(), profile.fps, profile.quality, size);
                 if (size <= TARGET_ANIMATED_BYTES) {
                     copyFile(candidate, output);
+                    report(progressListener, ProgressStage.DONE, 100, attempt,
+                            AnimatedStickerProfiles.size(), profile.fps, profile.quality, size);
                     return new Result(profile.fps, profile.quality, size);
                 }
             }
@@ -337,7 +404,15 @@ final class AnimatedStickerConverter {
         return info;
     }
 
-    private static EncodeOutcome encode(File input, File output, Profile profile, String encoder) {
+    private static EncodeOutcome encode(
+            File input,
+            File output,
+            AnimatedStickerProfiles.Profile profile,
+            String encoder,
+            long expectedDurationMs,
+            int attempt,
+            ProgressListener progressListener
+    ) throws IOException {
         String filter = "fps=" + profile.fps
                 + ",scale=512:512:force_original_aspect_ratio=decrease:flags=lanczos"
                 + ",pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000"
@@ -351,20 +426,97 @@ final class AnimatedStickerConverter {
                 + " -quality " + profile.quality
                 + " -loop 0 -f webp " + q(output);
 
+        CountDownLatch completed = new CountDownLatch(1);
+        AtomicReference<FFmpegSession> sessionRef = new AtomicReference<>();
+        long durationMs = Math.max(1L, Math.min(expectedDurationMs, MAX_DURATION_SECONDS * 1000L));
+        long expectedFrames = Math.max(1L, Math.round(durationMs * profile.fps / 1000.0));
+
         try {
-            var session = FFmpegKit.execute(command);
-            String log = session.getAllLogsAsString();
-            BugLogStore.appendFfmpeg("encoder=" + encoder + ", fps=" + profile.fps
-                    + ", quality=" + profile.quality + "\n" + log);
-            boolean success = ReturnCode.isSuccess(session.getReturnCode())
-                    && output.isFile()
-                    && output.length() > 0;
-            return new EncodeOutcome(success, log);
+            FFmpegKit.executeAsync(
+                    command,
+                    session -> {
+                        sessionRef.set(session);
+                        completed.countDown();
+                    },
+                    log -> { },
+                    statistics -> {
+                        long frame = Math.max(0L, statistics.getVideoFrameNumber());
+                        int percent = (int) Math.min(99L, (frame * 100L) / expectedFrames);
+                        report(progressListener, ProgressStage.ENCODING, percent, attempt,
+                                AnimatedStickerProfiles.size(), profile.fps, profile.quality,
+                                output.isFile() ? output.length() : 0);
+                    }
+            );
         } catch (Throwable ffmpegError) {
             String message = "FFmpegKit startup/execute failure: " + describeThrowable(ffmpegError);
             BugLogStore.appendFfmpeg(message);
             return new EncodeOutcome(false, message);
         }
+
+        try {
+            completed.await();
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Конвертация была прервана", interrupted);
+        }
+
+        FFmpegSession session = sessionRef.get();
+        if (session == null) {
+            String message = "FFmpeg session unavailable";
+            BugLogStore.appendFfmpeg(message);
+            return new EncodeOutcome(false, message);
+        }
+
+        String log = session.getAllLogsAsString();
+        BugLogStore.appendFfmpeg("encoder=" + encoder + ", fps=" + profile.fps
+                + ", quality=" + profile.quality + "\n" + log);
+        boolean success = ReturnCode.isSuccess(session.getReturnCode())
+                && output.isFile()
+                && output.length() > 0;
+        return new EncodeOutcome(success, log);
+    }
+
+    private static void report(
+            ProgressListener listener,
+            ProgressStage stage,
+            int percent,
+            int attempt,
+            int totalAttempts,
+            int fps,
+            int quality,
+            long candidateBytes
+    ) {
+        if (listener == null) return;
+        listener.onProgress(new Progress(
+                stage,
+                percent,
+                attempt,
+                totalAttempts,
+                fps,
+                quality,
+                candidateBytes
+        ));
+    }
+
+    private static long estimateDurationMs(Context context, Uri uri) {
+        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
+        try {
+            retriever.setDataSource(context, uri);
+            String rawDuration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
+            if (rawDuration != null) {
+                long duration = Long.parseLong(rawDuration);
+                if (duration > 0) {
+                    return Math.min(duration, MAX_DURATION_SECONDS * 1000L);
+                }
+            }
+        } catch (Throwable ignored) {
+        } finally {
+            try {
+                retriever.release();
+            } catch (Throwable ignored) {
+            }
+        }
+        return MAX_DURATION_SECONDS * 1000L;
     }
 
     private static void writeTrayBitmap(Bitmap source, File trayFile) throws IOException {
