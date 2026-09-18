@@ -3,6 +3,12 @@ package com.malikksh.wastickers;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.database.Cursor;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.RectF;
 import android.net.Uri;
 import android.provider.OpenableColumns;
 
@@ -14,16 +20,16 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
+import java.io.RandomAccessFile;
 
 final class AnimatedStickerConverter {
     static final int MAX_ANIMATED_BYTES = 500 * 1024;
     static final int MAX_DURATION_SECONDS = 10;
 
-    // A little headroom avoids WhatsApp builds that interpret "500 KB" more strictly.
     private static final int TARGET_ANIMATED_BYTES = 490_000;
+    private static final int REQUIRED_SIZE = 512;
+    private static final int MIN_FRAME_DURATION_MS = 8;
 
-    // Preserve per-frame detail first. FPS is reduced before quality becomes aggressive.
     private static final Profile[] PROFILES = new Profile[]{
             new Profile(18, 92),
             new Profile(14, 92),
@@ -78,6 +84,24 @@ final class AnimatedStickerConverter {
         }
     }
 
+    private static final class WebpInfo {
+        boolean valid;
+        boolean animated;
+        int width;
+        int height;
+        int frameCount;
+        long totalDurationMs;
+        int minFrameDurationMs = Integer.MAX_VALUE;
+        int maxFrameRight;
+        int maxFrameBottom;
+
+        int approximateFps() {
+            if (frameCount <= 0 || totalDurationMs <= 0) return 1;
+            return Math.max(1, Math.min(60,
+                    Math.round(frameCount * 1000f / (float) totalDurationMs)));
+        }
+    }
+
     private AnimatedStickerConverter() {}
 
     static Result convert(Context context, Uri sourceUri, File output) throws IOException {
@@ -92,14 +116,57 @@ final class AnimatedStickerConverter {
         File candidate = new File(tempDir, "candidate_" + System.nanoTime() + ".webp");
         String lastLog = "";
         try {
+            WebpInfo webp = inspectWebp(input);
+            if (webp.valid && webp.animated) {
+                BugLogStore.appendApp("Animated WebP detected: " + webp.width + "x" + webp.height
+                        + ", frames=" + webp.frameCount
+                        + ", durationMs=" + webp.totalDurationMs
+                        + ", minFrameMs=" + (webp.minFrameDurationMs == Integer.MAX_VALUE
+                        ? "unknown" : webp.minFrameDurationMs)
+                        + ", bytes=" + input.length());
+
+                if (isDirectlyWhatsAppCompatible(webp, input.length())) {
+                    copyFile(input, output);
+                    BugLogStore.appendApp("Animated WebP passthrough: already 512x512; original bytes preserved");
+                    return new Result(webp.approximateFps(), 100, input.length());
+                }
+
+                if (isAnimationStructureCompatible(webp)) {
+                    try {
+                        BugLogStore.appendApp("Animated WebP pixel resize via native libwebp: "
+                                + webp.width + "x" + webp.height + " -> 512x512, visible content target 480px");
+                        Result resized = AnimatedWebpResizer.resize(
+                                context,
+                                input,
+                                output,
+                                webp.approximateFps()
+                        );
+                        WebpInfo resizedInfo = inspectWebp(output);
+                        if (isDirectlyWhatsAppCompatible(resizedInfo, output.length())) {
+                            BugLogStore.appendApp("libwebp upscale success: 512x512, fps=" + resized.fps
+                                    + ", quality=" + resized.quality + ", bytes=" + resized.bytes);
+                            return resized;
+                        }
+                        //noinspection ResultOfMethodCallIgnored
+                        output.delete();
+                        BugLogStore.appendApp("libwebp produced a file that failed WhatsApp validation; falling back to FFmpeg");
+                    } catch (Throwable resizeError) {
+                        //noinspection ResultOfMethodCallIgnored
+                        output.delete();
+                        BugLogStore.appendApp("libwebp animated resize failed: " + describeThrowable(resizeError)
+                                + "; falling back to FFmpeg");
+                    }
+                }
+
+                BugLogStore.appendApp("Animated WebP fallback: trying FFmpeg conversion");
+            }
+
             for (Profile profile : PROFILES) {
                 if (candidate.exists()) candidate.delete();
 
                 EncodeOutcome outcome = encode(input, candidate, profile, "libwebp_anim");
                 lastLog = outcome.log;
 
-                // Some Android FFmpeg builds expose only the generic libwebp encoder.
-                // Try it as a fallback, but still validate the resulting WebP is actually animated.
                 if (!outcome.success) {
                     if (candidate.exists()) candidate.delete();
                     outcome = encode(input, candidate, profile, "libwebp");
@@ -107,13 +174,18 @@ final class AnimatedStickerConverter {
                 }
 
                 if (!outcome.success || !candidate.isFile() || candidate.length() == 0) {
-                    throw new IOException("FFmpeg не смог создать WebP: " + compactLog(lastLog));
+                    String extra = "";
+                    if (webp.valid && webp.animated) {
+                        extra = " Исходный animated WebP: " + webp.width + "x" + webp.height
+                                + ", " + webp.totalDurationMs + " мс, " + input.length() + " байт.";
+                    }
+                    throw new IOException("FFmpeg не смог создать WebP: " + compactLog(lastLog) + extra);
                 }
 
                 if (!isAnimatedWebp(candidate)) {
                     throw new IOException(
-                            "Файл не удалось превратить в анимацию: итоговый WebP содержит только один кадр. " +
-                            "Попробуйте другой GIF/WebP/видеофайл. FFmpeg: " + compactLog(lastLog));
+                            "Файл не удалось превратить в анимацию: итоговый WebP содержит только один кадр. "
+                                    + "FFmpeg: " + compactLog(lastLog));
                 }
 
                 long size = candidate.length();
@@ -124,8 +196,8 @@ final class AnimatedStickerConverter {
             }
 
             throw new IOException(
-                    "Даже после сильной оптимизации файл не помещается в лимит WhatsApp 500 КБ. " +
-                    "Попробуйте более короткий или менее динамичный фрагмент.");
+                    "Даже после сильной оптимизации файл не помещается в лимит WhatsApp 500 КБ. "
+                            + "Попробуйте более короткий или менее динамичный фрагмент.");
         } finally {
             //noinspection ResultOfMethodCallIgnored
             input.delete();
@@ -143,14 +215,36 @@ final class AnimatedStickerConverter {
         File input = new File(tempDir, "tray_input_" + System.nanoTime() + guessExtension(context, sourceUri));
         copyUri(context, sourceUri, input);
         try {
-            String filter = "scale=96:96:force_original_aspect_ratio=decrease:flags=lanczos," +
-                    "pad=96:96:(ow-iw)/2:(oh-ih)/2:color=0x00000000";
-            String command = "-y -hide_banner -loglevel error -i " + q(input) +
-                    " -frames:v 1 -vf \"" + filter + "\" " + q(trayFile);
-            var session = FFmpegKit.execute(command);
-            if (!ReturnCode.isSuccess(session.getReturnCode()) || !trayFile.isFile()) {
-                throw new IOException("Не удалось создать иконку набора: " + compactLog(session.getAllLogsAsString()));
+            Bitmap firstFrame = BitmapFactory.decodeFile(input.getAbsolutePath());
+            if (firstFrame != null) {
+                try {
+                    writeTrayBitmap(firstFrame, trayFile);
+                    BugLogStore.appendApp("Tray icon created with Android BitmapFactory");
+                    return;
+                } finally {
+                    firstFrame.recycle();
+                }
             }
+
+            String filter = "scale=96:96:force_original_aspect_ratio=decrease:flags=lanczos,"
+                    + "pad=96:96:(ow-iw)/2:(oh-ih)/2:color=0x00000000";
+            String command = "-y -hide_banner -loglevel error -i " + q(input)
+                    + " -frames:v 1 -vf \"" + filter + "\" " + q(trayFile);
+
+            try {
+                var session = FFmpegKit.execute(command);
+                String log = session.getAllLogsAsString();
+                BugLogStore.appendFfmpeg(log);
+                if (!ReturnCode.isSuccess(session.getReturnCode()) || !trayFile.isFile()) {
+                    throw new IOException("Не удалось создать иконку набора: " + compactLog(log));
+                }
+            } catch (Throwable ffmpegError) {
+                String message = "FFmpegKit не удалось запустить для иконки: " + describeThrowable(ffmpegError);
+                BugLogStore.appendFfmpeg(message);
+                if (ffmpegError instanceof IOException) throw (IOException) ffmpegError;
+                throw new IOException(message, ffmpegError);
+            }
+
             if (trayFile.length() > 50 * 1024) {
                 throw new IOException("Иконка набора превышает 50 КБ");
             }
@@ -160,63 +254,182 @@ final class AnimatedStickerConverter {
         }
     }
 
+    private static boolean isAnimationStructureCompatible(WebpInfo info) {
+        return info.valid
+                && info.animated
+                && info.width > 0
+                && info.height > 0
+                && info.frameCount > 0
+                && info.totalDurationMs > 0
+                && info.totalDurationMs <= MAX_DURATION_SECONDS * 1000L
+                && info.minFrameDurationMs != Integer.MAX_VALUE
+                && info.minFrameDurationMs >= MIN_FRAME_DURATION_MS
+                && info.maxFrameRight <= info.width
+                && info.maxFrameBottom <= info.height;
+    }
+
+    private static boolean isDirectlyWhatsAppCompatible(WebpInfo info, long bytes) {
+        return isAnimationStructureCompatible(info)
+                && info.width == REQUIRED_SIZE
+                && info.height == REQUIRED_SIZE
+                && bytes > 0
+                && bytes <= TARGET_ANIMATED_BYTES;
+    }
+
+    private static WebpInfo inspectWebp(File file) {
+        WebpInfo info = new WebpInfo();
+        if (!file.isFile() || file.length() < 20) return info;
+
+        try (RandomAccessFile raf = new RandomAccessFile(file, "r")) {
+            if (!"RIFF".equals(readFourCc(raf))) return info;
+            readUInt32LE(raf);
+            if (!"WEBP".equals(readFourCc(raf))) return info;
+
+            boolean hasVp8x = false;
+            boolean hasAnimChunk = false;
+            boolean hasAnimationFlag = false;
+
+            while (raf.getFilePointer() + 8 <= raf.length()) {
+                String chunk = readFourCc(raf);
+                long chunkSize = readUInt32LE(raf);
+                long dataStart = raf.getFilePointer();
+                long dataEnd = dataStart + chunkSize;
+                if (chunkSize < 0 || dataEnd < dataStart || dataEnd > raf.length()) return info;
+
+                if ("VP8X".equals(chunk) && chunkSize >= 10) {
+                    hasVp8x = true;
+                    int flags = raf.readUnsignedByte();
+                    hasAnimationFlag = (flags & 0x02) != 0;
+                    raf.skipBytes(3);
+                    info.width = readUInt24LE(raf) + 1;
+                    info.height = readUInt24LE(raf) + 1;
+                } else if ("ANIM".equals(chunk) && chunkSize >= 6) {
+                    hasAnimChunk = true;
+                } else if ("ANMF".equals(chunk) && chunkSize >= 16) {
+                    raf.seek(dataStart);
+                    int x = readUInt24LE(raf) * 2;
+                    int y = readUInt24LE(raf) * 2;
+                    int frameWidth = readUInt24LE(raf) + 1;
+                    int frameHeight = readUInt24LE(raf) + 1;
+                    int duration = readUInt24LE(raf);
+
+                    info.frameCount++;
+                    info.totalDurationMs += duration;
+                    info.minFrameDurationMs = Math.min(info.minFrameDurationMs, duration);
+                    info.maxFrameRight = Math.max(info.maxFrameRight, x + frameWidth);
+                    info.maxFrameBottom = Math.max(info.maxFrameBottom, y + frameHeight);
+                }
+
+                long next = dataEnd + (chunkSize & 1L);
+                raf.seek(next);
+            }
+
+            info.animated = hasVp8x && hasAnimationFlag && hasAnimChunk && info.frameCount > 0;
+            info.valid = hasVp8x
+                    && info.width > 0
+                    && info.height > 0
+                    && (!info.animated
+                    || (info.maxFrameRight <= info.width && info.maxFrameBottom <= info.height));
+        } catch (IOException ignored) {
+            return new WebpInfo();
+        }
+
+        return info;
+    }
+
     private static EncodeOutcome encode(File input, File output, Profile profile, String encoder) {
-        String filter = "fps=" + profile.fps +
-                ",scale=512:512:force_original_aspect_ratio=decrease:flags=lanczos" +
-                ",pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000" +
-                ",format=yuva420p";
+        String filter = "fps=" + profile.fps
+                + ",scale=512:512:force_original_aspect_ratio=decrease:flags=lanczos"
+                + ",pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000"
+                + ",format=yuva420p";
 
-        String command = "-y -hide_banner -loglevel error -i " + q(input) +
-                " -t " + MAX_DURATION_SECONDS +
-                " -an -vf \"" + filter + "\"" +
-                " -c:v " + encoder +
-                " -lossless 0 -preset picture -compression_level 6" +
-                " -quality " + profile.quality +
-                " -loop 0 -f webp " + q(output);
+        String command = "-y -hide_banner -loglevel error -i " + q(input)
+                + " -t " + MAX_DURATION_SECONDS
+                + " -an -vf \"" + filter + "\""
+                + " -c:v " + encoder
+                + " -lossless 0 -preset picture -compression_level 6"
+                + " -quality " + profile.quality
+                + " -loop 0 -f webp " + q(output);
 
-        var session = FFmpegKit.execute(command);
-        boolean success = ReturnCode.isSuccess(session.getReturnCode())
-                && output.isFile()
-                && output.length() > 0;
-        return new EncodeOutcome(success, session.getAllLogsAsString());
+        try {
+            var session = FFmpegKit.execute(command);
+            String log = session.getAllLogsAsString();
+            BugLogStore.appendFfmpeg("encoder=" + encoder + ", fps=" + profile.fps
+                    + ", quality=" + profile.quality + "\n" + log);
+            boolean success = ReturnCode.isSuccess(session.getReturnCode())
+                    && output.isFile()
+                    && output.length() > 0;
+            return new EncodeOutcome(success, log);
+        } catch (Throwable ffmpegError) {
+            String message = "FFmpegKit startup/execute failure: " + describeThrowable(ffmpegError);
+            BugLogStore.appendFfmpeg(message);
+            return new EncodeOutcome(false, message);
+        }
+    }
+
+    private static void writeTrayBitmap(Bitmap source, File trayFile) throws IOException {
+        Bitmap tray = Bitmap.createBitmap(96, 96, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(tray);
+        canvas.drawColor(Color.TRANSPARENT);
+
+        float scale = Math.min(96f / source.getWidth(), 96f / source.getHeight());
+        float width = source.getWidth() * scale;
+        float height = source.getHeight() * scale;
+        float left = (96f - width) / 2f;
+        float top = (96f - height) / 2f;
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+        canvas.drawBitmap(source, null, new RectF(left, top, left + width, top + height), paint);
+
+        try (FileOutputStream output = new FileOutputStream(trayFile)) {
+            if (!tray.compress(Bitmap.CompressFormat.PNG, 100, output)) {
+                tray.recycle();
+                throw new IOException("Не удалось сохранить иконку набора");
+            }
+        }
+        tray.recycle();
+
+        if (trayFile.length() > 50 * 1024) {
+            throw new IOException("Иконка набора превышает 50 КБ");
+        }
     }
 
     private static boolean isAnimatedWebp(File file) {
-        if (!file.isFile() || file.length() < 32) return false;
+        WebpInfo info = inspectWebp(file);
+        return info.valid && info.animated;
+    }
 
-        try (FileInputStream input = new FileInputStream(file)) {
-            byte[] buffer = new byte[64 * 1024];
-            byte[] carry = new byte[8];
-            int carryLength = 0;
-            boolean hasAnim = false;
-            boolean hasFrame = false;
-            int read;
+    private static String readFourCc(RandomAccessFile raf) throws IOException {
+        byte[] bytes = new byte[4];
+        raf.readFully(bytes);
+        return new String(bytes, java.nio.charset.StandardCharsets.US_ASCII);
+    }
 
-            while ((read = input.read(buffer)) != -1) {
-                byte[] combined = new byte[carryLength + read];
-                System.arraycopy(carry, 0, combined, 0, carryLength);
-                System.arraycopy(buffer, 0, combined, carryLength, read);
-                String chunk = new String(combined, StandardCharsets.ISO_8859_1);
-                if (chunk.contains("ANIM")) hasAnim = true;
-                if (chunk.contains("ANMF")) hasFrame = true;
-                if (hasAnim && hasFrame) return true;
+    private static long readUInt32LE(RandomAccessFile raf) throws IOException {
+        long b0 = raf.readUnsignedByte();
+        long b1 = raf.readUnsignedByte();
+        long b2 = raf.readUnsignedByte();
+        long b3 = raf.readUnsignedByte();
+        return b0 | (b1 << 8) | (b2 << 16) | (b3 << 24);
+    }
 
-                carryLength = Math.min(carry.length, combined.length);
-                System.arraycopy(combined, combined.length - carryLength, carry, 0, carryLength);
-            }
-        } catch (IOException ignored) {
-        }
-
-        return false;
+    private static int readUInt24LE(RandomAccessFile raf) throws IOException {
+        int b0 = raf.readUnsignedByte();
+        int b1 = raf.readUnsignedByte();
+        int b2 = raf.readUnsignedByte();
+        return b0 | (b1 << 8) | (b2 << 16);
     }
 
     private static String compactLog(String log) {
         if (log == null || log.trim().isEmpty()) return "неизвестная ошибка";
         String compact = log.replace('\n', ' ').replace('\r', ' ').replaceAll("\\s+", " ").trim();
-        if (compact.length() > 360) {
-            compact = compact.substring(compact.length() - 360);
-        }
+        if (compact.length() > 360) compact = compact.substring(compact.length() - 360);
         return compact;
+    }
+
+    private static String describeThrowable(Throwable error) {
+        if (error == null) return "unknown";
+        String message = error.getMessage();
+        return error.getClass().getName() + (message == null || message.isEmpty() ? "" : ": " + message);
     }
 
     private static void copyUri(Context context, Uri uri, File target) throws IOException {
@@ -226,9 +439,7 @@ final class AnimatedStickerConverter {
             if (input == null) throw new IOException("Файл недоступен");
             byte[] buffer = new byte[64 * 1024];
             int read;
-            while ((read = input.read(buffer)) != -1) {
-                output.write(buffer, 0, read);
-            }
+            while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
         }
     }
 
@@ -237,9 +448,7 @@ final class AnimatedStickerConverter {
              FileOutputStream output = new FileOutputStream(target)) {
             byte[] buffer = new byte[64 * 1024];
             int read;
-            while ((read = input.read(buffer)) != -1) {
-                output.write(buffer, 0, read);
-            }
+            while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
         }
     }
 
