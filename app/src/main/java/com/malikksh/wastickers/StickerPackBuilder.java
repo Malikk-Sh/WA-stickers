@@ -20,8 +20,8 @@ import java.io.InputStream;
 /**
  * Owns the media-to-sticker conversion details for one pack type.
  *
- * MainActivity remains responsible for batch orchestration, retries and UI state; this class owns
- * pixel decoding, WebP compression, animated conversion delegation and tray icon generation.
+ * PackBuildCoordinator owns batch iteration/retry outcomes; this class owns pixel decoding,
+ * WebP compression, animated conversion delegation and tray icon generation.
  */
 final class StickerPackBuilder {
     private static final int STICKER_SIZE = 512;
