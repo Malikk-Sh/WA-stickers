@@ -16,7 +16,6 @@ import android.graphics.Paint;
 import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
-import android.media.MediaMetadataRetriever;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -100,6 +99,7 @@ public class MainActivity extends Activity {
     private Button createButton;
     private Button addButton;
     private Button bugLogButton;
+    private PreviewLoader previewLoader;
 
     // Important: this is only the pack created successfully in the CURRENT editor session.
     // We deliberately do not restore an old pack here, otherwise WhatsApp can receive stale pack ids.
@@ -131,6 +131,7 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         BugLogStore.install();
         configureWindow();
+        previewLoader = new PreviewLoader(this);
 
         try {
             setContentView(buildUi());
@@ -142,6 +143,12 @@ public class MainActivity extends Activity {
         currentPack = null;
         updateModeUi();
         updateUiState();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (previewContainer != null) renderPreviews();
     }
 
     private void configureWindow() {
@@ -675,8 +682,7 @@ public class MainActivity extends Activity {
                     + (isCover ? ", выбран как обложка" : "")
                     + ". Удерживайте для изменения порядка.");
             if (Build.VERSION.SDK_INT >= 21) image.setClipToOutline(true);
-            Bitmap preview = loadPreview(uri);
-            if (preview != null) image.setImageBitmap(preview);
+            loadPreviewAsync(uri, image);
             frame.addView(image, new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT));
@@ -775,24 +781,17 @@ public class MainActivity extends Activity {
         updateUiState();
     }
 
-    private Bitmap loadPreview(Uri uri) {
-        try {
-            return decodeSampled(uri, 220);
-        } catch (IOException ignored) {
-        }
-
-        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
-        try {
-            retriever.setDataSource(this, uri);
-            return retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
-        } catch (Throwable ignored) {
-            return null;
-        } finally {
-            try {
-                retriever.release();
-            } catch (Throwable ignored) {
-            }
-        }
+    private void loadPreviewAsync(Uri uri, ImageView image) {
+        if (previewLoader == null || uri == null || image == null) return;
+        String requestKey = previewLoader.requestKey(uri);
+        image.setTag(requestKey);
+        image.setImageDrawable(null);
+        previewLoader.load(uri, (loadedKey, bitmap) -> runOnUiThread(() -> {
+            if (isFinishing() || (Build.VERSION.SDK_INT >= 17 && isDestroyed())) return;
+            Object tag = image.getTag();
+            if (!(tag instanceof String) || !loadedKey.equals(tag)) return;
+            if (bitmap != null) image.setImageBitmap(bitmap);
+        }));
     }
 
     private void handleCreateAction() {
@@ -1683,6 +1682,7 @@ public class MainActivity extends Activity {
             FFmpegKit.cancel();
         } catch (Throwable ignored) {
         }
+        if (previewLoader != null) previewLoader.close();
         if (!processing) discardPendingBuild();
         super.onDestroy();
         executor.shutdownNow();
