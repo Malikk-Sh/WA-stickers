@@ -24,6 +24,10 @@
 
         <activity
             android:name=".LauncherActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".AppShellActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
