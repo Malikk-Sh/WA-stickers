@@ -37,6 +37,8 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.arthenica.ffmpegkit.FFmpegKit;
+
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -70,10 +72,13 @@ public class MainActivity extends Activity {
     private static final int GREEN = 0xFF25D366;
     private static final int SOFT = 0xFFEAF5EF;
     private static final int BORDER = 0xFFDCE7E1;
+    private static final int ERROR = 0xFFB3261E;
 
     private final List<Uri> selectedUris = new ArrayList<>();
     private final List<TextView> fileProgressLabels = new ArrayList<>();
     private final List<ProgressBar> fileProgressBars = new ArrayList<>();
+    private final List<String> fileProgressNames = new ArrayList<>();
+    private final List<Uri> pendingFailedUris = new ArrayList<>();
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
     private EditText packName;
@@ -102,6 +107,19 @@ public class MainActivity extends Activity {
     private String lastBugLog = "";
     private int diagnosticItemIndex = -1;
     private Uri diagnosticItemUri;
+
+    // An unfinished pack stays private until it either completes or the user explicitly
+    // chooses to create a pack from the successful stickers. This lets retries reuse work.
+    private volatile boolean cancelRequested;
+    private boolean pendingBuildActive;
+    private String pendingPackId;
+    private String pendingPackName;
+    private File pendingPackDir;
+    private boolean pendingPackAnimated;
+    private int pendingSuccessCount;
+    private Uri pendingTraySourceUri;
+    private int pendingLastFps;
+    private int pendingLastQuality;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -320,7 +338,7 @@ public class MainActivity extends Activity {
         createButton = new Button(this);
         createButton.setText("Создать набор");
         styleButton(createButton, GREEN, 0xFF073B2B);
-        createButton.setOnClickListener(v -> createPack());
+        createButton.setOnClickListener(v -> handleCreateAction());
         LinearLayout.LayoutParams createParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(56));
         createParams.topMargin = dp(15);
@@ -339,7 +357,7 @@ public class MainActivity extends Activity {
         addButton = new Button(this);
         addButton.setText("Добавить в WhatsApp");
         styleButton(addButton, PRIMARY, Color.WHITE);
-        addButton.setOnClickListener(v -> addCurrentPackToWhatsApp());
+        addButton.setOnClickListener(v -> handleAddAction());
         LinearLayout.LayoutParams addParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(56));
         addParams.topMargin = dp(9);
@@ -442,10 +460,32 @@ public class MainActivity extends Activity {
     }
 
     private void invalidateCurrentPack() {
+        discardPendingBuild();
         currentPack = null;
         lastOperationFailed = false;
         lastBugLog = "";
         hideDiagnosticsUi();
+    }
+
+    private void discardPendingBuild() {
+        if (pendingBuildActive && pendingPackDir != null) {
+            deleteRecursively(pendingPackDir);
+        }
+        clearPendingBuildState();
+    }
+
+    private void clearPendingBuildState() {
+        pendingBuildActive = false;
+        pendingPackId = null;
+        pendingPackName = null;
+        pendingPackDir = null;
+        pendingPackAnimated = false;
+        pendingSuccessCount = 0;
+        pendingTraySourceUri = null;
+        pendingLastFps = 0;
+        pendingLastQuality = 0;
+        pendingFailedUris.clear();
+        cancelRequested = false;
     }
 
     private void setAnimatedMode(boolean animated) {
@@ -466,11 +506,11 @@ public class MainActivity extends Activity {
         if (animatedMode) {
             mediaTitle.setText("2  Анимации и видео");
             mediaHint.setText("Выберите 3–30 файлов: GIF, анимированный WebP, MP4, WebM, MOV, MKV и другие видеоформаты.");
-            actionHint.setText("До 10 секунд на стикер. Во время конвертации показывается прогресс каждого файла и текущая попытка оптимизации.");
+            actionHint.setText("До 10 секунд на стикер. Ошибки отдельных файлов не сбрасывают уже готовые стикеры: их можно повторить отдельно.");
         } else {
             mediaTitle.setText("2  Фотографии");
             mediaHint.setText("Нужно выбрать 3–30 фото. Фон не удаляется, белая обводка не добавляется.");
-            actionHint.setText("Каждое фото помещается целиком в 512×512 WebP до 100 КБ.");
+            actionHint.setText("Каждое фото помещается целиком в 512×512 WebP до 100 КБ. Ошибочный файл можно повторить без обработки готовых заново.");
         }
     }
 
@@ -661,6 +701,27 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void handleCreateAction() {
+        if (processing) {
+            cancelProcessing();
+            return;
+        }
+        if (pendingBuildActive && !pendingFailedUris.isEmpty()) {
+            retryFailedItems();
+            return;
+        }
+        createPack();
+    }
+
+    private void handleAddAction() {
+        if (processing) return;
+        if (pendingBuildActive && BatchResultPolicy.canFinalize(pendingSuccessCount)) {
+            finalizePendingPackAsync();
+            return;
+        }
+        addCurrentPackToWhatsApp();
+    }
+
     private void updateUiState() {
         if (countText != null) countText.setText(selectedUris.size() + " / " + MAX_STICKERS);
 
@@ -678,15 +739,32 @@ public class MainActivity extends Activity {
         }
 
         if (createButton != null) {
-            boolean enough = selectedUris.size() >= MIN_STICKERS && selectedUris.size() <= MAX_STICKERS;
-            createButton.setEnabled(enough && !processing);
+            if (processing) {
+                styleButton(createButton, ERROR, Color.WHITE);
+                createButton.setText(cancelRequested ? "Останавливаю…" : "Отменить обработку");
+                createButton.setEnabled(!cancelRequested);
+            } else if (pendingBuildActive && !pendingFailedUris.isEmpty()) {
+                styleButton(createButton, GREEN, 0xFF073B2B);
+                createButton.setText("Повторить ошибки (" + pendingFailedUris.size() + ")");
+                createButton.setEnabled(true);
+            } else {
+                styleButton(createButton, GREEN, 0xFF073B2B);
+                boolean enough = selectedUris.size() >= MIN_STICKERS && selectedUris.size() <= MAX_STICKERS;
+                createButton.setText("Создать набор");
+                createButton.setEnabled(enough);
+            }
             createButton.setAlpha(createButton.isEnabled() ? 1f : 0.45f);
-            if (!processing) createButton.setText("Создать набор");
         }
 
         if (addButton != null) {
-            boolean packMatchesMode = currentPack != null && currentPack.animated == animatedMode;
-            addButton.setEnabled(packMatchesMode && !processing);
+            if (!processing && pendingBuildActive && BatchResultPolicy.canFinalize(pendingSuccessCount)) {
+                addButton.setText("Создать из готовых (" + pendingSuccessCount + ")");
+                addButton.setEnabled(true);
+            } else {
+                addButton.setText("Добавить в WhatsApp");
+                boolean packMatchesMode = currentPack != null && currentPack.animated == animatedMode;
+                addButton.setEnabled(packMatchesMode && !processing);
+            }
             addButton.setAlpha(addButton.isEnabled() ? 1f : 0.45f);
         }
 
@@ -720,155 +798,326 @@ public class MainActivity extends Activity {
         }
 
         String enteredName = packName.getText().toString().trim();
-        final String finalName = enteredName.isEmpty()
+        String finalName = enteredName.isEmpty()
                 ? (animatedMode ? "Мои анимированные стикеры" : "Мои стикеры")
                 : enteredName;
-        final List<Uri> work = new ArrayList<>(selectedUris);
-        final boolean makeAnimated = animatedMode;
+        List<Uri> work = new ArrayList<>(selectedUris);
 
-        // Never allow a previous pack to remain active while a new one is being built.
         invalidateCurrentPack();
-        lastOperationFailed = false;
-        lastBugLog = "";
+        pendingPackAnimated = animatedMode;
+        pendingPackName = finalName;
+        pendingPackId = (pendingPackAnimated ? "animated_" : "pack_") + System.currentTimeMillis();
+        pendingPackDir = PackStore.getPackDir(this, pendingPackId);
+        pendingSuccessCount = 0;
+        pendingTraySourceUri = null;
+        pendingLastFps = 0;
+        pendingLastQuality = 0;
+        pendingFailedUris.clear();
+        pendingBuildActive = true;
+
         diagnosticItemIndex = -1;
         diagnosticItemUri = null;
         BugLogStore.reset();
-        BugLogStore.appendApp("Starting pack creation. mode=" + (makeAnimated ? "animated" : "static")
+        BugLogStore.appendApp("Starting draft pack. mode=" + (pendingPackAnimated ? "animated" : "static")
                 + ", items=" + work.size());
+        startBatch(work, false);
+    }
 
+    private void retryFailedItems() {
+        if (processing || !pendingBuildActive || pendingFailedUris.isEmpty()) return;
+        List<Uri> retry = new ArrayList<>(pendingFailedUris);
+        pendingFailedUris.clear();
+        BugLogStore.appendApp("Retrying failed/remaining items: " + retry.size());
+        startBatch(retry, true);
+    }
+
+    private void startBatch(List<Uri> work, boolean retry) {
+        if (!pendingBuildActive || work.isEmpty()) return;
+        cancelRequested = false;
         processing = true;
-        statusText.setText(makeAnimated ? "Создаю анимированные стикеры…" : "Создаю стикеры…");
+        lastOperationFailed = false;
+        lastBugLog = "";
+        statusText.setText(retry ? "Повторяю неудачные файлы…"
+                : (pendingPackAnimated ? "Создаю анимированные стикеры…" : "Создаю стикеры…"));
         prepareFileProgress(work);
-        startProgress(work.size(), makeAnimated);
+        startProgress(work.size(), pendingPackAnimated);
         updateUiState();
+        executor.execute(() -> processBatch(work));
+    }
 
-        executor.execute(() -> {
-            String id = (makeAnimated ? "animated_" : "pack_") + System.currentTimeMillis();
-            File packDir = PackStore.getPackDir(this, id);
-            try {
-                if (!packDir.mkdirs() && !packDir.isDirectory()) {
-                    throw new IOException("Не удалось создать папку набора");
+    private void processBatch(List<Uri> work) {
+        List<Uri> failures = new ArrayList<>();
+        Throwable lastItemError = null;
+        int lastFailureIndex = -1;
+        Uri lastFailureUri = null;
+
+        try {
+            if (pendingPackDir == null
+                    || (!pendingPackDir.mkdirs() && !pendingPackDir.isDirectory())) {
+                throw new IOException("Не удалось создать папку набора");
+            }
+
+            for (int i = 0; i < work.size(); i++) {
+                if (cancelRequested) {
+                    addRemainingForRetry(work, i, failures);
+                    final int cancelFrom = i;
+                    runOnUiThread(() -> markCancelledFrom(cancelFrom));
+                    break;
                 }
 
-                int lastFps = 0;
-                int lastQuality = 0;
+                Uri itemUri = work.get(i);
+                diagnosticItemIndex = i;
+                diagnosticItemUri = itemUri;
+                BugLogStore.appendApp("Item " + (i + 1) + "/" + work.size() + ": "
+                        + describeUri(itemUri));
 
-                for (int i = 0; i < work.size(); i++) {
-                    diagnosticItemIndex = i;
-                    diagnosticItemUri = work.get(i);
-                    BugLogStore.appendApp("Item " + (i + 1) + "/" + work.size() + ": "
-                            + describeUri(work.get(i)));
+                final int index = i;
+                runOnUiThread(() -> {
+                    updateProgress(index, work.size(),
+                            (pendingPackAnimated ? "Конвертирую " : "Обрабатываю ")
+                                    + (index + 1) + " из " + work.size() + "…");
+                    updateFileProgress(index, 0,
+                            pendingPackAnimated ? "Подготовка к конвертации…" : "Чтение изображения…");
+                });
 
-                    final int index = i;
-                    runOnUiThread(() -> {
-                        updateProgress(
-                                index,
-                                work.size(),
-                                (makeAnimated ? "Конвертирую " : "Обрабатываю ")
-                                        + (index + 1) + " из " + work.size() + "…");
-                        updateFileProgress(index, 0,
-                                makeAnimated ? "Подготовка к конвертации…" : "Чтение изображения…");
-                    });
-
-                    File target = new File(packDir, (i + 1) + ".webp");
-                    try {
-                        if (makeAnimated) {
-                            AnimatedStickerConverter.Result result =
-                                    AnimatedStickerConverter.convert(
-                                            this,
-                                            work.get(i),
-                                            target,
-                                            progress -> runOnUiThread(() ->
-                                                    updateAnimatedFileProgress(index, progress))
-                                    );
-                            lastFps = result.fps;
-                            lastQuality = result.quality;
-                            BugLogStore.appendApp("Item " + (i + 1) + " converted: bytes=" + result.bytes
-                                    + ", fps=" + result.fps + ", quality=" + result.quality);
-                            runOnUiThread(() -> completeFileProgress(
-                                    index,
-                                    formatBytes(result.bytes) + " · " + result.fps + " FPS · q" + result.quality));
-                        } else {
-                            runOnUiThread(() -> updateFileProgress(index, 20, "Чтение изображения…"));
-                            Bitmap sticker = makeSticker(work.get(i));
+                File target = new File(pendingPackDir, (pendingSuccessCount + 1) + ".webp");
+                try {
+                    if (pendingPackAnimated) {
+                        AnimatedStickerConverter.Result result = AnimatedStickerConverter.convert(
+                                this,
+                                itemUri,
+                                target,
+                                progress -> runOnUiThread(() ->
+                                        updateAnimatedFileProgress(index, progress))
+                        );
+                        pendingLastFps = result.fps;
+                        pendingLastQuality = result.quality;
+                        BugLogStore.appendApp("Item converted: bytes=" + result.bytes
+                                + ", fps=" + result.fps + ", quality=" + result.quality);
+                        runOnUiThread(() -> completeFileProgress(index,
+                                formatBytes(result.bytes) + " · " + result.fps + " FPS · q" + result.quality));
+                    } else {
+                        runOnUiThread(() -> updateFileProgress(index, 20, "Чтение изображения…"));
+                        Bitmap sticker = makeSticker(itemUri);
+                        try {
                             runOnUiThread(() -> updateFileProgress(index, 65, "Сжатие WebP…"));
                             writeWebpUnderLimit(sticker, target);
+                        } finally {
                             sticker.recycle();
-                            BugLogStore.appendApp("Item " + (i + 1) + " converted: bytes=" + target.length());
-                            runOnUiThread(() -> completeFileProgress(index, formatBytes(target.length())));
                         }
-                    } catch (Throwable itemError) {
-                        String reason = itemError.getMessage() == null
-                                ? "неизвестная ошибка конвертации"
-                                : itemError.getMessage();
-                        runOnUiThread(() -> failFileProgress(index, reason));
-                        throw new IOException("Файл " + (i + 1) + ": " + reason, itemError);
+                        BugLogStore.appendApp("Item converted: bytes=" + target.length());
+                        runOnUiThread(() -> completeFileProgress(index, formatBytes(target.length())));
                     }
 
-                    final int completed = i + 1;
-                    runOnUiThread(() -> updateProgress(
-                            completed,
-                            work.size(),
-                            completed == work.size()
-                                    ? "Стикеры готовы. Создаю иконку набора…"
-                                    : "Готово " + completed + " из " + work.size() + "."));
+                    if (pendingTraySourceUri == null) pendingTraySourceUri = itemUri;
+                    pendingSuccessCount++;
+                } catch (Throwable itemError) {
+                    //noinspection ResultOfMethodCallIgnored
+                    target.delete();
+                    if (cancelRequested) {
+                        addRemainingForRetry(work, i, failures);
+                        final int cancelFrom = i;
+                        runOnUiThread(() -> markCancelledFrom(cancelFrom));
+                        break;
+                    }
+
+                    lastItemError = itemError;
+                    lastFailureIndex = i;
+                    lastFailureUri = itemUri;
+                    failures.add(itemUri);
+                    String reason = itemError.getMessage() == null
+                            ? "неизвестная ошибка конвертации"
+                            : itemError.getMessage();
+                    BugLogStore.appendApp("Item failed: " + reason);
+                    runOnUiThread(() -> failFileProgress(index, reason));
                 }
 
-                diagnosticItemIndex = -1;
-                diagnosticItemUri = null;
-                File tray = new File(packDir, "tray.png");
-                if (makeAnimated) {
-                    AnimatedStickerConverter.createTrayIcon(this, work.get(0), tray);
-                } else {
-                    createTrayIcon(new File(packDir, "1.webp"), tray);
-                }
-                BugLogStore.appendApp("Tray icon created: bytes=" + tray.length());
-
-                PackStore.Pack pack = new PackStore.Pack(
-                        id,
-                        finalName,
+                final int completed = i + 1;
+                runOnUiThread(() -> updateProgress(
+                        completed,
                         work.size(),
-                        String.valueOf(System.currentTimeMillis()),
-                        makeAnimated
-                );
-                PackStore.addPack(this, pack);
-                currentPack = pack;
+                        completed == work.size()
+                                ? "Проверены все файлы."
+                                : "Проверено " + completed + " из " + work.size() + "."));
+            }
 
-                String authority = getPackageName() + ".stickercontentprovider";
-                getContentResolver().notifyChange(Uri.parse("content://" + authority + "/metadata"), null);
+            pendingFailedUris.clear();
+            pendingFailedUris.addAll(failures);
 
-                final int finalFps = lastFps;
-                final int finalQuality = lastQuality;
-                runOnUiThread(() -> {
-                    processing = false;
-                    lastOperationFailed = false;
-                    finishProgressSuccess(work.size());
-                    if (makeAnimated) {
-                        statusText.setText("Готово: «" + pack.name + "». Итоговый профиль последнего стикера: "
-                                + finalFps + " FPS, quality " + finalQuality + ".");
-                    } else {
-                        statusText.setText("Готово: «" + pack.name + "».");
-                    }
-                    updateUiState();
-                });
-            } catch (Throwable error) {
-                deleteRecursively(packDir);
-                currentPack = null;
-                lastBugLog = buildBugLog(error, makeAnimated, work);
+            if (BatchResultPolicy.shouldAutoFinalize(pendingFailedUris.size(), cancelRequested)) {
+                finalizePendingPackOnWorker(0);
+                return;
+            }
+
+            if (lastItemError != null) {
+                diagnosticItemIndex = lastFailureIndex;
+                diagnosticItemUri = lastFailureUri;
+                lastBugLog = buildBugLog(lastItemError, pendingPackAnimated, work);
                 saveBugLog(lastBugLog);
-                lastOperationFailed = true;
-                BugLogStore.appendApp("Pack creation failed: " + error);
+            }
+            runOnUiThread(() -> showPendingBatchResult(cancelRequested));
+        } catch (Throwable fatalError) {
+            List<Uri> failedWork = new ArrayList<>(work);
+            pendingFailedUris.clear();
+            pendingFailedUris.addAll(failedWork);
+            lastBugLog = buildBugLog(fatalError, pendingPackAnimated, work);
+            saveBugLog(lastBugLog);
+            BugLogStore.appendApp("Draft creation failed: " + fatalError);
+            discardPendingBuild();
 
+            runOnUiThread(() -> {
+                processing = false;
+                lastOperationFailed = true;
+                String message = fatalError.getMessage() == null
+                        ? "не удалось создать набор"
+                        : fatalError.getMessage();
+                statusText.setText("Ошибка: " + message);
+                showProgressError();
+                updateUiState();
+            });
+        }
+    }
+
+    private void addRemainingForRetry(List<Uri> work, int startIndex, List<Uri> failures) {
+        for (int i = Math.max(0, startIndex); i < work.size(); i++) {
+            Uri uri = work.get(i);
+            if (!failures.contains(uri)) failures.add(uri);
+        }
+    }
+
+    private void cancelProcessing() {
+        if (!processing || cancelRequested) return;
+        cancelRequested = true;
+        BugLogStore.appendApp("Cancellation requested by user");
+        try {
+            FFmpegKit.cancel();
+        } catch (Throwable error) {
+            BugLogStore.appendApp("FFmpeg cancel failed: " + error);
+        }
+        if (statusText != null) {
+            statusText.setText("Останавливаю обработку. Уже готовые стикеры будут сохранены в черновике…");
+        }
+        if (progressText != null) {
+            progressText.setText("Остановка текущей операции…");
+            progressText.setVisibility(View.VISIBLE);
+        }
+        updateUiState();
+    }
+
+    private void showPendingBatchResult(boolean cancelled) {
+        processing = false;
+        lastOperationFailed = true;
+        int remaining = pendingFailedUris.size();
+        if (cancelled) {
+            statusText.setText("Обработка остановлена. Готово " + pendingSuccessCount
+                    + ", осталось " + remaining + ". Можно продолжить с оставшихся файлов.");
+            progressText.setText("Остановлено · готово " + pendingSuccessCount + " · осталось " + remaining);
+        } else if (BatchResultPolicy.canFinalize(pendingSuccessCount)) {
+            statusText.setText("Готово " + pendingSuccessCount + " стикеров, не удалось " + remaining
+                    + ". Повторите ошибки или создайте набор из готовых.");
+            progressText.setText("Частичный результат · готово " + pendingSuccessCount
+                    + " · ошибок " + remaining);
+        } else {
+            statusText.setText("Готово " + pendingSuccessCount + ", не удалось " + remaining
+                    + ". Для набора нужно минимум 3 стикера — повторите ошибки.");
+            progressText.setText("Нужно ещё " + Math.max(0, MIN_STICKERS - pendingSuccessCount)
+                    + " успешных стикера.");
+        }
+        progressText.setVisibility(View.VISIBLE);
+        updateUiState();
+    }
+
+    private void finalizePendingPackAsync() {
+        if (processing || !pendingBuildActive || !BatchResultPolicy.canFinalize(pendingSuccessCount)) return;
+        int skippedCount = pendingFailedUris.size();
+        processing = true;
+        cancelRequested = false;
+        lastOperationFailed = false;
+        statusText.setText("Завершаю набор из " + pendingSuccessCount + " готовых стикеров…");
+        if (progressText != null) {
+            progressText.setText("Создаю иконку и metadata набора…");
+            progressText.setVisibility(View.VISIBLE);
+        }
+        updateUiState();
+        executor.execute(() -> {
+            try {
+                finalizePendingPackOnWorker(skippedCount);
+            } catch (Throwable error) {
+                lastBugLog = buildBugLog(error, pendingPackAnimated, new ArrayList<>(selectedUris));
+                saveBugLog(lastBugLog);
                 runOnUiThread(() -> {
                     processing = false;
-                    String message = error.getMessage() == null
-                            ? "не удалось создать набор"
-                            : error.getMessage();
-                    statusText.setText("Ошибка: " + message);
-                    showProgressError();
+                    lastOperationFailed = true;
+                    if (cancelRequested) {
+                        statusText.setText("Завершение набора остановлено. Готовые стикеры остаются в черновике.");
+                        progressText.setText("Завершение остановлено.");
+                    } else {
+                        statusText.setText("Не удалось завершить набор: "
+                                + (error.getMessage() == null ? "неизвестная ошибка" : error.getMessage()));
+                        showProgressError();
+                    }
                     updateUiState();
                 });
             }
+        });
+    }
+
+    private void finalizePendingPackOnWorker(int skippedCount) throws IOException {
+        if (!pendingBuildActive || pendingPackDir == null) {
+            throw new IOException("Черновик набора больше недоступен");
+        }
+        if (!BatchResultPolicy.canFinalize(pendingSuccessCount)) {
+            throw new IOException("Для набора нужно минимум 3 готовых стикера");
+        }
+        if (cancelRequested) throw new IOException("Завершение отменено");
+
+        diagnosticItemIndex = -1;
+        diagnosticItemUri = null;
+        File tray = new File(pendingPackDir, "tray.png");
+        if (pendingPackAnimated) {
+            if (pendingTraySourceUri == null) throw new IOException("Не найден источник для иконки набора");
+            AnimatedStickerConverter.createTrayIcon(this, pendingTraySourceUri, tray);
+        } else {
+            createTrayIcon(new File(pendingPackDir, "1.webp"), tray);
+        }
+        if (cancelRequested) {
+            //noinspection ResultOfMethodCallIgnored
+            tray.delete();
+            throw new IOException("Завершение отменено");
+        }
+        BugLogStore.appendApp("Tray icon created: bytes=" + tray.length());
+
+        PackStore.Pack pack = new PackStore.Pack(
+                pendingPackId,
+                pendingPackName,
+                pendingSuccessCount,
+                String.valueOf(System.currentTimeMillis()),
+                pendingPackAnimated
+        );
+        PackStore.addPack(this, pack);
+        currentPack = pack;
+
+        String authority = getPackageName() + ".stickercontentprovider";
+        getContentResolver().notifyChange(Uri.parse("content://" + authority + "/metadata"), null);
+
+        int finalFps = pendingLastFps;
+        int finalQuality = pendingLastQuality;
+        boolean wasAnimated = pendingPackAnimated;
+        clearPendingBuildState();
+
+        runOnUiThread(() -> {
+            processing = false;
+            lastOperationFailed = false;
+            finishProgressSuccess(pack.stickerCount, skippedCount);
+            StringBuilder message = new StringBuilder("Готово: «")
+                    .append(pack.name).append("» · ").append(pack.stickerCount).append(" стикеров");
+            if (skippedCount > 0) message.append(" · пропущено ").append(skippedCount);
+            if (wasAnimated && finalFps > 0) {
+                message.append(" · последний профиль ").append(finalFps)
+                        .append(" FPS, q").append(finalQuality);
+            }
+            statusText.setText(message.append('.').toString());
+            updateUiState();
         });
     }
 
@@ -884,7 +1133,6 @@ public class MainActivity extends Activity {
                     : "Запускаю обработку стикеров…");
             progressText.setVisibility(View.VISIBLE);
         }
-        if (createButton != null) createButton.setText("Запуск обработки…");
         if (bugLogButton != null) bugLogButton.setVisibility(View.GONE);
     }
 
@@ -898,17 +1146,12 @@ public class MainActivity extends Activity {
             progressText.setText(message);
             progressText.setVisibility(View.VISIBLE);
         }
-        if (createButton != null && processing) {
-            int current = Math.min(total, completed + 1);
-            createButton.setText(completed >= total
-                    ? "Завершаю набор…"
-                    : "Обработка " + current + " / " + total + "…");
-        }
     }
 
     private void prepareFileProgress(List<Uri> work) {
         fileProgressLabels.clear();
         fileProgressBars.clear();
+        fileProgressNames.clear();
         if (fileProgressContainer == null) return;
 
         fileProgressContainer.removeAllViews();
@@ -933,6 +1176,7 @@ public class MainActivity extends Activity {
             itemBarParams.topMargin = dp(5);
             row.addView(itemBar, itemBarParams);
 
+            fileProgressNames.add(name);
             fileProgressLabels.add(label);
             fileProgressBars.add(itemBar);
         }
@@ -969,13 +1213,18 @@ public class MainActivity extends Activity {
         updateFileProgress(index, progress.percent, detail);
     }
 
+    private String progressName(int index) {
+        if (index >= 0 && index < fileProgressNames.size()) return fileProgressNames.get(index);
+        return "Файл " + (index + 1);
+    }
+
     private void updateFileProgress(int index, int percent, String detail) {
         if (index < 0 || index >= fileProgressLabels.size() || index >= fileProgressBars.size()) return;
         int safePercent = Math.max(0, Math.min(100, percent));
         TextView label = fileProgressLabels.get(index);
         ProgressBar itemBar = fileProgressBars.get(index);
         itemBar.setProgress(safePercent);
-        label.setText((index + 1) + ". " + getDisplayName(selectedUris.get(index), index + 1)
+        label.setText((index + 1) + ". " + progressName(index)
                 + " · " + safePercent + "%\n" + detail);
         label.setTextColor(TEXT);
     }
@@ -985,7 +1234,7 @@ public class MainActivity extends Activity {
         ProgressBar itemBar = fileProgressBars.get(index);
         TextView label = fileProgressLabels.get(index);
         itemBar.setProgress(100);
-        label.setText((index + 1) + ". " + getDisplayName(selectedUris.get(index), index + 1)
+        label.setText((index + 1) + ". " + progressName(index)
                 + " · Готово\n" + detail);
         label.setTextColor(PRIMARY);
     }
@@ -993,9 +1242,18 @@ public class MainActivity extends Activity {
     private void failFileProgress(int index, String reason) {
         if (index < 0 || index >= fileProgressLabels.size()) return;
         TextView label = fileProgressLabels.get(index);
-        label.setText((index + 1) + ". " + getDisplayName(selectedUris.get(index), index + 1)
+        label.setText((index + 1) + ". " + progressName(index)
                 + " · Ошибка\n" + reason);
-        label.setTextColor(0xFFB3261E);
+        label.setTextColor(ERROR);
+    }
+
+    private void markCancelledFrom(int startIndex) {
+        for (int i = Math.max(0, startIndex); i < fileProgressLabels.size(); i++) {
+            TextView label = fileProgressLabels.get(i);
+            label.setText((i + 1) + ". " + progressName(i)
+                    + " · Не обработано\nОстановлено пользователем");
+            label.setTextColor(MUTED);
+        }
     }
 
     private String getDisplayName(Uri uri, int fallbackNumber) {
@@ -1023,14 +1281,16 @@ public class MainActivity extends Activity {
         return String.format(Locale.US, "%.1f MB", bytes / (1024f * 1024f));
     }
 
-    private void finishProgressSuccess(int total) {
+    private void finishProgressSuccess(int total, int skippedCount) {
         if (progressBar != null) {
             progressBar.setMax(Math.max(1, total));
             progressBar.setProgress(Math.max(1, total));
             progressBar.setVisibility(View.VISIBLE);
         }
         if (progressText != null) {
-            progressText.setText("Готово. Все стикеры обработаны.");
+            progressText.setText(skippedCount > 0
+                    ? "Набор создан из " + total + " готовых · пропущено " + skippedCount
+                    : "Готово. Все стикеры обработаны.");
             progressText.setVisibility(View.VISIBLE);
         }
         if (bugLogButton != null) bugLogButton.setVisibility(View.GONE);
@@ -1052,6 +1312,7 @@ public class MainActivity extends Activity {
         }
         fileProgressLabels.clear();
         fileProgressBars.clear();
+        fileProgressNames.clear();
         if (fileProgressContainer != null) {
             fileProgressContainer.removeAllViews();
             fileProgressContainer.setVisibility(View.GONE);
@@ -1071,6 +1332,8 @@ public class MainActivity extends Activity {
         report.append("Device: ").append(Build.MANUFACTURER).append(' ').append(Build.MODEL).append('\n');
         report.append("Mode: ").append(makeAnimated ? "animated" : "static").append('\n');
         report.append("Selected files: ").append(work.size()).append('\n');
+        report.append("Successful in draft: ").append(pendingSuccessCount).append('\n');
+        report.append("Waiting for retry: ").append(pendingFailedUris.size()).append('\n');
 
         if (diagnosticItemIndex >= 0) {
             report.append("Failed item: ").append(diagnosticItemIndex + 1).append(" / ").append(work.size()).append('\n');
@@ -1316,7 +1579,13 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        cancelRequested = true;
+        try {
+            FFmpegKit.cancel();
+        } catch (Throwable ignored) {
+        }
+        if (!processing) discardPendingBuild();
         super.onDestroy();
-        executor.shutdown();
+        executor.shutdownNow();
     }
 }
