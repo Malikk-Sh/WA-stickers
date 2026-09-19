@@ -159,11 +159,11 @@ public class PacksShellActivity extends BuildShellActivity {
     }
 
     private void showImportNotice() {
-        new AlertDialog.Builder(this)
-                .setTitle("Импортировать")
-                .setMessage("Формат импорта сохранённых наборов ещё не определён. Создавайте наборы через вкладку «Создать», чтобы не потерять метаданные и совместимость с WhatsApp.")
-                .setPositiveButton("Понятно", null)
-                .show();
+        startActivity(InfoActivity.intent(
+                this,
+                "Импортировать",
+                "Формат импорта сохранённых наборов ещё не определён. Создавайте наборы через вкладку «Создать», чтобы не потерять метаданные и совместимость с WhatsApp."
+        ));
     }
 
     private void cleanupUnavailablePacks() {
@@ -176,34 +176,44 @@ public class PacksShellActivity extends BuildShellActivity {
     }
 
     private void showPacksHelp() {
-        new AlertDialog.Builder(this)
-                .setTitle("Помощь")
-                .setMessage("Фильтруйте и ищите сохранённые наборы. Через меню набора можно переименовать, дублировать, удалить его или посмотреть детали.")
-                .setPositiveButton("Понятно", null)
-                .show();
+        startActivity(InfoActivity.intent(
+                this,
+                "Наборы",
+                "Фильтруйте и ищите сохранённые наборы. Через меню набора можно переименовать, дублировать, удалить его или посмотреть детали. Недоступные локальные наборы остаются видимыми, но их нельзя отправить в WhatsApp."
+        ));
     }
 
     private void showPacksAbout() {
-        new AlertDialog.Builder(this)
-                .setTitle("WA Stickers")
-                .setMessage("Все файлы обрабатываются локально.\n\nВерсия " + BuildConfig.VERSION_NAME)
-                .setPositiveButton("Закрыть", null)
-                .show();
+        startActivity(InfoActivity.intent(
+                this,
+                "WA Stickers",
+                "Все файлы обрабатываются локально.\n\nВерсия " + BuildConfig.VERSION_NAME
+        ));
     }
 
     private void showPackActions(PackStore.Pack pack) {
         if (pack == null) return;
-        String[] actions = {"Переименовать", "Дублировать", "Удалить", "Детали"};
-        new AlertDialog.Builder(this)
-                .setTitle(pack.name)
-                .setItems(actions, (dialog, which) -> {
-                    if (which == 0) showRenameDialog(pack);
-                    else if (which == 1) duplicatePack(pack);
-                    else if (which == 2) confirmDelete(pack);
-                    else showPackDetails(pack);
-                })
-                .setNegativeButton("Закрыть", null)
-                .show();
+        PackActionsSheet.show(this, pack, new PackActionsSheet.Host() {
+            @Override
+            public void onRename() {
+                showRenameDialog(pack);
+            }
+
+            @Override
+            public void onDuplicate() {
+                duplicatePack(pack);
+            }
+
+            @Override
+            public void onDelete() {
+                confirmDelete(pack);
+            }
+
+            @Override
+            public void onDetails() {
+                showPackDetails(pack);
+            }
+        });
     }
 
     private void showRenameDialog(PackStore.Pack pack) {
@@ -254,13 +264,13 @@ public class PacksShellActivity extends BuildShellActivity {
 
     private void showPackDetails(PackStore.Pack pack) {
         String type = pack.animated ? "Анимация" : "Фото";
-        new AlertDialog.Builder(this)
-                .setTitle(pack.name)
-                .setMessage("Тип: " + type
+        startActivity(InfoActivity.intent(
+                this,
+                pack.name,
+                "Тип: " + type
                         + "\nСтикеров: " + pack.stickerCount
-                        + "\nХранение: локально на устройстве")
-                .setPositiveButton("Закрыть", null)
-                .show();
+                        + "\nХранение: локально на устройстве"
+        ));
     }
 
     private void confirmDelete(PackStore.Pack pack) {
