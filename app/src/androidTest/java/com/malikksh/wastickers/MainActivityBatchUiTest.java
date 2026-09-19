@@ -53,7 +53,7 @@ public class MainActivityBatchUiTest {
 
     @Test
     public void partialFailureOffersRetryAndRetriesOnlyFailedItem() throws Exception {
-        try (ActivityScenario<HomeActivity> scenario = ActivityScenario.launch(HomeActivity.class)) {
+        try (ActivityScenario<LauncherActivity> scenario = ActivityScenario.launch(LauncherActivity.class)) {
             AtomicReference<List<Uri>> sourcesRef = new AtomicReference<>();
             scenario.onActivity(activity -> {
                 try {
@@ -96,7 +96,7 @@ public class MainActivityBatchUiTest {
 
     @Test
     public void cancelButtonMovesUiIntoStoppingState() throws Exception {
-        try (ActivityScenario<HomeActivity> scenario = ActivityScenario.launch(HomeActivity.class)) {
+        try (ActivityScenario<LauncherActivity> scenario = ActivityScenario.launch(LauncherActivity.class)) {
             scenario.onActivity(activity -> {
                 try {
                     List<Uri> sources = Arrays.asList(
@@ -124,7 +124,7 @@ public class MainActivityBatchUiTest {
 
     @Test
     public void reorderKeepsSelectionOrderAndCoverCanBeChangedFromUi() throws Exception {
-        try (ActivityScenario<HomeActivity> scenario = ActivityScenario.launch(HomeActivity.class)) {
+        try (ActivityScenario<LauncherActivity> scenario = ActivityScenario.launch(LauncherActivity.class)) {
             AtomicReference<List<Uri>> sourcesRef = new AtomicReference<>();
             scenario.onActivity(activity -> {
                 try {
@@ -166,7 +166,7 @@ public class MainActivityBatchUiTest {
         }
     }
 
-    private void waitUntilProcessingStops(ActivityScenario<HomeActivity> scenario) {
+    private void waitUntilProcessingStops(ActivityScenario<LauncherActivity> scenario) {
         long deadline = SystemClock.uptimeMillis() + 15_000L;
         while (SystemClock.uptimeMillis() < deadline) {
             AtomicBoolean processing = new AtomicBoolean(true);
