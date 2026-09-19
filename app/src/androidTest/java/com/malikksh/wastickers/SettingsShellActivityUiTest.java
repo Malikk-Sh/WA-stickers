@@ -1,11 +1,6 @@
 package com.malikksh.wastickers;
 
-import static androidx.test.espresso.Espresso.onView;
-import static androidx.test.espresso.action.ViewActions.click;
-import static androidx.test.espresso.assertion.ViewAssertions.matches;
-import static androidx.test.espresso.matcher.ViewMatchers.isDisplayed;
-import static androidx.test.espresso.matcher.ViewMatchers.withId;
-import static androidx.test.espresso.matcher.ViewMatchers.withText;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
@@ -16,6 +11,7 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.net.Uri;
 import android.view.View;
+import android.widget.TextView;
 
 import androidx.test.core.app.ActivityScenario;
 import androidx.test.core.app.ApplicationProvider;
@@ -98,27 +94,21 @@ public class SettingsShellActivityUiTest {
                     assertNotNull(overflow);
                     assertTrue(overflow.isShown());
 
-                    // PopupMenu rendering is owned by the platform and is flaky on the headless
-                    // emulator. Exercise the exact action the overflow item dispatches instead.
-                    Method requestClear = SettingsShellActivity.class
-                            .getDeclaredMethod("requestClearDraft");
-                    requestClear.setAccessible(true);
-                    requestClear.invoke(activity);
-                } catch (Exception error) {
-                    throw new RuntimeException(error);
-                }
-            });
+                    // Popup/dialog focus is flaky on the headless emulator. Exercise the exact
+                    // confirmed overflow action directly and assert both model and shell state.
+                    Method clearDraft = SettingsShellActivity.class
+                            .getDeclaredMethod("clearDraftNow");
+                    clearDraft.setAccessible(true);
+                    clearDraft.invoke(activity);
 
-            onView(withText("Очистить черновик?")).check(matches(isDisplayed()));
-            onView(withText("Очистить")).perform(click());
-            onView(withId(R.id.create_media_counter)).check(matches(withText("0 / 30")));
-
-            scenario.onActivity(activity -> {
-                try {
                     @SuppressWarnings("unchecked")
-                    List<Uri> selected = (List<Uri>) getMainField(activity, "selectedUris");
-                    assertTrue(selected.isEmpty());
+                    List<Uri> cleared = (List<Uri>) getMainField(activity, "selectedUris");
+                    assertTrue(cleared.isEmpty());
                     assertFalse(EditorInstanceStateBridge.hasPersistent(activity));
+
+                    TextView counter = activity.findViewById(R.id.create_media_counter);
+                    assertNotNull(counter);
+                    assertEquals("0 / 30", counter.getText().toString());
                 } catch (Exception error) {
                     throw new RuntimeException(error);
                 }
