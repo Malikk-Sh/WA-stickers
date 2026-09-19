@@ -1520,4 +1520,251 @@ public class MainActivity extends Activity {
         super.onDestroy();
         executor.shutdownNow();
     }
+
+    /**
+     * Typed runtime surface for the redesigned shell and persistence bridges.
+     *
+     * Keep this package-private migration API small and behavior-preserving. It replaces reflective
+     * access while editor/build state is gradually extracted from MainActivity into dedicated owners.
+     */
+    EditText runtimePackName() {
+        return packName;
+    }
+
+    Button runtimePhotoModeButton() {
+        return photoModeButton;
+    }
+
+    Button runtimeAnimatedModeButton() {
+        return animatedModeButton;
+    }
+
+    boolean runtimeIsAnimatedMode() {
+        return animatedMode;
+    }
+
+    boolean runtimeIsProcessing() {
+        return processing;
+    }
+
+    Uri runtimeCoverUri() {
+        return coverUri;
+    }
+
+    List<Uri> runtimeSelectedUrisSnapshot() {
+        return new ArrayList<>(selectedUris);
+    }
+
+    EditorStateController<Uri> runtimeEditorStateController() {
+        return editorStateController;
+    }
+
+    String runtimeEnteredPackName() {
+        return packName == null ? "" : packName.getText().toString().trim();
+    }
+
+    PackBuildSession<Uri> runtimeBuildSession() {
+        return buildSession;
+    }
+
+    PackStore.Pack runtimeCurrentPack() {
+        return currentPack;
+    }
+
+    boolean runtimeReplaceCurrentPackIfId(String expectedId, PackStore.Pack replacement) {
+        if (expectedId == null || replacement == null || currentPack == null
+                || !expectedId.equals(currentPack.id)) {
+            return false;
+        }
+        currentPack = replacement;
+        return true;
+    }
+
+    boolean runtimeClearCurrentPackIfId(String expectedId) {
+        if (expectedId == null || currentPack == null || !expectedId.equals(currentPack.id)) {
+            return false;
+        }
+        currentPack = null;
+        return true;
+    }
+
+    TextView runtimeStatusText() {
+        return statusText;
+    }
+
+    TextView runtimeProgressText() {
+        return progressText;
+    }
+
+    List<TextView> runtimeFileProgressLabelsSnapshot() {
+        return new ArrayList<>(fileProgressLabels);
+    }
+
+    List<ProgressBar> runtimeFileProgressBarsSnapshot() {
+        return new ArrayList<>(fileProgressBars);
+    }
+
+    List<String> runtimeFileProgressNamesSnapshot() {
+        return new ArrayList<>(fileProgressNames);
+    }
+
+    void runtimeInstallControls(
+            EditText runtimePackName,
+            TextView runtimeCountText,
+            TextView runtimeStatusText,
+            TextView runtimeMediaTitle,
+            TextView runtimeMediaHint,
+            TextView runtimeActionHint,
+            TextView runtimeProgressText,
+            ProgressBar runtimeProgressBar,
+            LinearLayout runtimeFileProgressContainer,
+            Button runtimePhotoModeButton,
+            Button runtimeAnimatedModeButton,
+            Button runtimeGalleryButton,
+            Button runtimeCreateButton,
+            Button runtimeAddButton,
+            Button runtimeBugLogButton
+    ) {
+        packName = runtimePackName;
+        countText = runtimeCountText;
+        statusText = runtimeStatusText;
+        mediaTitle = runtimeMediaTitle;
+        mediaHint = runtimeMediaHint;
+        actionHint = runtimeActionHint;
+        progressText = runtimeProgressText;
+        progressBar = runtimeProgressBar;
+        previewContainer = null;
+        fileProgressContainer = runtimeFileProgressContainer;
+        photoModeButton = runtimePhotoModeButton;
+        animatedModeButton = runtimeAnimatedModeButton;
+        galleryButton = runtimeGalleryButton;
+        createButton = runtimeCreateButton;
+        addButton = runtimeAddButton;
+        bugLogButton = runtimeBugLogButton;
+    }
+
+    void runtimeReceivePickerResult(Intent data, boolean persistPermission) {
+        receivePickerResult(data, persistPermission);
+    }
+
+    void runtimeSetGalleryClickListener(View.OnClickListener listener) {
+        if (galleryButton != null && listener != null) galleryButton.setOnClickListener(listener);
+    }
+
+    void runtimeSetAnimatedMode(boolean animated) {
+        setAnimatedMode(animated);
+    }
+
+    void runtimeMoveSticker(int fromIndex, int toIndex) {
+        moveSticker(fromIndex, toIndex);
+    }
+
+    boolean runtimeSelectCover(Uri uri) {
+        if (uri == null || processing || !selectedUris.contains(uri)) return false;
+        coverUri = uri;
+        invalidateCurrentPack();
+        renderPreviews();
+        updateUiState();
+        return true;
+    }
+
+    boolean runtimeRemoveMediaAt(int index) {
+        if (processing || index < 0 || index >= selectedUris.size()) return false;
+        Uri removed = selectedUris.remove(index);
+        if (removed != null && removed.equals(coverUri)) {
+            coverUri = selectedUris.isEmpty() ? null : selectedUris.get(0);
+        }
+        invalidateCurrentPack();
+        renderPreviews();
+        updateUiState();
+        return true;
+    }
+
+    boolean runtimeClearMedia() {
+        if (processing || selectedUris.isEmpty()) return false;
+        selectedUris.clear();
+        coverUri = null;
+        invalidateCurrentPack();
+        renderPreviews();
+        updateUiState();
+        return true;
+    }
+
+    boolean runtimeClearEditorDraft() {
+        if (processing) return false;
+        try {
+            selectedUris.clear();
+            coverUri = null;
+            if (packName != null) packName.setText("");
+            editorStateController.capture(false, new ArrayList<>(), null, "");
+            editorStateController.capture(true, new ArrayList<>(), null, "");
+            discardPendingBuild();
+            invalidateCurrentPack();
+            renderPreviews();
+            updateModeUi();
+            updateUiState();
+            return true;
+        } catch (Throwable error) {
+            BugLogStore.appendApp("Could not clear editor draft through typed runtime surface: " + error);
+            return false;
+        }
+    }
+
+    boolean runtimeRestoreEditorState(
+            boolean animated,
+            List<Uri> items,
+            Uri cover,
+            String name,
+            PackStore.Pack restoredPack
+    ) {
+        try {
+            animatedMode = animated;
+            selectedUris.clear();
+            if (items != null) selectedUris.addAll(items);
+            coverUri = cover;
+            if (packName != null) packName.setText(name == null ? "" : name);
+            currentPack = restoredPack;
+            renderPreviews();
+            updateModeUi();
+            updateUiState();
+            return true;
+        } catch (Throwable error) {
+            BugLogStore.appendApp("Could not restore editor state through typed runtime surface: " + error);
+            return false;
+        }
+    }
+
+    void runtimeResetDiagnostics() {
+        diagnosticItemIndex = -1;
+        diagnosticItemUri = null;
+    }
+
+    void runtimeInvalidateCurrentPack() {
+        invalidateCurrentPack();
+    }
+
+    void runtimeStartBatch(List<Uri> work, boolean retry) {
+        startBatch(work, retry);
+    }
+
+    void runtimeUpdateUiState() {
+        updateUiState();
+    }
+
+    void runtimeCancelProcessing() {
+        cancelProcessing();
+    }
+
+    void runtimeFinalizePendingPack() {
+        finalizePendingPackAsync();
+    }
+
+    void runtimeDiscardPendingBuild() {
+        discardPendingBuild();
+    }
+
+    void runtimeAddCurrentPackToWhatsApp() {
+        addCurrentPackToWhatsApp();
+    }
+
 }

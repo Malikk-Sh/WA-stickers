@@ -452,7 +452,7 @@ public class AppShellActivity extends LauncherActivity {
         }
     }
 
-    private void refreshShellState() {
+    void refreshShellState() {
         if (createMediaCounter == null) return;
         List<Uri> items = selectedUrisSnapshot();
         boolean animated = MainActivityRuntimeAccess.isAnimatedMode(this);
