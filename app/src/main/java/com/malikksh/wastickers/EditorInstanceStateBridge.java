@@ -19,7 +19,7 @@ import java.util.List;
 /**
  * Persists editor drafts across Activity recreation and fresh app launches.
  *
- * Runtime access is delegated to MainActivityRuntimeAccess so persistence owns serialization only;
+ * Runtime access uses MainActivity's package-private typed surface so persistence owns serialization only;
  * conversion/build logic and private activity implementation details stay outside this bridge.
  */
 final class EditorInstanceStateBridge {
@@ -37,12 +37,12 @@ final class EditorInstanceStateBridge {
     static void save(MainActivity activity, Bundle outState) {
         if (activity == null || outState == null) return;
         try {
-            boolean animated = MainActivityRuntimeAccess.isAnimatedMode(activity);
-            List<Uri> selected = MainActivityRuntimeAccess.selectedUrisSnapshot(activity);
-            Uri cover = MainActivityRuntimeAccess.coverUri(activity);
-            EditText packName = MainActivityRuntimeAccess.packName(activity);
+            boolean animated = activity.runtimeIsAnimatedMode();
+            List<Uri> selected = activity.runtimeSelectedUrisSnapshot();
+            Uri cover = activity.runtimeCoverUri();
+            EditText packName = activity.runtimePackName();
             EditorStateController<Uri> controller =
-                    MainActivityRuntimeAccess.editorStateController(activity);
+                    activity.runtimeEditorStateController();
             if (controller == null) throw new IllegalStateException("Editor state controller is missing");
 
             controller.capture(
@@ -55,13 +55,13 @@ final class EditorInstanceStateBridge {
             writeSnapshot(outState, "animated", controller.snapshot(true));
             outState.putBoolean(KEY_ACTIVE_ANIMATED, animated);
             outState.putBoolean(KEY_WAS_PROCESSING,
-                    MainActivityRuntimeAccess.isProcessing(activity));
+                    activity.runtimeIsProcessing());
 
-            PackBuildSession<?> buildSession = MainActivityRuntimeAccess.buildSession(activity);
+            PackBuildSession<?> buildSession = activity.runtimeBuildSession();
             outState.putBoolean(KEY_HAD_PENDING_BUILD,
                     buildSession != null && buildSession.isActive());
 
-            PackStore.Pack currentPack = MainActivityRuntimeAccess.currentPack(activity);
+            PackStore.Pack currentPack = activity.runtimeCurrentPack();
             if (currentPack != null) outState.putString(KEY_CURRENT_PACK_ID, currentPack.id);
         } catch (Throwable error) {
             BugLogStore.appendApp("Could not save editor instance state: " + error);
@@ -74,7 +74,7 @@ final class EditorInstanceStateBridge {
         }
         try {
             EditorStateController<Uri> controller =
-                    MainActivityRuntimeAccess.editorStateController(activity);
+                    activity.runtimeEditorStateController();
             if (controller == null) return false;
             restoreSnapshot(savedState, "photo", false, controller);
             restoreSnapshot(savedState, "animated", true, controller);
@@ -88,19 +88,13 @@ final class EditorInstanceStateBridge {
                     : PackStore.getPack(activity, currentPackId);
             if (currentPack != null && currentPack.animated != animated) currentPack = null;
 
-            if (!MainActivityRuntimeAccess.restoreEditorState(
-                    activity,
-                    animated,
-                    active.items(),
-                    active.cover(),
-                    active.name(),
-                    currentPack)) {
+            if (!activity.runtimeRestoreEditorState(animated, active.items(), active.cover(), active.name(), currentPack)) {
                 return false;
             }
 
             if (savedState.getBoolean(KEY_WAS_PROCESSING, false)
                     || savedState.getBoolean(KEY_HAD_PENDING_BUILD, false)) {
-                TextView status = MainActivityRuntimeAccess.statusText(activity);
+                TextView status = activity.runtimeStatusText();
                 if (status != null) {
                     status.setText("Редактор восстановлен. Незавершённая обработка была остановлена — создайте набор снова.");
                 }
@@ -179,12 +173,12 @@ final class EditorInstanceStateBridge {
     }
 
     static boolean isAnimatedMode(MainActivity activity) {
-        return MainActivityRuntimeAccess.isAnimatedMode(activity);
+        return activity.runtimeIsAnimatedMode();
     }
 
     static void setGalleryClickListener(MainActivity activity, View.OnClickListener listener) {
         if (activity == null || listener == null) return;
-        MainActivityRuntimeAccess.setGalleryClickListener(activity, listener);
+        activity.runtimeSetGalleryClickListener(listener);
     }
 
     static boolean canReadUri(Context context, Uri uri) {

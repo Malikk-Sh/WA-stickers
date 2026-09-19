@@ -99,7 +99,7 @@ public class BuildShellActivity extends AppShellActivity {
 
             @Override
             public void onCancel() {
-                MainActivityRuntimeAccess.cancelProcessing(BuildShellActivity.this);
+                BuildShellActivity.this.runtimeCancelProcessing();
                 refreshBuildPanel();
             }
 
@@ -127,20 +127,20 @@ public class BuildShellActivity extends AppShellActivity {
                 if (session == null || !session.canFinalize()) return;
                 finalizedExcludedUris.clear();
                 finalizedExcludedUris.addAll(session.failures());
-                MainActivityRuntimeAccess.finalizePendingPack(BuildShellActivity.this);
+                BuildShellActivity.this.runtimeFinalizePendingPack();
                 refreshBuildPanel();
             }
 
             @Override
             public void onDiscard() {
-                MainActivityRuntimeAccess.discardPendingBuild(BuildShellActivity.this);
+                BuildShellActivity.this.runtimeDiscardPendingBuild();
                 clearBuildPresentationState();
                 refreshBuildPanel();
             }
 
             @Override
             public void onAddToWhatsApp() {
-                MainActivityRuntimeAccess.addCurrentPackToWhatsApp(BuildShellActivity.this);
+                BuildShellActivity.this.runtimeAddCurrentPackToWhatsApp();
             }
 
             @Override
@@ -163,7 +163,7 @@ public class BuildShellActivity extends AppShellActivity {
         List<Uri> selected = selectedUrisSnapshot();
         if (selected.size() < MIN_STICKERS || selected.size() > MAX_STICKERS) return;
 
-        MainActivityRuntimeAccess.invalidateCurrentPack(this);
+        this.runtimeInvalidateCurrentPack();
         PackBuildSession<Uri> session = buildSession();
         if (session == null) return;
 
@@ -177,7 +177,7 @@ public class BuildShellActivity extends AppShellActivity {
 
         session.begin(packId, name, packDir, animated, cover);
         session.setAutoFinalizeAllowed(false);
-        MainActivityRuntimeAccess.resetDiagnostics(this);
+        this.runtimeResetDiagnostics();
         BugLogStore.reset();
         BugLogStore.appendApp("Starting redesigned Build flow. mode="
                 + (animated ? "animated" : "static") + ", items=" + selected.size());
@@ -189,7 +189,7 @@ public class BuildShellActivity extends AppShellActivity {
         percentByUri.clear();
         activeWork = new ArrayList<>(selected);
         deferredFailures = null;
-        MainActivityRuntimeAccess.startBatch(this, new ArrayList<>(activeWork), false);
+        this.runtimeStartBatch(new ArrayList<>(activeWork), false);
         refreshBuildPanel();
     }
 
@@ -232,7 +232,7 @@ public class BuildShellActivity extends AppShellActivity {
             detailByUri.put(uri, "Подготовка к повторной обработке…");
             percentByUri.put(uri, 0);
         }
-        MainActivityRuntimeAccess.startBatch(this, new ArrayList<>(work), true);
+        this.runtimeStartBatch(new ArrayList<>(work), true);
         refreshBuildPanel();
     }
 
@@ -247,7 +247,7 @@ public class BuildShellActivity extends AppShellActivity {
         combined.addAll(deferredFailures);
         session.setFailures(new ArrayList<>(combined));
         deferredFailures = null;
-        MainActivityRuntimeAccess.updateUiState(this);
+        this.runtimeUpdateUiState();
     }
 
     private void refreshBuildPanel() {
@@ -382,9 +382,9 @@ public class BuildShellActivity extends AppShellActivity {
     }
 
     private void updateProgressCacheFromLegacy() {
-        List<TextView> labels = MainActivityRuntimeAccess.fileProgressLabelsSnapshot(this);
-        List<ProgressBar> bars = MainActivityRuntimeAccess.fileProgressBarsSnapshot(this);
-        List<String> names = MainActivityRuntimeAccess.fileProgressNamesSnapshot(this);
+        List<TextView> labels = this.runtimeFileProgressLabelsSnapshot();
+        List<ProgressBar> bars = this.runtimeFileProgressBarsSnapshot();
+        List<String> names = this.runtimeFileProgressNamesSnapshot();
         int count = Math.min(activeWork.size(), Math.min(labels.size(), bars.size()));
         for (int i = 0; i < count; i++) {
             Uri uri = activeWork.get(i);
@@ -428,7 +428,7 @@ public class BuildShellActivity extends AppShellActivity {
 
     private String stageText(BuildPanel.Phase phase) {
         if (phase == BuildPanel.Phase.PROCESSING) {
-            TextView progress = MainActivityRuntimeAccess.progressText(this);
+            TextView progress = this.runtimeProgressText();
             if (progress != null) {
                 String value = progress.getText().toString().trim();
                 if (!value.isEmpty()) return value;
@@ -443,31 +443,31 @@ public class BuildShellActivity extends AppShellActivity {
     }
 
     private PackBuildSession<Uri> buildSession() {
-        return MainActivityRuntimeAccess.buildSession(this);
+        return this.runtimeBuildSession();
     }
 
     private PackStore.Pack currentPack() {
-        return MainActivityRuntimeAccess.currentPack(this);
+        return this.runtimeCurrentPack();
     }
 
     private boolean isProcessing() {
-        return MainActivityRuntimeAccess.isProcessing(this);
+        return this.runtimeIsProcessing();
     }
 
     private boolean animatedMode() {
-        return MainActivityRuntimeAccess.isAnimatedMode(this);
+        return this.runtimeIsAnimatedMode();
     }
 
     private String enteredPackName() {
-        return MainActivityRuntimeAccess.enteredPackName(this);
+        return this.runtimeEnteredPackName();
     }
 
     private Uri coverUriSnapshot() {
-        return MainActivityRuntimeAccess.coverUri(this);
+        return this.runtimeCoverUri();
     }
 
     private List<Uri> selectedUrisSnapshot() {
-        return MainActivityRuntimeAccess.selectedUrisSnapshot(this);
+        return this.runtimeSelectedUrisSnapshot();
     }
 
     private String displayName(Uri uri, int fallback) {

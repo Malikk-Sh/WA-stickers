@@ -92,9 +92,9 @@ public class AppShellActivity extends LauncherActivity {
     }
 
     private void installShell() {
-        EditText packName = MainActivityRuntimeAccess.packName(this);
-        photoModeButton = MainActivityRuntimeAccess.photoModeButton(this);
-        animatedModeButton = MainActivityRuntimeAccess.animatedModeButton(this);
+        EditText packName = this.runtimePackName();
+        photoModeButton = this.runtimePhotoModeButton();
+        animatedModeButton = this.runtimeAnimatedModeButton();
         if (packName == null || photoModeButton == null || animatedModeButton == null) {
             throw new IllegalStateException("Editor controls are missing");
         }
@@ -455,7 +455,7 @@ public class AppShellActivity extends LauncherActivity {
     void refreshShellState() {
         if (createMediaCounter == null) return;
         List<Uri> items = selectedUrisSnapshot();
-        boolean animated = MainActivityRuntimeAccess.isAnimatedMode(this);
+        boolean animated = this.runtimeIsAnimatedMode();
         refreshCreateMediaCard(items, animated);
         if (mediaPanel != null) mediaPanel.render(items, coverUriSnapshot(), animated);
     }
@@ -525,24 +525,24 @@ public class AppShellActivity extends LauncherActivity {
 
     private void moveMediaFromShell(int fromIndex, int toIndex) {
         if (isProcessing()) return;
-        MainActivityRuntimeAccess.moveSticker(this, fromIndex, toIndex);
+        this.runtimeMoveSticker(fromIndex, toIndex);
         persistAndRefreshShell();
     }
 
     private void selectCoverFromShell(Uri uri) {
-        if (MainActivityRuntimeAccess.selectCover(this, uri)) {
+        if (this.runtimeSelectCover(uri)) {
             persistAndRefreshShell();
         }
     }
 
     private void removeMediaFromShell(int index) {
-        if (MainActivityRuntimeAccess.removeMediaAt(this, index)) {
+        if (this.runtimeRemoveMediaAt(index)) {
             persistAndRefreshShell();
         }
     }
 
     private void clearMediaFromShell() {
-        if (MainActivityRuntimeAccess.clearMedia(this)) {
+        if (this.runtimeClearMedia()) {
             persistAndRefreshShell();
         }
     }
@@ -557,11 +557,11 @@ public class AppShellActivity extends LauncherActivity {
     }
 
     private boolean isProcessing() {
-        return MainActivityRuntimeAccess.isProcessing(this);
+        return this.runtimeIsProcessing();
     }
 
     private Uri coverUriSnapshot() {
-        return MainActivityRuntimeAccess.coverUri(this);
+        return this.runtimeCoverUri();
     }
 
     private void installModeListeners() {
@@ -576,11 +576,11 @@ public class AppShellActivity extends LauncherActivity {
     }
 
     private void invokeSetAnimatedMode(boolean animated) {
-        MainActivityRuntimeAccess.setAnimatedMode(this, animated);
+        this.runtimeSetAnimatedMode(animated);
     }
 
     private List<Uri> selectedUrisSnapshot() {
-        return MainActivityRuntimeAccess.selectedUrisSnapshot(this);
+        return this.runtimeSelectedUrisSnapshot();
     }
 
     private static void detach(View view) {

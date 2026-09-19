@@ -62,7 +62,7 @@ public class SettingsShellActivity extends PacksShellActivity {
     }
 
     private void configureCreatePresentation() {
-        EditText packName = MainActivityRuntimeAccess.packName(this);
+        EditText packName = this.runtimePackName();
         if (packName != null) {
             packName.setFilters(new InputFilter[]{new InputFilter.LengthFilter(60)});
         }
@@ -104,7 +104,7 @@ public class SettingsShellActivity extends PacksShellActivity {
     private void updateDraftChip() {
         if (draftChip == null) return;
         boolean visible = EditorInstanceStateBridge.hasPersistent(this)
-                && !MainActivityRuntimeAccess.selectedUrisSnapshot(this).isEmpty();
+                && !this.runtimeSelectedUrisSnapshot().isEmpty();
         draftChip.setVisibility(visible ? View.VISIBLE : View.GONE);
     }
 
@@ -276,11 +276,11 @@ public class SettingsShellActivity extends PacksShellActivity {
     }
 
     private void clearMediaFromOverflow() {
-        if (MainActivityRuntimeAccess.isProcessing(this)) {
+        if (this.runtimeIsProcessing()) {
             Toast.makeText(this, "Сначала остановите обработку", Toast.LENGTH_SHORT).show();
             return;
         }
-        if (MainActivityRuntimeAccess.clearMedia(this)) {
+        if (this.runtimeClearMedia()) {
             EditorInstanceStateBridge.savePersistent(this);
             refreshShellPresentation();
             TransientFeedback.show(this, "Медиа очищены");
@@ -351,11 +351,11 @@ public class SettingsShellActivity extends PacksShellActivity {
     }
 
     private void clearBuildFromOverflow() {
-        if (MainActivityRuntimeAccess.isProcessing(this)) {
+        if (this.runtimeIsProcessing()) {
             Toast.makeText(this, "Сначала остановите обработку", Toast.LENGTH_SHORT).show();
             return;
         }
-        MainActivityRuntimeAccess.discardPendingBuild(this);
+        this.runtimeDiscardPendingBuild();
         refreshShellPresentation();
         TransientFeedback.show(this, "Сборка очищена");
     }
@@ -369,11 +369,11 @@ public class SettingsShellActivity extends PacksShellActivity {
     }
 
     private void requestClearDraft() {
-        if (MainActivityRuntimeAccess.isProcessing(this)) {
+        if (this.runtimeIsProcessing()) {
             Toast.makeText(this, "Сначала остановите обработку", Toast.LENGTH_SHORT).show();
             return;
         }
-        if (MainActivityRuntimeAccess.selectedUrisSnapshot(this).isEmpty()) {
+        if (this.runtimeSelectedUrisSnapshot().isEmpty()) {
             clearDraftNow();
             return;
         }
@@ -386,7 +386,7 @@ public class SettingsShellActivity extends PacksShellActivity {
     }
 
     private void clearDraftNow() {
-        if (!MainActivityRuntimeAccess.clearEditorDraft(this)) {
+        if (!this.runtimeClearEditorDraft()) {
             Toast.makeText(this, "Не удалось очистить черновик", Toast.LENGTH_SHORT).show();
             return;
         }
@@ -430,7 +430,7 @@ public class SettingsShellActivity extends PacksShellActivity {
     }
 
     private void refreshShellPresentation() {
-        MainActivityRuntimeAccess.refreshAppShell(this);
+        this.refreshShellState();
         try {
             refreshBuildPanelForTest();
         } catch (Throwable error) {

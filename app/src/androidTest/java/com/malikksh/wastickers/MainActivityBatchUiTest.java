@@ -106,7 +106,7 @@ public class MainActivityBatchUiTest {
                     );
                     seedSelection(activity, sources, sources.get(0), false);
                     setField(activity, "processing", true);
-                    MainActivityRuntimeAccess.updateUiState(activity);
+                    activity.runtimeUpdateUiState();
 
                     View cancel = requireText(activity, "Отменить обработку");
                     assertTrue(cancel.isEnabled());
@@ -136,7 +136,7 @@ public class MainActivityBatchUiTest {
                     );
                     sourcesRef.set(sources);
                     seedSelection(activity, sources, sources.get(0), false);
-                    MainActivityRuntimeAccess.moveSticker(activity, 0, 2);
+                    activity.runtimeMoveSticker(0, 2);
                 } catch (Exception error) {
                     throw new RuntimeException(error);
                 }
@@ -156,7 +156,7 @@ public class MainActivityBatchUiTest {
             scenario.onActivity(activity -> {
                 View coverButton = requireContentDescription(activity, "Сделать стикер 2 обложкой");
                 assertTrue(coverButton.performClick());
-                assertEquals(original.get(2), MainActivityRuntimeAccess.coverUri(activity));
+                assertEquals(original.get(2), activity.runtimeCoverUri());
                 View currentCover = requireContentDescription(activity, "Текущая обложка набора");
                 assertTrue(currentCover.isShown());
             });
@@ -168,7 +168,7 @@ public class MainActivityBatchUiTest {
         while (SystemClock.uptimeMillis() < deadline) {
             AtomicBoolean processing = new AtomicBoolean(true);
             scenario.onActivity(activity -> processing.set(
-                    MainActivityRuntimeAccess.isProcessing(activity)));
+                    activity.runtimeIsProcessing()));
             if (!processing.get()) return;
             SystemClock.sleep(75L);
         }
@@ -179,16 +179,16 @@ public class MainActivityBatchUiTest {
                                       List<Uri> items,
                                       Uri cover,
                                       boolean animated) {
-        MainActivityRuntimeAccess.invalidateCurrentPack(activity);
-        MainActivityRuntimeAccess.restoreEditorState(activity, animated, items, cover, "", null);
+        activity.runtimeInvalidateCurrentPack();
+        activity.runtimeRestoreEditorState(animated, items, cover, "", null);
     }
 
     private static List<Uri> selectionSnapshot(MainActivity activity) {
-        return MainActivityRuntimeAccess.selectedUrisSnapshot(activity);
+        return activity.runtimeSelectedUrisSnapshot();
     }
 
     private static PackBuildSession<?> buildSession(MainActivity activity) {
-        return MainActivityRuntimeAccess.buildSession(activity);
+        return activity.runtimeBuildSession();
     }
 
     private static Uri writeTestImage(MainActivity activity, String name, int color) throws Exception {

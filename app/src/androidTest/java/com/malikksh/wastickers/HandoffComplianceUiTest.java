@@ -129,11 +129,11 @@ public class HandoffComplianceUiTest {
             scenario.onActivity(activity -> {
                 try {
                     seedSelection(activity, photos, photos.get(0), "Media accessibility");
-                    MainActivityRuntimeAccess.refreshAppShell(activity);
+                    activity.refreshShellState();
                     View media = activity.findViewById(R.id.nav_media);
                     assertNotNull(media);
                     media.performClick();
-                    MainActivityRuntimeAccess.refreshAppShell(activity);
+                    activity.refreshShellState();
                 } catch (Exception error) {
                     throw new RuntimeException(error);
                 }
@@ -163,7 +163,7 @@ public class HandoffComplianceUiTest {
                 assertNotNull("Alternative reorder action is missing", moveRight);
                 assertTrue(tile.performAccessibilityAction(moveRight.getId(), new Bundle()));
 
-                List<Uri> reordered = MainActivityRuntimeAccess.selectedUrisSnapshot(activity);
+                List<Uri> reordered = activity.runtimeSelectedUrisSnapshot();
                 assertEquals(photos.get(1), reordered.get(0));
                 assertEquals(photos.get(0), reordered.get(1));
             });
@@ -213,7 +213,7 @@ public class HandoffComplianceUiTest {
                                       List<Uri> items,
                                       Uri cover,
                                       String name) {
-        MainActivityRuntimeAccess.restoreEditorState(activity, false, items, cover, name, null);
+        activity.runtimeRestoreEditorState(false, items, cover, name, null);
     }
 
     private static Uri writeImage(Context context, String suffix, int color) throws Exception {

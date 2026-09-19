@@ -141,18 +141,11 @@ public class BuildShellActivityUiTest {
     private static void seedSelection(BuildShellActivity activity,
                                       List<Uri> items,
                                       String name) {
-        MainActivityRuntimeAccess.restoreEditorState(
-                activity,
-                false,
-                items,
-                items.isEmpty() ? null : items.get(0),
-                name,
-                null
-        );
+        activity.runtimeRestoreEditorState(false, items, items.isEmpty() ? null : items.get(0), name, null);
     }
 
     private static PackBuildSession<Uri> buildSession(BuildShellActivity activity) {
-        return MainActivityRuntimeAccess.buildSession(activity);
+        return activity.runtimeBuildSession();
     }
 
     private static void setMainField(BuildShellActivity activity, String name, Object value) throws Exception {

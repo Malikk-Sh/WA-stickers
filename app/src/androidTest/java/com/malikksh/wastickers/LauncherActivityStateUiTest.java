@@ -48,17 +48,17 @@ public class LauncherActivityStateUiTest {
         try (ActivityScenario<LauncherTestHostActivity> scenario =
                      ActivityScenario.launch(LauncherTestHostActivity.class)) {
             scenario.onActivity(activity -> {
-                MainActivityRuntimeAccess.packName(activity).setText("Фото-черновик");
-                MainActivityRuntimeAccess.setAnimatedMode(activity, true);
-                MainActivityRuntimeAccess.packName(activity).setText("Анимация-черновик");
+                activity.runtimePackName().setText("Фото-черновик");
+                activity.runtimeSetAnimatedMode(true);
+                activity.runtimePackName().setText("Анимация-черновик");
             });
 
             scenario.recreate();
             scenario.onActivity(activity -> {
-                assertTrue(MainActivityRuntimeAccess.isAnimatedMode(activity));
+                assertTrue(activity.runtimeIsAnimatedMode());
                 assertEquals("Анимация-черновик", packName(activity));
-                MainActivityRuntimeAccess.setAnimatedMode(activity, false);
-                assertFalse(MainActivityRuntimeAccess.isAnimatedMode(activity));
+                activity.runtimeSetAnimatedMode(false);
+                assertFalse(activity.runtimeIsAnimatedMode());
                 assertEquals("Фото-черновик", packName(activity));
             });
         }
@@ -79,18 +79,18 @@ public class LauncherActivityStateUiTest {
                      ActivityScenario.launch(LauncherTestHostActivity.class)) {
             scenario.onActivity(activity -> {
                 seedCurrentEditor(activity, photos, photos.get(1), "Фото-порядок");
-                MainActivityRuntimeAccess.setAnimatedMode(activity, true);
+                activity.runtimeSetAnimatedMode(true);
                 seedCurrentEditor(activity, animated, animated.get(2), "Анимация-порядок");
             });
 
             scenario.recreate();
             scenario.onActivity(activity -> {
                 assertEquals(animated, selectionSnapshot(activity));
-                assertEquals(animated.get(2), MainActivityRuntimeAccess.coverUri(activity));
+                assertEquals(animated.get(2), activity.runtimeCoverUri());
                 assertEquals("Анимация-порядок", packName(activity));
-                MainActivityRuntimeAccess.setAnimatedMode(activity, false);
+                activity.runtimeSetAnimatedMode(false);
                 assertEquals(photos, selectionSnapshot(activity));
-                assertEquals(photos.get(1), MainActivityRuntimeAccess.coverUri(activity));
+                assertEquals(photos.get(1), activity.runtimeCoverUri());
                 assertEquals("Фото-порядок", packName(activity));
             });
         }
@@ -126,7 +126,7 @@ public class LauncherActivityStateUiTest {
                 ActivityScenario.launch(LauncherTestHostActivity.class);
         first.onActivity(activity -> {
             seedCurrentEditor(activity, photos, photos.get(1), "Фото после рестарта");
-            MainActivityRuntimeAccess.setAnimatedMode(activity, true);
+            activity.runtimeSetAnimatedMode(true);
             seedCurrentEditor(activity, animated, video, "Анимация после рестарта");
             VideoTrimStore.replaceEntries(Arrays.asList(new VideoTrimStore.Entry(
                     video.toString(), video, "long-video.mp4", 30_000L, 7_000L)));
@@ -136,14 +136,14 @@ public class LauncherActivityStateUiTest {
         try (ActivityScenario<LauncherTestHostActivity> second =
                      ActivityScenario.launch(LauncherTestHostActivity.class)) {
             second.onActivity(activity -> {
-                assertTrue(MainActivityRuntimeAccess.isAnimatedMode(activity));
+                assertTrue(activity.runtimeIsAnimatedMode());
                 assertEquals(animated, selectionSnapshot(activity));
-                assertEquals(video, MainActivityRuntimeAccess.coverUri(activity));
+                assertEquals(video, activity.runtimeCoverUri());
                 assertEquals("Анимация после рестарта", packName(activity));
                 assertEquals(7_000L, VideoTrimStore.getStartOffsetMs(video));
-                MainActivityRuntimeAccess.setAnimatedMode(activity, false);
+                activity.runtimeSetAnimatedMode(false);
                 assertEquals(photos, selectionSnapshot(activity));
-                assertEquals(photos.get(1), MainActivityRuntimeAccess.coverUri(activity));
+                assertEquals(photos.get(1), activity.runtimeCoverUri());
                 assertEquals("Фото после рестарта", packName(activity));
             });
         }
@@ -155,22 +155,21 @@ public class LauncherActivityStateUiTest {
             Uri cover,
             String name
     ) {
-        MainActivityRuntimeAccess.restoreEditorState(
-                activity,
-                MainActivityRuntimeAccess.isAnimatedMode(activity),
+        activity.runtimeRestoreEditorState(
+                activity.runtimeIsAnimatedMode(),
                 items,
                 cover,
                 name,
-                MainActivityRuntimeAccess.currentPack(activity)
+                activity.runtimeCurrentPack()
         );
     }
 
     private static List<Uri> selectionSnapshot(MainActivity activity) {
-        return MainActivityRuntimeAccess.selectedUrisSnapshot(activity);
+        return activity.runtimeSelectedUrisSnapshot();
     }
 
     private static String packName(MainActivity activity) {
-        return MainActivityRuntimeAccess.packName(activity).getText().toString();
+        return activity.runtimePackName().getText().toString();
     }
 
     private Uri testFileUri(String suffix) throws Exception {
