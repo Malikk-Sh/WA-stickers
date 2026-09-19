@@ -6,6 +6,9 @@
             android:name=".LauncherTestHostActivity"
             android:exported="false" />
         <activity
+            android:name=".LegacyMainTestHostActivity"
+            android:exported="false" />
+        <activity
             android:name=".AppShellActivity"
             android:exported="false" />
         <activity
