@@ -13,7 +13,6 @@ import static org.junit.Assert.assertNotNull;
 import android.graphics.Bitmap;
 import android.net.Uri;
 import android.view.View;
-import android.widget.EditText;
 
 import androidx.test.core.app.ActivityScenario;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
@@ -139,28 +138,21 @@ public class BuildShellActivityUiTest {
         }
     }
 
-    @SuppressWarnings("unchecked")
     private static void seedSelection(BuildShellActivity activity,
                                       List<Uri> items,
-                                      String name) throws Exception {
-        List<Uri> selected = (List<Uri>) getMainField(activity, "selectedUris");
-        selected.clear();
-        selected.addAll(items);
-        setMainField(activity, "animatedMode", false);
-        setMainField(activity, "coverUri", items.isEmpty() ? null : items.get(0));
-        EditText packName = (EditText) getMainField(activity, "packName");
-        packName.setText(name);
+                                      String name) {
+        MainActivityRuntimeAccess.restoreEditorState(
+                activity,
+                false,
+                items,
+                items.isEmpty() ? null : items.get(0),
+                name,
+                null
+        );
     }
 
-    @SuppressWarnings("unchecked")
-    private static PackBuildSession<Uri> buildSession(BuildShellActivity activity) throws Exception {
-        return (PackBuildSession<Uri>) getMainField(activity, "buildSession");
-    }
-
-    private static Object getMainField(BuildShellActivity activity, String name) throws Exception {
-        Field field = MainActivity.class.getDeclaredField(name);
-        field.setAccessible(true);
-        return field.get(activity);
+    private static PackBuildSession<Uri> buildSession(BuildShellActivity activity) {
+        return MainActivityRuntimeAccess.buildSession(activity);
     }
 
     private static void setMainField(BuildShellActivity activity, String name, Object value) throws Exception {

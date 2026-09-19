@@ -19,7 +19,6 @@ import android.os.Bundle;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.accessibility.AccessibilityNodeInfo;
-import android.widget.EditText;
 
 import androidx.test.core.app.ActivityScenario;
 import androidx.test.core.app.ApplicationProvider;
@@ -32,7 +31,6 @@ import org.junit.runner.RunWith;
 
 import java.io.File;
 import java.io.FileOutputStream;
-import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -211,31 +209,11 @@ public class HandoffComplianceUiTest {
         assertNotNull(PackStore.getPack(context, copy.id));
     }
 
-    @SuppressWarnings("unchecked")
     private static void seedSelection(SettingsShellActivity activity,
                                       List<Uri> items,
                                       Uri cover,
-                                      String name) throws Exception {
-        List<Uri> selected = (List<Uri>) readMainField(activity, "selectedUris");
-        selected.clear();
-        selected.addAll(items);
-        writeMainField(activity, "animatedMode", false);
-        writeMainField(activity, "coverUri", cover);
-        EditText packName = (EditText) readMainField(activity, "packName");
-        packName.setText(name);
-        MainActivityRuntimeAccess.updateUiState(activity);
-    }
-
-    private static Object readMainField(MainActivity activity, String name) throws Exception {
-        Field field = MainActivity.class.getDeclaredField(name);
-        field.setAccessible(true);
-        return field.get(activity);
-    }
-
-    private static void writeMainField(MainActivity activity, String name, Object value) throws Exception {
-        Field field = MainActivity.class.getDeclaredField(name);
-        field.setAccessible(true);
-        field.set(activity, value);
+                                      String name) {
+        MainActivityRuntimeAccess.restoreEditorState(activity, false, items, cover, name, null);
     }
 
     private static Uri writeImage(Context context, String suffix, int color) throws Exception {

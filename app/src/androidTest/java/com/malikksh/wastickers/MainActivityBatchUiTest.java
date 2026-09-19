@@ -27,8 +27,6 @@ import org.junit.runner.RunWith;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.lang.reflect.Field;
-import java.lang.reflect.Method;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -108,7 +106,7 @@ public class MainActivityBatchUiTest {
                     );
                     seedSelection(activity, sources, sources.get(0), false);
                     setField(activity, "processing", true);
-                    invoke(activity, "updateUiState");
+                    MainActivityRuntimeAccess.updateUiState(activity);
 
                     View cancel = requireText(activity, "Отменить обработку");
                     assertTrue(cancel.isEnabled());
@@ -138,7 +136,7 @@ public class MainActivityBatchUiTest {
                     );
                     sourcesRef.set(sources);
                     seedSelection(activity, sources, sources.get(0), false);
-                    invoke(activity, "moveSticker", new Class<?>[]{int.class, int.class}, 0, 2);
+                    MainActivityRuntimeAccess.moveSticker(activity, 0, 2);
                 } catch (Exception error) {
                     throw new RuntimeException(error);
                 }
@@ -158,11 +156,7 @@ public class MainActivityBatchUiTest {
             scenario.onActivity(activity -> {
                 View coverButton = requireContentDescription(activity, "Сделать стикер 2 обложкой");
                 assertTrue(coverButton.performClick());
-                try {
-                    assertEquals(original.get(2), getField(activity, "coverUri"));
-                } catch (Exception error) {
-                    throw new RuntimeException(error);
-                }
+                assertEquals(original.get(2), MainActivityRuntimeAccess.coverUri(activity));
                 View currentCover = requireContentDescription(activity, "Текущая обложка набора");
                 assertTrue(currentCover.isShown());
             });
@@ -173,46 +167,28 @@ public class MainActivityBatchUiTest {
         long deadline = SystemClock.uptimeMillis() + 15_000L;
         while (SystemClock.uptimeMillis() < deadline) {
             AtomicBoolean processing = new AtomicBoolean(true);
-            scenario.onActivity(activity -> {
-                try {
-                    processing.set((Boolean) getField(activity, "processing"));
-                } catch (Exception error) {
-                    throw new RuntimeException(error);
-                }
-            });
+            scenario.onActivity(activity -> processing.set(
+                    MainActivityRuntimeAccess.isProcessing(activity)));
             if (!processing.get()) return;
             SystemClock.sleep(75L);
         }
         fail("Batch processing did not finish before the test deadline");
     }
 
-    @SuppressWarnings("unchecked")
     private static void seedSelection(MainActivity activity,
                                       List<Uri> items,
                                       Uri cover,
-                                      boolean animated) throws Exception {
-        invoke(activity, "invalidateCurrentPack");
-        List<Uri> selected = (List<Uri>) getField(activity, "selectedUris");
-        selected.clear();
-        selected.addAll(items);
-        setField(activity, "animatedMode", animated);
-        setField(activity, "coverUri", cover);
-        invoke(activity, "renderPreviews");
-        invoke(activity, "updateModeUi");
-        invoke(activity, "updateUiState");
+                                      boolean animated) {
+        MainActivityRuntimeAccess.invalidateCurrentPack(activity);
+        MainActivityRuntimeAccess.restoreEditorState(activity, animated, items, cover, "", null);
     }
 
-    @SuppressWarnings("unchecked")
-    private static List<Uri> selectionSnapshot(MainActivity activity) throws Exception {
-        return new ArrayList<>((List<Uri>) getField(activity, "selectedUris"));
+    private static List<Uri> selectionSnapshot(MainActivity activity) {
+        return MainActivityRuntimeAccess.selectedUrisSnapshot(activity);
     }
 
     private static PackBuildSession<?> buildSession(MainActivity activity) {
-        try {
-            return (PackBuildSession<?>) getField(activity, "buildSession");
-        } catch (Exception error) {
-            throw new RuntimeException(error);
-        }
+        return MainActivityRuntimeAccess.buildSession(activity);
     }
 
     private static Uri writeTestImage(MainActivity activity, String name, int color) throws Exception {
@@ -311,19 +287,6 @@ public class MainActivityBatchUiTest {
         Field field = MainActivity.class.getDeclaredField(name);
         field.setAccessible(true);
         field.set(activity, value);
-    }
-
-    private static Object invoke(MainActivity activity, String name) throws Exception {
-        return invoke(activity, name, new Class<?>[0]);
-    }
-
-    private static Object invoke(MainActivity activity,
-                                 String name,
-                                 Class<?>[] parameterTypes,
-                                 Object... args) throws Exception {
-        Method method = MainActivity.class.getDeclaredMethod(name, parameterTypes);
-        method.setAccessible(true);
-        return method.invoke(activity, args);
     }
 
     private void clearSavedPacks() {
