@@ -29,8 +29,11 @@
 
 - Production launcher больше не строит старый long-scroll UI перед новым shell.
 - Старые самостоятельные launcher/home/saved-packs routes выведены из production navigation.
-- Legacy UI coverage изолирован в debug-only host, пока оставшийся controller/state код постепенно переносится из `MainActivity`.
-- Runtime reflection ограничен отдельным compatibility boundary и контролируется CI.
+- Legacy long-scroll presentation оставлен только за debug-only test host для независимых regression-тестов conversion pipeline и недоступен из production navigation.
+- Active editor selection/mode/cover и раздельные photo/animation drafts вынесены в `EditorRuntimeState`; состояние текущего финализированного набора вынесено в `PackRuntimeState`.
+- Переходный `MainActivityRuntimeAccess` полностью удалён; production reflection отсутствует, а CI запрещает его глобально.
 - CI дополнительно запрещает hardcoded screen colors в ключевых redesigned UI-классах.
-- Расширены JVM и instrumentation regression tests, включая handoff-compliance сценарии; CI проверяет lint, unit tests, APK и Android API 35 instrumentation suite.
-- Финальный post-merge прогон `main` после UI/UX compliance pass полностью зелёный.
+- Расширены JVM и instrumentation regression tests, включая handoff-compliance и release-contract проверки launcher/provider/offline-инвариантов.
+- CI проверяет lint, unit tests, debug APK, сборку release-варианта и Android API 35 instrumentation suite.
+- GitHub Actions переведены на актуальные major-версии `checkout`, `setup-java`, `setup-gradle` и `upload-artifact`.
+- Финальные post-merge прогоны `main` после UI/UX compliance и архитектурной очистки полностью зелёные.
