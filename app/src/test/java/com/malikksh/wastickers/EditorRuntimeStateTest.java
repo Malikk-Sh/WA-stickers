@@ -3,6 +3,7 @@ package com.malikksh.wastickers;
 import org.junit.Test;
 
 import java.util.Arrays;
+import java.util.List;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -75,5 +76,17 @@ public class EditorRuntimeStateTest {
         assertTrue(state.move(2, 0));
         assertEquals(Arrays.asList("three", "one", "two"), state.items());
         assertEquals("three", state.cover());
+    }
+
+    @Test
+    public void snapshotItemsIsDetachedFromMutableRuntimeState() {
+        EditorRuntimeState<String> state = new EditorRuntimeState<>();
+        state.restoreActive(false, Arrays.asList("one", "two", "three"), "one");
+
+        List<String> snapshot = state.snapshotItems();
+        snapshot.clear();
+
+        assertEquals(Arrays.asList("one", "two", "three"), state.items());
+        assertEquals("one", state.cover());
     }
 }
