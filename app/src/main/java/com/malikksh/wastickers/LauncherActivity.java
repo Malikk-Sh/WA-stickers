@@ -15,9 +15,6 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -48,7 +45,7 @@ public abstract class LauncherActivity extends MainActivity {
             VideoTrimStore.restorePersistent(this, AppSettings.TRIM_PERSISTENT_KEY);
             EditorInstanceStateBridge.restorePersistent(this);
         }
-        EditorInstanceStateBridge.setGalleryClickListener(this, v -> openMediaPicker());
+        MainActivityRuntimeAccess.setGalleryClickListener(this, v -> openMediaPicker());
     }
 
     /**
@@ -103,32 +100,22 @@ public abstract class LauncherActivity extends MainActivity {
         LinearLayout fileProgressContainer = new LinearLayout(this);
         fileProgressContainer.setOrientation(LinearLayout.VERTICAL);
 
-        writeRuntimeField("packName", packName);
-        writeRuntimeField("countText", countText);
-        writeRuntimeField("statusText", statusText);
-        writeRuntimeField("mediaTitle", mediaTitle);
-        writeRuntimeField("mediaHint", mediaHint);
-        writeRuntimeField("actionHint", actionHint);
-        writeRuntimeField("progressText", progressText);
-        writeRuntimeField("progressBar", progressBar);
-        writeRuntimeField("previewContainer", null);
-        writeRuntimeField("fileProgressContainer", fileProgressContainer);
-        writeRuntimeField("photoModeButton", photoModeButton);
-        writeRuntimeField("animatedModeButton", animatedModeButton);
-        writeRuntimeField("galleryButton", galleryButton);
-        writeRuntimeField("createButton", createButton);
-        writeRuntimeField("addButton", addButton);
-        writeRuntimeField("bugLogButton", bugLogButton);
-    }
-
-    private void writeRuntimeField(String name, Object value) {
-        try {
-            Field field = MainActivity.class.getDeclaredField(name);
-            field.setAccessible(true);
-            field.set(this, value);
-        } catch (ReflectiveOperationException error) {
-            throw new IllegalStateException("Could not initialize runtime field " + name, error);
-        }
+        MainActivityRuntimeAccess.setField(this, "packName", packName);
+        MainActivityRuntimeAccess.setField(this, "countText", countText);
+        MainActivityRuntimeAccess.setField(this, "statusText", statusText);
+        MainActivityRuntimeAccess.setField(this, "mediaTitle", mediaTitle);
+        MainActivityRuntimeAccess.setField(this, "mediaHint", mediaHint);
+        MainActivityRuntimeAccess.setField(this, "actionHint", actionHint);
+        MainActivityRuntimeAccess.setField(this, "progressText", progressText);
+        MainActivityRuntimeAccess.setField(this, "progressBar", progressBar);
+        MainActivityRuntimeAccess.setField(this, "previewContainer", null);
+        MainActivityRuntimeAccess.setField(this, "fileProgressContainer", fileProgressContainer);
+        MainActivityRuntimeAccess.setField(this, "photoModeButton", photoModeButton);
+        MainActivityRuntimeAccess.setField(this, "animatedModeButton", animatedModeButton);
+        MainActivityRuntimeAccess.setField(this, "galleryButton", galleryButton);
+        MainActivityRuntimeAccess.setField(this, "createButton", createButton);
+        MainActivityRuntimeAccess.setField(this, "addButton", addButton);
+        MainActivityRuntimeAccess.setField(this, "bugLogButton", bugLogButton);
     }
 
     private int runtimeDp(int value) {
@@ -151,7 +138,7 @@ public abstract class LauncherActivity extends MainActivity {
 
     /** Opens the redesigned shell picker without routing through a hidden legacy button. */
     protected final void openMediaPicker() {
-        boolean animated = EditorInstanceStateBridge.isAnimatedMode(this);
+        boolean animated = MainActivityRuntimeAccess.isAnimatedMode(this);
         int requestCode = animated ? REQUEST_SHELL_PICK_ANIMATED : REQUEST_SHELL_PICK_PHOTOS;
         Intent intent = MediaPickerIntentFactory.createOpenDocumentIntent(animated);
         String title = animated ? "Выберите GIF, WebP или видео" : "Выберите фото";
@@ -193,10 +180,9 @@ public abstract class LauncherActivity extends MainActivity {
 
     private void receiveShellPickerResult(Intent data, boolean animated) {
         try {
-            Method receive = MainActivity.class.getDeclaredMethod(
-                    "receivePickerResult", Intent.class, boolean.class);
-            receive.setAccessible(true);
-            receive.invoke(this, data, animated);
+            // Shell pickers use ACTION_OPEN_DOCUMENT when available, so keep URI access for both
+            // photo and animated drafts. GET_CONTENT fallback persistence failures are tolerated.
+            MainActivityRuntimeAccess.receivePickerResult(this, data, true);
             EditorInstanceStateBridge.savePersistent(this);
         } catch (Throwable error) {
             BugLogStore.appendApp("Could not apply redesigned picker result: " + error);
@@ -204,7 +190,7 @@ public abstract class LauncherActivity extends MainActivity {
         }
 
         if (!animated) return;
-        List<Uri> selected = selectedUrisSnapshot();
+        List<Uri> selected = MainActivityRuntimeAccess.selectedUrisSnapshot(this);
         shellSelectionExecutor.execute(() -> {
             try {
                 VideoTrimStore.prepare(this, selected);
@@ -213,23 +199,6 @@ public abstract class LauncherActivity extends MainActivity {
                 BugLogStore.appendApp("Could not prepare video trim state: " + error);
             }
         });
-    }
-
-    private List<Uri> selectedUrisSnapshot() {
-        try {
-            Field field = MainActivity.class.getDeclaredField("selectedUris");
-            field.setAccessible(true);
-            Object value = field.get(this);
-            if (!(value instanceof List<?>)) return new ArrayList<>();
-            List<Uri> result = new ArrayList<>();
-            for (Object item : (List<?>) value) {
-                if (item instanceof Uri) result.add((Uri) item);
-            }
-            return result;
-        } catch (Throwable error) {
-            BugLogStore.appendApp("Could not read redesigned picker selection: " + error);
-            return new ArrayList<>();
-        }
     }
 
     @Override
