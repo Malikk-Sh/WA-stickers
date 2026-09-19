@@ -4,6 +4,7 @@ import static androidx.test.espresso.Espresso.onView;
 import static androidx.test.espresso.action.ViewActions.click;
 import static androidx.test.espresso.action.ViewActions.scrollTo;
 import static androidx.test.espresso.assertion.ViewAssertions.matches;
+import static androidx.test.espresso.matcher.ViewMatchers.hasDescendant;
 import static androidx.test.espresso.matcher.ViewMatchers.isDisplayed;
 import static androidx.test.espresso.matcher.ViewMatchers.isEnabled;
 import static androidx.test.espresso.matcher.ViewMatchers.withId;
@@ -54,7 +55,7 @@ public class BuildShellActivityUiTest {
             onView(withId(R.id.build_pack_name)).check(matches(withText("Build UI test")));
             onView(withId(R.id.build_progress_label)).check(matches(withText("0 из 3 готовы")));
             onView(withText("Файлы стикеров")).check(matches(isDisplayed()));
-            onView(withText("Готов к сборке")).check(matches(isDisplayed()));
+            onView(withId(R.id.build_file_list)).check(matches(hasDescendant(withText("Готов к сборке"))));
             onView(withId(R.id.build_primary)).check(matches(withText("Создать набор")));
             onView(withId(R.id.build_primary)).check(matches(isEnabled()));
         }
