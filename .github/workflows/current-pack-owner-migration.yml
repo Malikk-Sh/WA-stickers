@@ -1,0 +1,31 @@
+name: Current pack owner migration
+
+on:
+  push:
+    branches: [ current-pack-owner ]
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout current pack branch
+        uses: actions/checkout@v4
+        with:
+          ref: current-pack-owner
+
+      - name: Apply current pack owner migration
+        run: python tools/migrate_current_pack_owner.py
+
+      - name: Commit migrated source and remove one-shot tooling
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/com/malikksh/wastickers/MainActivity.java
+          git rm tools/migrate_current_pack_owner.py
+          git rm .github/workflows/current-pack-owner-migration.yml
+          git diff --cached --check
+          git commit -m "Move current pack state out of MainActivity"
+          git push origin HEAD:current-pack-owner
