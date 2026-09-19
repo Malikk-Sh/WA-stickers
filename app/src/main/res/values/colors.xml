@@ -32,4 +32,8 @@
 
     <color name="app_feedback_surface">#24332E</color>
     <color name="app_feedback_text">#FFFFFF</color>
+    <color name="app_overlay_light">#EFFFFFFF</color>
+    <color name="app_overlay_dark">#CC17231F</color>
+    <color name="app_overlay_badge">#B814221D</color>
+    <color name="app_transparent">#00000000</color>
 </resources>
