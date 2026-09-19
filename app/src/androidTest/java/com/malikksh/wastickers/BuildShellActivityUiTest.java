@@ -2,6 +2,7 @@ package com.malikksh.wastickers;
 
 import static androidx.test.espresso.Espresso.onView;
 import static androidx.test.espresso.action.ViewActions.click;
+import static androidx.test.espresso.action.ViewActions.scrollTo;
 import static androidx.test.espresso.assertion.ViewAssertions.matches;
 import static androidx.test.espresso.matcher.ViewMatchers.isDisplayed;
 import static androidx.test.espresso.matcher.ViewMatchers.isEnabled;
@@ -96,7 +97,9 @@ public class BuildShellActivityUiTest {
             onView(withId(R.id.build_primary)).check(matches(withText("Создать из готовых")));
             onView(withId(R.id.build_secondary)).check(matches(withText("Повторить ошибки")));
             onView(withText("! Ошибка")).check(matches(isDisplayed()));
-            onView(withText("Пропустить")).perform(click());
+            // System/navigation insets legitimately reduce the visible Build viewport on API 35.
+            // Keep this interaction assertion independent of where the failed row lands onscreen.
+            onView(withText("Пропустить")).perform(scrollTo(), click());
             onView(withText("Пропущено")).check(matches(isDisplayed()));
         }
     }
