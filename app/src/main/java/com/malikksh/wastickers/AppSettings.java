@@ -4,10 +4,15 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.res.Configuration;
+import android.graphics.Insets;
 import android.os.Build;
 import android.view.View;
+import android.view.Window;
+import android.view.WindowInsets;
+import android.view.WindowManager;
 
 import java.io.File;
+import java.util.WeakHashMap;
 
 final class AppSettings {
     static final String APPEARANCE_SYSTEM = "system";
@@ -26,6 +31,9 @@ final class AppSettings {
     private static final String KEY_QUALITY = "animation_quality";
     private static final String KEY_KEEP_DRAFTS = "keep_drafts";
     private static final String KEY_AUTO_CLEANUP = "auto_cleanup";
+
+    /** Original padding for roots that receive system/IME insets. Weak keys avoid retaining Activities. */
+    private static final WeakHashMap<View, int[]> INSET_BASELINES = new WeakHashMap<>();
 
     private AppSettings() {}
 
@@ -106,12 +114,30 @@ final class AppSettings {
         if (autoCleanup(context)) cleanupTemporaryFiles(context);
     }
 
+    /**
+     * Applies semantic system-bar styling and a single root WindowInsets policy.
+     *
+     * targetSdk 35 makes edge-to-edge behavior observable even for the existing View hierarchy,
+     * so every Activity must explicitly keep interactive content clear of status/navigation/IME
+     * regions instead of relying on historical decor fitting behavior.
+     */
     @SuppressWarnings("deprecation")
     static void applySystemBars(Activity activity) {
         if (activity == null) return;
-        activity.getWindow().setStatusBarColor(activity.getResources().getColor(R.color.app_background));
-        activity.getWindow().setNavigationBarColor(activity.getResources().getColor(R.color.app_surface));
-        int flags = activity.getWindow().getDecorView().getSystemUiVisibility();
+        Window window = activity.getWindow();
+        window.setStatusBarColor(activity.getResources().getColor(R.color.app_background));
+        window.setNavigationBarColor(activity.getResources().getColor(R.color.app_surface));
+        window.setSoftInputMode(
+                WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN
+                        | WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+        );
+
+        if (Build.VERSION.SDK_INT >= 29) {
+            window.setStatusBarContrastEnforced(false);
+            window.setNavigationBarContrastEnforced(false);
+        }
+
+        int flags = window.getDecorView().getSystemUiVisibility();
         boolean dark = isDark(activity);
         if (Build.VERSION.SDK_INT >= 23) {
             if (dark) flags &= ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
@@ -121,7 +147,66 @@ final class AppSettings {
             if (dark) flags &= ~View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
             else flags |= View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
         }
-        activity.getWindow().getDecorView().setSystemUiVisibility(flags);
+        window.getDecorView().setSystemUiVisibility(flags);
+
+        installRootInsets(activity);
+    }
+
+    private static void installRootInsets(Activity activity) {
+        View content = activity.findViewById(android.R.id.content);
+        if (content == null) return;
+
+        final int[] baseline;
+        synchronized (INSET_BASELINES) {
+            int[] stored = INSET_BASELINES.get(content);
+            if (stored == null) {
+                stored = new int[]{
+                        content.getPaddingLeft(),
+                        content.getPaddingTop(),
+                        content.getPaddingRight(),
+                        content.getPaddingBottom()
+                };
+                INSET_BASELINES.put(content, stored);
+            }
+            baseline = stored;
+        }
+
+        content.setOnApplyWindowInsetsListener((view, windowInsets) -> {
+            int safeTop;
+            int safeBottom;
+            boolean imeVisible = false;
+
+            if (Build.VERSION.SDK_INT >= 30) {
+                Insets bars = windowInsets.getInsets(
+                        WindowInsets.Type.statusBars()
+                                | WindowInsets.Type.navigationBars()
+                                | WindowInsets.Type.displayCutout()
+                );
+                Insets ime = windowInsets.getInsets(WindowInsets.Type.ime());
+                imeVisible = windowInsets.isVisible(WindowInsets.Type.ime()) && ime.bottom > bars.bottom;
+                safeTop = bars.top;
+                safeBottom = imeVisible ? Math.max(bars.bottom, ime.bottom) : bars.bottom;
+            } else {
+                safeTop = windowInsets.getSystemWindowInsetTop();
+                safeBottom = windowInsets.getSystemWindowInsetBottom();
+            }
+
+            view.setPadding(
+                    baseline[0],
+                    baseline[1] + Math.max(0, safeTop),
+                    baseline[2],
+                    baseline[3] + Math.max(0, safeBottom)
+            );
+
+            // Primary navigation should not compete with the keyboard. Secondary Activities do not
+            // contain nav_create, so this is a no-op for Settings and Video Trim.
+            View navCreate = activity.findViewById(R.id.nav_create);
+            if (navCreate != null && navCreate.getParent() instanceof View) {
+                ((View) navCreate.getParent()).setVisibility(imeVisible ? View.GONE : View.VISIBLE);
+            }
+            return windowInsets;
+        });
+        content.requestApplyInsets();
     }
 
     static long clearConversionCache(Context context) {
