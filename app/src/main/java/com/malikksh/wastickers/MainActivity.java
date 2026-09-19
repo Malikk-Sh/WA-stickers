@@ -90,7 +90,7 @@ public class MainActivity extends Activity {
     private Button bugLogButton;
     private PreviewLoader previewLoader;
 
-    private PackStore.Pack currentPack;
+    private final PackRuntimeState packState = new PackRuntimeState();
     private boolean processing;
     private boolean lastOperationFailed;
     private String lastBugLog = "";
@@ -112,7 +112,7 @@ public class MainActivity extends Activity {
             return;
         }
 
-        currentPack = null;
+        packState.clear();
         updateModeUi();
         updateUiState();
     }
@@ -445,7 +445,7 @@ public class MainActivity extends Activity {
 
     private void invalidateCurrentPack() {
         discardPendingBuild();
-        currentPack = null;
+        packState.clear();
         lastOperationFailed = false;
         lastBugLog = "";
         hideDiagnosticsUi();
@@ -790,7 +790,7 @@ public class MainActivity extends Activity {
                 addButton.setEnabled(true);
             } else {
                 addButton.setText("Добавить в WhatsApp");
-                boolean packMatchesMode = currentPack != null && currentPack.animated == editorState.isAnimated();
+                boolean packMatchesMode = packState.matchesMode(editorState.isAnimated());
                 addButton.setEnabled(packMatchesMode && !processing);
             }
             addButton.setAlpha(addButton.isEnabled() ? 1f : 0.45f);
@@ -802,6 +802,7 @@ public class MainActivity extends Activity {
         }
 
         if (statusText != null && !processing && !lastOperationFailed) {
+            PackStore.Pack currentPack = packState.current();
             if (currentPack != null && currentPack.animated == editorState.isAnimated()) {
                 statusText.setText("Набор «" + currentPack.name + "» готов к добавлению в WhatsApp.");
             } else if (editorState.items().isEmpty()) {
@@ -1111,7 +1112,7 @@ public class MainActivity extends Activity {
         );
         if (activityDestroyed || buildSession.isCancelRequested()) throw new IOException("Завершение отменено");
         PackStore.addPack(this, pack);
-        currentPack = pack;
+        packState.set(pack);
 
         String authority = getPackageName() + ".stickercontentprovider";
         getContentResolver().notifyChange(Uri.parse("content://" + authority + "/metadata"), null);
@@ -1437,19 +1438,20 @@ public class MainActivity extends Activity {
     }
 
     private void addCurrentPackToWhatsApp() {
+        PackStore.Pack currentPack = packState.current();
         if (currentPack == null) {
             Toast.makeText(this, "Сначала успешно создайте новый набор", Toast.LENGTH_SHORT).show();
             return;
         }
         if (currentPack.animated != editorState.isAnimated()) {
-            currentPack = null;
+            packState.clear();
             updateUiState();
             Toast.makeText(this, "Текущий набор устарел. Создайте набор заново.", Toast.LENGTH_LONG).show();
             return;
         }
         File firstSticker = PackStore.getStickerFile(this, currentPack.id, "1.webp");
         if (!firstSticker.isFile()) {
-            currentPack = null;
+            packState.clear();
             updateUiState();
             Toast.makeText(this, "Файлы набора не найдены. Создайте набор заново.", Toast.LENGTH_LONG).show();
             return;
@@ -1549,24 +1551,15 @@ public class MainActivity extends Activity {
     }
 
     PackStore.Pack runtimeCurrentPack() {
-        return currentPack;
+        return packState.current();
     }
 
     boolean runtimeReplaceCurrentPackIfId(String expectedId, PackStore.Pack replacement) {
-        if (expectedId == null || replacement == null || currentPack == null
-                || !expectedId.equals(currentPack.id)) {
-            return false;
-        }
-        currentPack = replacement;
-        return true;
+        return packState.replaceIfId(expectedId, replacement);
     }
 
     boolean runtimeClearCurrentPackIfId(String expectedId) {
-        if (expectedId == null || currentPack == null || !expectedId.equals(currentPack.id)) {
-            return false;
-        }
-        currentPack = null;
-        return true;
+        return packState.clearIfId(expectedId);
     }
 
     TextView runtimeStatusText() {
@@ -1693,7 +1686,7 @@ public class MainActivity extends Activity {
         try {
             editorState.restoreActive(animated, items, cover);
             if (packName != null) packName.setText(name == null ? "" : name);
-            currentPack = restoredPack;
+            packState.set(restoredPack);
             renderPreviews();
             updateModeUi();
             updateUiState();
