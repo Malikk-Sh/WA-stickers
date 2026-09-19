@@ -5,22 +5,15 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
-import android.net.Uri;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
-import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.PopupMenu;
 import android.widget.TextView;
 import android.widget.Toast;
-
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
-import java.util.ArrayList;
-import java.util.List;
 
 /** Final shell phase before legacy cleanup: Settings entry points and the global overflow menu. */
 public class SettingsShellActivity extends PacksShellActivity {
@@ -129,11 +122,11 @@ public class SettingsShellActivity extends PacksShellActivity {
     }
 
     private void requestClearDraft() {
-        if (isProcessing()) {
+        if (MainActivityRuntimeAccess.isProcessing(this)) {
             Toast.makeText(this, "Сначала остановите обработку", Toast.LENGTH_SHORT).show();
             return;
         }
-        if (selectedUrisSnapshot().isEmpty()) {
+        if (MainActivityRuntimeAccess.selectedUrisSnapshot(this).isEmpty()) {
             clearDraftNow();
             return;
         }
@@ -145,38 +138,17 @@ public class SettingsShellActivity extends PacksShellActivity {
                 .show();
     }
 
-    @SuppressWarnings("unchecked")
     private void clearDraftNow() {
-        try {
-            List<Uri> selected = (List<Uri>) readMainField("selectedUris");
-            if (selected != null) selected.clear();
-            writeMainField("coverUri", null);
-
-            Object name = readMainField("packName");
-            if (name instanceof EditText) ((EditText) name).setText("");
-
-            Object controllerValue = readMainField("editorStateController");
-            if (controllerValue instanceof EditorStateController<?>) {
-                EditorStateController<Uri> controller = (EditorStateController<Uri>) controllerValue;
-                controller.capture(false, new ArrayList<>(), null, "");
-                controller.capture(true, new ArrayList<>(), null, "");
-            }
-
-            invokeMain("discardPendingBuild");
-            invokeMain("invalidateCurrentPack");
-            invokeMain("renderPreviews");
-            invokeMain("updateModeUi");
-            invokeMain("updateUiState");
-
-            EditorInstanceStateBridge.clearPersistent(this);
-            VideoTrimStore.clear();
-            VideoTrimStore.clearPersistent(this, AppSettings.TRIM_PERSISTENT_KEY);
-            refreshShellPresentation();
-            Toast.makeText(this, "Черновик очищен", Toast.LENGTH_SHORT).show();
-        } catch (Throwable error) {
-            BugLogStore.appendApp("Could not clear redesigned draft: " + error);
+        if (!MainActivityRuntimeAccess.clearEditorDraft(this)) {
             Toast.makeText(this, "Не удалось очистить черновик", Toast.LENGTH_SHORT).show();
+            return;
         }
+
+        EditorInstanceStateBridge.clearPersistent(this);
+        VideoTrimStore.clear();
+        VideoTrimStore.clearPersistent(this, AppSettings.TRIM_PERSISTENT_KEY);
+        refreshShellPresentation();
+        Toast.makeText(this, "Черновик очищен", Toast.LENGTH_SHORT).show();
     }
 
     private void restoreLastDraft() {
@@ -209,67 +181,17 @@ public class SettingsShellActivity extends PacksShellActivity {
     }
 
     private void refreshShellPresentation() {
+        MainActivityRuntimeAccess.refreshAppShell(this);
         try {
-            Method method = AppShellActivity.class.getDeclaredMethod("refreshShellState");
-            method.setAccessible(true);
-            method.invoke(this);
+            refreshBuildPanelForTest();
         } catch (Throwable error) {
-            BugLogStore.appendApp("Could not refresh app shell after overflow action: " + error);
+            BugLogStore.appendApp("Could not refresh Build panel after overflow action: " + error);
         }
         try {
-            Method method = BuildShellActivity.class.getDeclaredMethod("refreshBuildPanelForTest");
-            method.setAccessible(true);
-            method.invoke(this);
-        } catch (Throwable ignored) {
-        }
-        try {
-            Method method = PacksShellActivity.class.getDeclaredMethod("refreshPacksPanelForTest");
-            method.setAccessible(true);
-            method.invoke(this);
-        } catch (Throwable ignored) {
-        }
-    }
-
-    private void invokeMain(String name) {
-        try {
-            Method method = MainActivity.class.getDeclaredMethod(name);
-            method.setAccessible(true);
-            method.invoke(this);
+            refreshPacksPanelForTest();
         } catch (Throwable error) {
-            BugLogStore.appendApp("Could not invoke " + name + " from settings shell: " + error);
+            BugLogStore.appendApp("Could not refresh Packs panel after overflow action: " + error);
         }
-    }
-
-    private Object readMainField(String name) {
-        try {
-            Field field = MainActivity.class.getDeclaredField(name);
-            field.setAccessible(true);
-            return field.get(this);
-        } catch (Throwable ignored) {
-            return null;
-        }
-    }
-
-    private void writeMainField(String name, Object value) {
-        try {
-            Field field = MainActivity.class.getDeclaredField(name);
-            field.setAccessible(true);
-            field.set(this, value);
-        } catch (Throwable error) {
-            BugLogStore.appendApp("Could not update " + name + " from settings shell: " + error);
-        }
-    }
-
-    private boolean isProcessing() {
-        Object value = readMainField("processing");
-        return value instanceof Boolean && (Boolean) value;
-    }
-
-    @SuppressWarnings("unchecked")
-    private List<Uri> selectedUrisSnapshot() {
-        Object value = readMainField("selectedUris");
-        if (!(value instanceof List<?>)) return new ArrayList<>();
-        return new ArrayList<>((List<Uri>) value);
     }
 
     private void applyCompactMode(View view) {
@@ -292,10 +214,6 @@ public class SettingsShellActivity extends PacksShellActivity {
                 applyCompactMode(group.getChildAt(i));
             }
         }
-    }
-
-    private Button unusedButtonForLint() {
-        return null;
     }
 
     private GradientDrawable rounded(int fillColor, int radiusDp) {
