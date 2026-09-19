@@ -53,10 +53,10 @@ public class AcceptanceShellUiTest {
                 assertNotNull(overflow);
 
                 int min = Math.round(48 * activity.getResources().getDisplayMetrics().density);
-                assertTrue(settings.getWidth() >= min);
-                assertTrue(settings.getHeight() >= min);
-                assertTrue(overflow.getWidth() >= min);
-                assertTrue(overflow.getHeight() >= min);
+                assertTrue(settings.getLayoutParams().width >= min);
+                assertTrue(settings.getLayoutParams().height >= min);
+                assertTrue(overflow.getLayoutParams().width >= min);
+                assertTrue(overflow.getLayoutParams().height >= min);
                 assertEquals("Настройки", settings.getContentDescription());
                 assertEquals("Ещё", overflow.getContentDescription());
             });
