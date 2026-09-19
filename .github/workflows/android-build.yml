@@ -27,13 +27,12 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Enforce runtime reflection boundary
+      - name: Enforce no production reflection
         run: |
           violations="$(grep -R -n -E 'java\.lang\.reflect|setAccessible\(|getDeclared(Field|Method|Constructor)\(' \
-            app/src/main/java --include='*.java' \
-            | grep -v '/MainActivityRuntimeAccess.java:' || true)"
+            app/src/main/java --include='*.java' || true)"
           if [ -n "$violations" ]; then
-            echo "Reflection outside MainActivityRuntimeAccess is not allowed:"
+            echo "Production reflection is not allowed:"
             echo "$violations"
             exit 1
           fi
