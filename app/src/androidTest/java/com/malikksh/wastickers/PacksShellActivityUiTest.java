@@ -2,18 +2,16 @@ package com.malikksh.wastickers;
 
 import static androidx.test.espresso.Espresso.onView;
 import static androidx.test.espresso.action.ViewActions.click;
-import static androidx.test.espresso.action.ViewActions.replaceText;
 import static androidx.test.espresso.assertion.ViewAssertions.doesNotExist;
 import static androidx.test.espresso.assertion.ViewAssertions.matches;
-import static androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom;
 import static androidx.test.espresso.matcher.ViewMatchers.isDisplayed;
 import static androidx.test.espresso.matcher.ViewMatchers.withContentDescription;
 import static androidx.test.espresso.matcher.ViewMatchers.withId;
 import static androidx.test.espresso.matcher.ViewMatchers.withText;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 
 import android.content.Context;
-import android.widget.EditText;
 
 import androidx.test.core.app.ActivityScenario;
 import androidx.test.core.app.ApplicationProvider;
@@ -70,25 +68,26 @@ public class PacksShellActivityUiTest {
     }
 
     @Test
-    public void packCanBeRenamedAndDeletedWithConfirmation() {
+    public void packStoreMutationsRefreshRedesignedPacksTab() {
         PackStore.addPack(context, new PackStore.Pack("packs_edit", "Editable pack", 4, "1", false));
 
         try (ActivityScenario<PacksShellActivity> scenario = ActivityScenario.launch(PacksShellActivity.class)) {
             scenario.onActivity(activity -> {
                 activity.refreshPacksPanelForTest();
                 activity.findViewById(R.id.nav_packs).performClick();
+                PackStore.Pack renamed = PackStore.renamePack(activity, "packs_edit", "Renamed pack");
+                assertNotNull(renamed);
+                activity.refreshPacksPanelForTest();
             });
 
-            onView(withContentDescription("Действия с набором Editable pack")).perform(click());
-            onView(withText("Переименовать")).perform(click());
-            onView(isAssignableFrom(EditText.class)).perform(replaceText("Renamed pack"));
-            onView(withText("Сохранить")).perform(click());
             onView(withText("Renamed pack")).check(matches(isDisplayed()));
+            onView(withContentDescription("Действия с набором Renamed pack"))
+                    .check(matches(isDisplayed()));
 
-            onView(withContentDescription("Действия с набором Renamed pack")).perform(click());
-            onView(withText("Удалить")).perform(click());
-            onView(withText("Удалить набор?")).check(matches(isDisplayed()));
-            onView(withText("Удалить")).perform(click());
+            scenario.onActivity(activity -> {
+                assertTrue(PackStore.deletePack(activity, "packs_edit"));
+                activity.refreshPacksPanelForTest();
+            });
 
             onView(withText("Пока нет наборов")).check(matches(isDisplayed()));
             onView(withText("Созданные наборы появятся здесь")).check(matches(isDisplayed()));

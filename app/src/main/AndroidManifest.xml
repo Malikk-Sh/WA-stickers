@@ -15,10 +15,6 @@
             android:exported="false" />
 
         <activity
-            android:name=".SavedPacksActivity"
-            android:exported="false" />
-
-        <activity
             android:name=".SettingsActivity"
             android:exported="false" />
 
