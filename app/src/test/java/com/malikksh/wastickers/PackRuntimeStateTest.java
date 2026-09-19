@@ -41,4 +41,17 @@ public class PackRuntimeStateTest {
         assertTrue(state.clearIfId("pack_one"));
         assertNull(state.current());
     }
+
+    @Test
+    public void replaceAndClearRejectMissingArgumentsWithoutChangingState() {
+        PackRuntimeState state = new PackRuntimeState();
+        PackStore.Pack original = new PackStore.Pack("pack_one", "One", 3, "1", false);
+        PackStore.Pack renamed = new PackStore.Pack("pack_one", "Renamed", 3, "1", false);
+        state.set(original);
+
+        assertFalse(state.replaceIfId(null, renamed));
+        assertFalse(state.replaceIfId("pack_one", null));
+        assertFalse(state.clearIfId(null));
+        assertSame(original, state.current());
+    }
 }
