@@ -33,6 +33,7 @@ public abstract class LauncherActivity extends MainActivity {
 
     private final ExecutorService shellSelectionExecutor = Executors.newSingleThreadExecutor();
     private boolean restoredPersistentDraftOnLaunch;
+    private boolean restoredDraftFeedbackShown;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -52,6 +53,16 @@ public abstract class LauncherActivity extends MainActivity {
                     && !runtimeSelectedUrisSnapshot().isEmpty();
         }
         runtimeSetGalleryClickListener(v -> openMediaPicker());
+    }
+
+    @Override
+    protected void onPostResume() {
+        super.onPostResume();
+        if (!restoredPersistentDraftOnLaunch || restoredDraftFeedbackShown) return;
+        View createAction = findViewById(R.id.create_continue);
+        if (createAction == null) return;
+        restoredDraftFeedbackShown = true;
+        createAction.post(() -> TransientFeedback.show(this, "Черновик восстановлен"));
     }
 
     /** True only for a fresh launch that restored a readable persistent editor draft. */
