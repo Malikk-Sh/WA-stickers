@@ -83,7 +83,7 @@ final class MediaGridPanel extends LinearLayout {
         LinearLayout modeRow = new LinearLayout(context);
         modeRow.setOrientation(HORIZONTAL);
         modeRow.setPadding(dp(4), dp(4), dp(4), dp(4));
-        modeRow.setBackground(rounded(color(R.color.app_disabled_surface), 18));
+        modeRow.setBackground(rounded(color(R.color.app_surface_variant), 18));
         addView(modeRow, matchWrap());
 
         photoButton = new Button(context);
@@ -99,7 +99,7 @@ final class MediaGridPanel extends LinearLayout {
         animatedButton.setAllCaps(false);
         animatedButton.setOnClickListener(v -> host.onModeChanged(true));
         LinearLayout.LayoutParams animatedParams = new LinearLayout.LayoutParams(0, dp(48), 1f);
-        animatedParams.leftMargin = dp(6);
+        animatedParams.leftMargin = dp(4);
         modeRow.addView(animatedButton, animatedParams);
 
         LinearLayout summaryRow = new LinearLayout(context);
@@ -131,13 +131,9 @@ final class MediaGridPanel extends LinearLayout {
         gridParams.topMargin = dp(12);
         addView(grid, gridParams);
 
-        detailCard = new LinearLayout(context);
+        detailCard = UiComponents.card(context);
         detailCard.setId(R.id.media_detail);
-        detailCard.setOrientation(VERTICAL);
-        detailCard.setPadding(dp(16), dp(14), dp(16), dp(14));
-        detailCard.setBackground(rounded(color(R.color.app_surface), 20));
         detailCard.setVisibility(GONE);
-        if (Build.VERSION.SDK_INT >= 21) detailCard.setElevation(dp(1));
         LinearLayout.LayoutParams detailParams = matchWrap();
         detailParams.topMargin = dp(14);
         addView(detailCard, detailParams);
@@ -160,7 +156,7 @@ final class MediaGridPanel extends LinearLayout {
         detailTrimButton.setId(R.id.media_edit_trim);
         detailTrimButton.setText("Изменить фрагмент");
         detailTrimButton.setAllCaps(false);
-        styleSecondaryButton(detailTrimButton);
+        UiComponents.styleOutlineButton(detailTrimButton, true);
         detailTrimButton.setVisibility(GONE);
         detailTrimButton.setOnClickListener(v -> openTrimForSelected());
         LinearLayout.LayoutParams trimParams = new LinearLayout.LayoutParams(
@@ -178,7 +174,6 @@ final class MediaGridPanel extends LinearLayout {
         clear.setId(R.id.media_clear);
         clear.setText("Очистить");
         clear.setAllCaps(false);
-        styleSecondaryButton(clear);
         clear.setOnClickListener(v -> host.onClearMedia());
         actions.addView(clear, new LinearLayout.LayoutParams(0, dp(50), 1f));
 
@@ -206,16 +201,15 @@ final class MediaGridPanel extends LinearLayout {
                 : (items.isEmpty() ? null : items.get(0));
         if (selectedUri != null && !items.contains(selectedUri)) selectedUri = null;
 
-        styleModeButton(photoButton, !animated);
-        styleModeButton(animatedButton, animated);
+        UiComponents.styleSegment(photoButton, !animated);
+        UiComponents.styleSegment(animatedButton, animated);
         summary.setText(animated
                 ? "Выбрано анимаций: " + items.size()
                 : "Выбрано фото: " + items.size());
         addMore.setEnabled(items.size() < MAX_STICKERS);
         addMore.setAlpha(addMore.isEnabled() ? 1f : 0.45f);
-        clear.setEnabled(!items.isEmpty());
-        clear.setAlpha(clear.isEnabled() ? 1f : 0.45f);
-        stylePrimaryButton(continueButton,
+        UiComponents.styleOutlineButton(clear, !items.isEmpty());
+        UiComponents.stylePrimaryButton(continueButton,
                 items.size() >= MIN_STICKERS && items.size() <= MAX_STICKERS);
 
         renderGrid();
@@ -315,12 +309,7 @@ final class MediaGridPanel extends LinearLayout {
             TextView remove = overlay("×", 20,
                     color(R.color.app_on_primary), color(R.color.app_overlay_dark));
             remove.setContentDescription("Удалить файл " + (i + 1));
-            remove.setOnClickListener(v -> {
-                host.onRemoveMedia(index);
-                if (getContext() instanceof Activity) {
-                    TransientFeedback.show((Activity) getContext(), "Файл удалён");
-                }
-            });
+            remove.setOnClickListener(v -> removeWithUndo(index));
             FrameLayout.LayoutParams removeParams = new FrameLayout.LayoutParams(dp(48), dp(48));
             removeParams.gravity = Gravity.TOP | Gravity.END;
             removeParams.setMargins(0, dp(2), dp(2), 0);
@@ -355,6 +344,56 @@ final class MediaGridPanel extends LinearLayout {
             tileParams.setMargins(dp(3), dp(3), dp(3), dp(3));
             grid.addView(tile, tileParams);
         }
+    }
+
+    private void removeWithUndo(int index) {
+        if (index < 0 || index >= items.size()) return;
+
+        MainActivity runtime = getContext() instanceof MainActivity
+                ? (MainActivity) getContext()
+                : null;
+        List<Uri> previousItems = new ArrayList<>(items);
+        Uri previousCover = coverUri;
+        boolean previousAnimated = animated;
+        String previousName = "";
+        if (runtime != null && runtime.runtimePackName() != null) {
+            previousName = runtime.runtimePackName().getText().toString();
+        }
+        final String nameSnapshot = previousName;
+
+        host.onRemoveMedia(index);
+        if (!(getContext() instanceof Activity)) return;
+        Activity activity = (Activity) getContext();
+
+        if (runtime == null) {
+            TransientFeedback.show(activity, "Файл удалён");
+            return;
+        }
+
+        TransientFeedback.show(activity, "Файл удалён", "Отменить", () -> {
+            if (runtime.runtimeIsProcessing()) {
+                TransientFeedback.show(activity, "Нельзя отменить во время обработки");
+                return;
+            }
+            boolean restored = runtime.runtimeRestoreEditorState(
+                    previousAnimated,
+                    previousItems,
+                    previousCover,
+                    nameSnapshot,
+                    null
+            );
+            if (!restored) {
+                TransientFeedback.show(activity, "Не удалось восстановить файл");
+                return;
+            }
+            EditorInstanceStateBridge.savePersistent(runtime);
+            render(
+                    runtime.runtimeSelectedUrisSnapshot(),
+                    runtime.runtimeCoverUri(),
+                    runtime.runtimeIsAnimatedMode()
+            );
+            TransientFeedback.show(activity, "Удаление отменено");
+        });
     }
 
     private int gridColumnCount() {
@@ -408,11 +447,8 @@ final class MediaGridPanel extends LinearLayout {
     }
 
     private void renderEmptyState(int columns) {
-        LinearLayout empty = new LinearLayout(getContext());
-        empty.setOrientation(VERTICAL);
-        empty.setGravity(Gravity.CENTER);
-        empty.setPadding(dp(16), dp(26), dp(16), dp(26));
-        empty.setBackground(rounded(color(R.color.app_surface), 20));
+        LinearLayout empty = UiComponents.card(getContext());
+        empty.setGravity(Gravity.CENTER_HORIZONTAL);
 
         TextView title = text("Пока ничего не выбрано", 17,
                 color(R.color.app_text_primary), Typeface.BOLD);
@@ -429,7 +465,7 @@ final class MediaGridPanel extends LinearLayout {
         Button pick = new Button(getContext());
         pick.setText("Выбрать файлы");
         pick.setAllCaps(false);
-        stylePrimaryButton(pick, true);
+        UiComponents.stylePrimaryButton(pick, true);
         pick.setOnClickListener(v -> host.onAddMedia());
         LinearLayout.LayoutParams pickParams = new LinearLayout.LayoutParams(dp(220), dp(50));
         pickParams.topMargin = dp(12);
@@ -490,6 +526,7 @@ final class MediaGridPanel extends LinearLayout {
         final long generation = renderGeneration;
         detailName.setText("Файл");
         detailMeta.setText(animated ? "Анимация · загрузка данных…" : "Фото · загрузка данных…");
+        detailStatus.setTextColor(color(R.color.app_primary));
         detailStatus.setText(uri.equals(coverUri) ? "★ Выбрана как обложка" : "Готово к сборке");
 
         metadataExecutor.execute(() -> {
@@ -513,13 +550,14 @@ final class MediaGridPanel extends LinearLayout {
                 }
                 detailMeta.setText(meta.toString());
                 if (uri.equals(coverUri)) {
+                    detailStatus.setTextColor(color(R.color.app_primary));
                     detailStatus.setText("★ Выбрана как обложка");
                 } else if (result.assessment.severity == MediaPreflightPolicy.Severity.ERROR) {
-                    detailStatus.setText("! " + result.assessment.message);
                     detailStatus.setTextColor(color(R.color.app_error));
+                    detailStatus.setText("! " + result.assessment.message);
                 } else {
-                    detailStatus.setText("Готово к сборке");
                     detailStatus.setTextColor(color(R.color.app_primary));
+                    detailStatus.setText("Готово к сборке");
                 }
             });
         });
@@ -577,6 +615,8 @@ final class MediaGridPanel extends LinearLayout {
         if (cover || selected) {
             background.setStroke(dp(cover ? 2 : 1),
                     color(cover ? R.color.app_primary : R.color.app_secondary));
+        } else {
+            background.setStroke(dp(1), color(R.color.app_border));
         }
         return background;
     }
@@ -589,34 +629,6 @@ final class MediaGridPanel extends LinearLayout {
         view.setClickable(true);
         view.setFocusable(true);
         return view;
-    }
-
-    private void styleModeButton(Button button, boolean active) {
-        button.setTextSize(14);
-        button.setTypeface(Typeface.create("sans", Typeface.BOLD));
-        button.setTextColor(active
-                ? color(R.color.app_on_primary)
-                : color(R.color.app_primary));
-        button.setBackground(rounded(
-                active ? color(R.color.app_primary) : color(R.color.app_transparent), 14));
-    }
-
-    private void stylePrimaryButton(Button button, boolean enabled) {
-        button.setEnabled(enabled);
-        button.setTextSize(15);
-        button.setTypeface(Typeface.create("sans", Typeface.BOLD));
-        button.setTextColor(enabled
-                ? color(R.color.app_on_primary)
-                : color(R.color.app_disabled_text));
-        button.setBackground(rounded(
-                enabled ? color(R.color.app_primary) : color(R.color.app_disabled_surface), 16));
-    }
-
-    private void styleSecondaryButton(Button button) {
-        button.setTextSize(14);
-        button.setTypeface(Typeface.create("sans", Typeface.BOLD));
-        button.setTextColor(color(R.color.app_primary));
-        button.setBackground(rounded(color(R.color.app_primary_container), 16));
     }
 
     private void styleTertiaryButton(Button button) {
