@@ -17,7 +17,17 @@ jobs:
           ref: editor-state-owner
 
       - name: Apply editor state migration
-        run: python tools/editor_state_owner_migration.py
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('tools/editor_state_owner_migration.py')
+          text = path.read_text()
+          text = text.replace(r'r"editorState\.isAnimated\(\)\s*="', r'r"editorState\.isAnimated\(\)\s*=(?!=)"')
+          text = text.replace(r'r"editorState\.cover\(\)\s*="', r'r"editorState\.cover\(\)\s*=(?!=)"')
+          text = text.replace(r'r"editorState\.drafts\(\)\s*="', r'r"editorState\.drafts\(\)\s*=(?!=)"')
+          path.write_text(text)
+          PY
+          python tools/editor_state_owner_migration.py
 
       - name: Commit migrated source
         run: |
