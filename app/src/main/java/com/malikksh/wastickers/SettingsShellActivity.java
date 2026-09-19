@@ -14,12 +14,13 @@ import android.view.ViewParent;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.PopupMenu;
 import android.widget.TextView;
 import android.widget.Toast;
 
-/** Final shell phase before legacy cleanup: Settings entry points and task-specific overflow menus. */
+/** Final shell phase: Settings entry points and task-specific overflow menus. */
 public class SettingsShellActivity extends PacksShellActivity {
     private String appliedAppearance;
     private boolean appliedCompact;
@@ -149,13 +150,13 @@ public class SettingsShellActivity extends PacksShellActivity {
         actionsParams.rightMargin = dp(14);
         root.addView(topActions, actionsParams);
 
-        Button settings = topAction("⚙", "Настройки", R.id.app_settings);
+        ImageButton settings = topAction(R.drawable.ic_settings, "Настройки", R.id.app_settings);
         settings.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
         FrameLayout.LayoutParams settingsParams = new FrameLayout.LayoutParams(dp(48), dp(48));
         settingsParams.gravity = Gravity.START | Gravity.TOP;
         topActions.addView(settings, settingsParams);
 
-        Button overflow = topAction("⋮", "Ещё", R.id.app_overflow);
+        ImageButton overflow = topAction(R.drawable.ic_more_vertical, "Ещё", R.id.app_overflow);
         overflow.setOnClickListener(this::showMainOverflow);
         FrameLayout.LayoutParams overflowParams = new FrameLayout.LayoutParams(dp(48), dp(48));
         overflowParams.gravity = Gravity.END | Gravity.TOP;
@@ -173,17 +174,14 @@ public class SettingsShellActivity extends PacksShellActivity {
         topActions.setVisibility(packsPanel != null && packsPanel.isShown() ? View.GONE : View.VISIBLE);
     }
 
-    private Button topAction(String glyph, String description, int id) {
-        Button button = new Button(this);
+    private ImageButton topAction(int drawable, String description, int id) {
+        ImageButton button = new ImageButton(this);
         button.setId(id);
-        button.setText(glyph);
+        button.setImageResource(drawable);
         button.setContentDescription(description);
-        button.setAllCaps(false);
-        button.setTextSize(20);
-        button.setTypeface(Typeface.create("sans", Typeface.BOLD));
-        button.setTextColor(color(R.color.app_primary));
-        button.setPadding(0, 0, 0, 0);
-        button.setBackground(rounded(color(R.color.app_surface_variant), 16));
+        button.setPadding(dp(12), dp(12), dp(12), dp(12));
+        button.setBackground(UiComponents.rounded(
+                this, R.color.app_surface_variant, R.dimen.radius_card));
         return button;
     }
 
@@ -288,11 +286,11 @@ public class SettingsShellActivity extends PacksShellActivity {
     }
 
     private void showMediaHelp() {
-        new AlertDialog.Builder(this)
-                .setTitle("Медиа")
-                .setMessage("3–30 файлов · удерживайте для сортировки · ★ обложка. Для длинного видео откройте карточку и измените фрагмент.")
-                .setPositiveButton("Понятно", null)
-                .show();
+        startActivity(InfoActivity.intent(
+                this,
+                "Медиа",
+                "3–30 файлов · удерживайте для сортировки · ★ обложка. Для длинного видео откройте карточку и измените фрагмент. Удаление отдельного файла можно отменить через действие «Отменить»."
+        ));
     }
 
     private void showBuildOverflow(View anchor) {
@@ -343,11 +341,7 @@ public class SettingsShellActivity extends PacksShellActivity {
     private void showDiagnostics() {
         String diagnostics = BugLogStore.snapshot().trim();
         if (diagnostics.isEmpty()) diagnostics = "Диагностика пока пуста.";
-        new AlertDialog.Builder(this)
-                .setTitle("Диагностика сборки")
-                .setMessage(diagnostics)
-                .setPositiveButton("Закрыть", null)
-                .show();
+        startActivity(InfoActivity.intent(this, "Диагностика сборки", diagnostics));
     }
 
     private void clearBuildFromOverflow() {
@@ -361,11 +355,11 @@ public class SettingsShellActivity extends PacksShellActivity {
     }
 
     private void showBuildHelp() {
-        new AlertDialog.Builder(this)
-                .setTitle("Сборка")
-                .setMessage("Следите за общим и пофайловым прогрессом. Ошибки можно повторять отдельно, а при трёх готовых стикерах — завершить частичный набор.")
-                .setPositiveButton("Понятно", null)
-                .show();
+        startActivity(InfoActivity.intent(
+                this,
+                "Сборка",
+                "Следите за общим и пофайловым прогрессом. Ошибки можно повторять отдельно, а при трёх готовых стикерах — завершить частичный набор. Активную обработку можно остановить после подтверждения."
+        ));
     }
 
     private void requestClearDraft() {
@@ -414,19 +408,19 @@ public class SettingsShellActivity extends PacksShellActivity {
     }
 
     private void showHelp() {
-        new AlertDialog.Builder(this)
-                .setTitle("Помощь")
-                .setMessage("Создать → настроить медиа → собрать → сохранить. Ошибки можно повторить отдельно.")
-                .setPositiveButton("Понятно", null)
-                .show();
+        startActivity(InfoActivity.intent(
+                this,
+                "Помощь",
+                "Создать → настроить медиа → собрать → сохранить. Ошибки можно повторить отдельно. Фото и анимированные черновики сохраняются независимо."
+        ));
     }
 
     private void showAbout() {
-        new AlertDialog.Builder(this)
-                .setTitle("WA Stickers")
-                .setMessage("Все файлы обрабатываются локально.\n\nВерсия " + BuildConfig.VERSION_NAME)
-                .setPositiveButton("Закрыть", null)
-                .show();
+        startActivity(InfoActivity.intent(
+                this,
+                "WA Stickers",
+                "Все файлы обрабатываются локально.\n\nВерсия " + BuildConfig.VERSION_NAME
+        ));
     }
 
     private void refreshShellPresentation() {
