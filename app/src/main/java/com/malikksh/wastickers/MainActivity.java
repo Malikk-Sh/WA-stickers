@@ -101,6 +101,153 @@ public class MainActivity extends Activity {
     private Uri coverUri;
     private volatile boolean activityDestroyed;
 
+    /**
+     * Typed migration surface for the redesigned shell. It keeps MainActivity state private while
+     * allowing the production shell to reuse the existing editor/build pipeline without reflection.
+     */
+    static final class RuntimeControls {
+        final EditText packName;
+        final TextView countText;
+        final TextView statusText;
+        final TextView mediaTitle;
+        final TextView mediaHint;
+        final TextView actionHint;
+        final TextView progressText;
+        final ProgressBar progressBar;
+        final LinearLayout fileProgressContainer;
+        final Button photoModeButton;
+        final Button animatedModeButton;
+        final Button galleryButton;
+        final Button createButton;
+        final Button addButton;
+        final Button bugLogButton;
+
+        RuntimeControls(
+                EditText packName,
+                TextView countText,
+                TextView statusText,
+                TextView mediaTitle,
+                TextView mediaHint,
+                TextView actionHint,
+                TextView progressText,
+                ProgressBar progressBar,
+                LinearLayout fileProgressContainer,
+                Button photoModeButton,
+                Button animatedModeButton,
+                Button galleryButton,
+                Button createButton,
+                Button addButton,
+                Button bugLogButton
+        ) {
+            this.packName = packName;
+            this.countText = countText;
+            this.statusText = statusText;
+            this.mediaTitle = mediaTitle;
+            this.mediaHint = mediaHint;
+            this.actionHint = actionHint;
+            this.progressText = progressText;
+            this.progressBar = progressBar;
+            this.fileProgressContainer = fileProgressContainer;
+            this.photoModeButton = photoModeButton;
+            this.animatedModeButton = animatedModeButton;
+            this.galleryButton = galleryButton;
+            this.createButton = createButton;
+            this.addButton = addButton;
+            this.bugLogButton = bugLogButton;
+        }
+    }
+
+    final void installRuntimeControls(RuntimeControls controls) {
+        if (controls == null) throw new IllegalArgumentException("controls == null");
+        packName = controls.packName;
+        countText = controls.countText;
+        statusText = controls.statusText;
+        mediaTitle = controls.mediaTitle;
+        mediaHint = controls.mediaHint;
+        actionHint = controls.actionHint;
+        progressText = controls.progressText;
+        progressBar = controls.progressBar;
+        previewContainer = null;
+        fileProgressContainer = controls.fileProgressContainer;
+        photoModeButton = controls.photoModeButton;
+        animatedModeButton = controls.animatedModeButton;
+        galleryButton = controls.galleryButton;
+        createButton = controls.createButton;
+        addButton = controls.addButton;
+        bugLogButton = controls.bugLogButton;
+    }
+
+    final EditText runtimePackName() {
+        return packName;
+    }
+
+    final Button runtimePhotoModeButton() {
+        return photoModeButton;
+    }
+
+    final Button runtimeAnimatedModeButton() {
+        return animatedModeButton;
+    }
+
+    final List<Uri> runtimeSelectedUrisSnapshot() {
+        return new ArrayList<>(selectedUris);
+    }
+
+    final Uri runtimeCoverUri() {
+        return coverUri;
+    }
+
+    final boolean runtimeIsProcessing() {
+        return processing;
+    }
+
+    final boolean runtimeIsAnimatedMode() {
+        return animatedMode;
+    }
+
+    final void runtimeSetAnimatedMode(boolean animated) {
+        setAnimatedMode(animated);
+    }
+
+    final void runtimeReceivePickerResult(Intent data, boolean persistPermission) {
+        receivePickerResult(data, persistPermission);
+    }
+
+    final void runtimeMoveSticker(int fromIndex, int toIndex) {
+        moveSticker(fromIndex, toIndex);
+    }
+
+    final boolean runtimeSelectCover(Uri uri) {
+        if (processing || uri == null || !selectedUris.contains(uri)) return false;
+        coverUri = uri;
+        invalidateCurrentPack();
+        renderPreviews();
+        updateUiState();
+        return true;
+    }
+
+    final boolean runtimeRemoveMediaAt(int index) {
+        if (processing || index < 0 || index >= selectedUris.size()) return false;
+        Uri removed = selectedUris.remove(index);
+        if (removed != null && removed.equals(coverUri)) {
+            coverUri = selectedUris.isEmpty() ? null : selectedUris.get(0);
+        }
+        invalidateCurrentPack();
+        renderPreviews();
+        updateUiState();
+        return true;
+    }
+
+    final boolean runtimeClearMedia() {
+        if (processing || selectedUris.isEmpty()) return false;
+        selectedUris.clear();
+        coverUri = null;
+        invalidateCurrentPack();
+        renderPreviews();
+        updateUiState();
+        return true;
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -403,6 +550,13 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.WRAP_CONTENT);
     }
 
+    private LinearLayout.LayoutParams buttonParams() {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(54));
+        params.topMargin = dp(14);
+        return params;
+    }
+
     private TextView text(String value, int size, int color, int style) {
         TextView view = new TextView(this);
         view.setText(value);
@@ -419,51 +573,114 @@ public class MainActivity extends Activity {
         return drawable;
     }
 
-    private GradientDrawable gradient(int first, int second, int radiusDp) {
+    private GradientDrawable gradient(int start, int end, int radiusDp) {
         GradientDrawable drawable = new GradientDrawable(
-                GradientDrawable.Orientation.TL_BR,
-                new int[]{first, second});
+                GradientDrawable.Orientation.TL_BR, new int[]{start, end});
         drawable.setCornerRadius(dp(radiusDp));
         return drawable;
     }
 
-    private void styleButton(Button button, int fillColor, int textColor) {
+    private void styleButton(Button button, int bg, int fg) {
         button.setAllCaps(false);
         button.setTextSize(16);
-        button.setTextColor(textColor);
         button.setTypeface(Typeface.create("sans", Typeface.BOLD));
-        button.setGravity(Gravity.CENTER);
+        button.setTextColor(fg);
+        button.setBackground(rounded(bg, 17));
         button.setPadding(dp(14), 0, dp(14), 0);
-        button.setBackground(rounded(fillColor, 14));
     }
 
-    private void styleModeButton(Button button, boolean active) {
-        button.setTextSize(15);
-        button.setTypeface(Typeface.create("sans", Typeface.BOLD));
-        button.setTextColor(active ? Color.WHITE : PRIMARY);
-        GradientDrawable background = rounded(active ? PRIMARY : 0xFFF2F7F4, 13);
-        if (!active) background.setStroke(dp(1), BORDER);
-        button.setBackground(background);
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
-    private void invalidateCurrentPack() {
-        discardPendingBuild();
-        currentPack = null;
-        lastOperationFailed = false;
-        lastBugLog = "";
-        hideDiagnosticsUi();
-    }
-
-    private void discardPendingBuild() {
-        File pendingDir = buildSession.packDir();
-        if (buildSession.isActive() && pendingDir != null) {
-            deleteRecursively(pendingDir);
+    private void openMediaPicker() {
+        int requestCode = animatedMode ? REQUEST_PICK_ANIMATED : REQUEST_PICK_PHOTOS;
+        Intent intent = MediaPickerIntentFactory.createOpenDocumentIntent(animatedMode);
+        String title = animatedMode ? "Выберите GIF, WebP или видео" : "Выберите фото";
+        try {
+            if (animatedMode) {
+                Toast.makeText(
+                        this,
+                        "Можно выбрать несколько файлов: удерживайте первый, затем отметьте остальные",
+                        Toast.LENGTH_LONG
+                ).show();
+                startActivityForResult(intent, requestCode);
+            } else {
+                startActivityForResult(Intent.createChooser(intent, title), requestCode);
+            }
+        } catch (ActivityNotFoundException first) {
+            Intent fallback = MediaPickerIntentFactory.createGetContentFallback(animatedMode);
+            try {
+                startActivityForResult(Intent.createChooser(fallback, title), requestCode);
+            } catch (ActivityNotFoundException second) {
+                Toast.makeText(
+                        this,
+                        animatedMode ? "Не найдено приложение для выбора файлов" : "Галерея не найдена",
+                        Toast.LENGTH_LONG
+                ).show();
+            }
         }
-        clearPendingBuildState();
     }
 
-    private void clearPendingBuildState() {
-        buildSession.reset();
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_ADD_TO_WHATSAPP) {
+            if (resultCode == RESULT_OK) {
+                statusText.setText("WhatsApp подтвердил добавление набора.");
+            } else {
+                statusText.setText("WhatsApp не подтвердил добавление. Попробуйте ещё раз.");
+            }
+            return;
+        }
+        if (resultCode != RESULT_OK || data == null) return;
+        if (requestCode == REQUEST_PICK_PHOTOS) {
+            receivePickerResult(data, false);
+        } else if (requestCode == REQUEST_PICK_ANIMATED) {
+            receivePickerResult(data, true);
+        }
+    }
+
+    private void receivePickerResult(Intent data, boolean persistPermission) {
+        List<Uri> incoming = collectUris(data);
+        if (incoming.isEmpty()) return;
+        if (persistPermission) persistIncomingPermissions(data, incoming);
+
+        if (incoming.size() > MAX_STICKERS) {
+            incoming = new ArrayList<>(incoming.subList(0, MAX_STICKERS));
+            Toast.makeText(this, "Выбраны первые 30 файлов", Toast.LENGTH_LONG).show();
+        }
+
+        selectedUris.clear();
+        selectedUris.addAll(incoming);
+        coverUri = selectedUris.isEmpty() ? null : selectedUris.get(0);
+        invalidateCurrentPack();
+        renderPreviews();
+        updateUiState();
+    }
+
+    private List<Uri> collectUris(Intent data) {
+        List<Uri> result = new ArrayList<>();
+        ClipData clip = data.getClipData();
+        if (clip != null) {
+            for (int i = 0; i < clip.getItemCount(); i++) {
+                Uri uri = clip.getItemAt(i).getUri();
+                if (uri != null && !result.contains(uri)) result.add(uri);
+            }
+        }
+        Uri single = data.getData();
+        if (single != null && !result.contains(single)) result.add(single);
+        return result;
+    }
+
+    private void persistIncomingPermissions(Intent data, List<Uri> uris) {
+        int flags = data.getFlags() & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        for (Uri uri : uris) {
+            try {
+                getContentResolver().takePersistableUriPermission(uri, flags & Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            } catch (Throwable ignored) {
+            }
+        }
     }
 
     private void setAnimatedMode(boolean animated) {
@@ -476,8 +693,8 @@ public class MainActivity extends Activity {
                 coverUri,
                 currentName
         );
-        invalidateCurrentPack();
         animatedMode = animated;
+        currentPack = null;
         selectedUris.clear();
         selectedUris.addAll(next.items());
         coverUri = next.cover();
@@ -487,228 +704,68 @@ public class MainActivity extends Activity {
         updateUiState();
     }
 
-    private void updateModeUi() {
-        if (photoModeButton == null) return;
-        styleModeButton(photoModeButton, !animatedMode);
-        styleModeButton(animatedModeButton, animatedMode);
-
-        if (animatedMode) {
-            mediaTitle.setText("2  Анимации и видео");
-            mediaHint.setText("Выберите 3–30 файлов. Удерживайте превью, чтобы поменять порядок; ★ выбирает обложку набора.");
-            actionHint.setText("До 10 секунд на стикер. Ошибки отдельных файлов не сбрасывают уже готовые стикеры: их можно повторить отдельно.");
-        } else {
-            mediaTitle.setText("2  Фотографии");
-            mediaHint.setText("Нужно 3–30 фото. Удерживайте превью, чтобы поменять порядок; ★ выбирает обложку набора.");
-            actionHint.setText("Каждое фото помещается целиком в 512×512 WebP до 100 КБ. Ошибочный файл можно повторить без обработки готовых заново.");
-        }
-    }
-
-    private void openMediaPicker() {
-        if (animatedMode) openAnimatedPicker();
-        else openPhotoGallery();
-    }
-
-    private void openPhotoGallery() {
-        Intent gallery = new Intent(Intent.ACTION_PICK);
-        gallery.setDataAndType(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, "image/*");
-        gallery.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
-        gallery.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        try {
-            startActivityForResult(gallery, REQUEST_PICK_PHOTOS);
-        } catch (ActivityNotFoundException first) {
-            Intent fallback = new Intent(Intent.ACTION_GET_CONTENT);
-            fallback.setType("image/*");
-            fallback.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
-            fallback.addCategory(Intent.CATEGORY_OPENABLE);
-            try {
-                startActivityForResult(Intent.createChooser(fallback, "Выберите фото"), REQUEST_PICK_PHOTOS);
-            } catch (ActivityNotFoundException second) {
-                Toast.makeText(this, "Галерея не найдена", Toast.LENGTH_LONG).show();
-            }
-        }
-    }
-
-    private void openAnimatedPicker() {
-        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-        intent.addCategory(Intent.CATEGORY_OPENABLE);
-        intent.setType("*/*");
-        intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
-        intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{
-                "image/gif",
-                "image/webp",
-                "video/mp4",
-                "video/webm",
-                "video/quicktime",
-                "video/x-matroska",
-                "video/*"
-        });
-        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
-        try {
-            startActivityForResult(Intent.createChooser(intent, "Выберите анимации или видео"), REQUEST_PICK_ANIMATED);
-        } catch (ActivityNotFoundException first) {
-            Intent fallback = new Intent(Intent.ACTION_GET_CONTENT);
-            fallback.setType("*/*");
-            fallback.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
-            fallback.addCategory(Intent.CATEGORY_OPENABLE);
-            try {
-                startActivityForResult(Intent.createChooser(fallback, "Выберите GIF, WebP или видео"), REQUEST_PICK_ANIMATED);
-            } catch (ActivityNotFoundException second) {
-                Toast.makeText(this, "Не найдено приложение для выбора файлов", Toast.LENGTH_LONG).show();
-            }
-        }
-    }
-
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-
-        if ((requestCode == REQUEST_PICK_PHOTOS || requestCode == REQUEST_PICK_ANIMATED)
-                && resultCode == RESULT_OK && data != null) {
-            receivePickerResult(data, requestCode == REQUEST_PICK_ANIMATED);
-            return;
-        }
-
-        if (requestCode == REQUEST_ADD_TO_WHATSAPP && resultCode == RESULT_OK && statusText != null) {
-            statusText.setText("Набор успешно добавлен в WhatsApp.");
-        }
-    }
-
-    private void receivePickerResult(Intent data, boolean persistPermission) {
-        List<Uri> incoming = new ArrayList<>();
-        ClipData clipData = data.getClipData();
-        if (clipData != null) {
-            for (int i = 0; i < clipData.getItemCount() && incoming.size() < MAX_STICKERS; i++) {
-                Uri uri = clipData.getItemAt(i).getUri();
-                if (uri != null) incoming.add(uri);
-            }
-        } else if (data.getData() != null) {
-            incoming.add(data.getData());
-        }
-
-        boolean changed = false;
-        for (Uri uri : incoming) {
-            if (selectedUris.size() >= MAX_STICKERS) break;
-            if (!selectedUris.contains(uri)) {
-                selectedUris.add(uri);
-                changed = true;
-            }
-            if (persistPermission) {
-                try {
-                    getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                } catch (Exception ignored) {
-                }
-            }
-        }
-
-        if (coverUri == null && !selectedUris.isEmpty()) coverUri = selectedUris.get(0);
-        if (changed) invalidateCurrentPack();
-        renderPreviews();
-        updateUiState();
-    }
-
     private void renderPreviews() {
         if (previewContainer == null) return;
         previewContainer.removeAllViews();
-
-        if (selectedUris.isEmpty()) {
-            coverUri = null;
-            TextView empty = text(
-                    animatedMode ? "Выбранные анимации появятся здесь" : "Выбранные фото появятся здесь",
-                    13, MUTED, Typeface.NORMAL);
-            empty.setGravity(Gravity.CENTER);
-            empty.setPadding(dp(16), 0, dp(16), 0);
-            empty.setBackground(rounded(0xFFF0F4F2, 14));
-            previewContainer.addView(empty, new LinearLayout.LayoutParams(dp(270), dp(92)));
-            return;
-        }
-
-        if (coverUri == null || !selectedUris.contains(coverUri)) coverUri = selectedUris.get(0);
-
         for (int i = 0; i < selectedUris.size(); i++) {
-            final int index = i;
             Uri uri = selectedUris.get(i);
-            boolean isCover = uri.equals(coverUri);
+            int index = i;
+            LinearLayout card = new LinearLayout(this);
+            card.setOrientation(LinearLayout.VERTICAL);
+            card.setPadding(dp(6), dp(6), dp(6), dp(6));
+            card.setBackground(rounded(0xFFF7FAF8, 14));
+            LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(dp(102), dp(112));
+            cardParams.rightMargin = dp(8);
+            previewContainer.addView(card, cardParams);
 
             FrameLayout frame = new FrameLayout(this);
-            LinearLayout.LayoutParams frameParams = new LinearLayout.LayoutParams(dp(96), dp(96));
-            frameParams.rightMargin = dp(9);
-            previewContainer.addView(frame, frameParams);
+            card.addView(frame, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(82)));
 
             ImageView image = new ImageView(this);
             image.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            image.setBackground(rounded(0xFFE9EFEC, 15));
-            image.setContentDescription("Стикер " + (i + 1) + " из " + selectedUris.size()
-                    + (isCover ? ", выбран как обложка" : "")
-                    + ". Удерживайте для изменения порядка.");
-            if (Build.VERSION.SDK_INT >= 21) image.setClipToOutline(true);
-            loadPreviewAsync(uri, image);
+            image.setBackgroundColor(0xFFE6EEE9);
             frame.addView(image, new FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT));
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            previewLoader.load(uri, (requestKey, bitmap) -> runOnUiThread(() -> {
+                if (activityDestroyed || isFinishing()) return;
+                if (bitmap != null && uri.equals(image.getTag())) image.setImageBitmap(bitmap);
+            }));
+            image.setTag(uri);
+
+            TextView cover = text(uri.equals(coverUri) ? "★" : "☆", 21,
+                    uri.equals(coverUri) ? 0xFFFFC107 : Color.WHITE, Typeface.BOLD);
+            cover.setGravity(Gravity.CENTER);
+            cover.setContentDescription(uri.equals(coverUri) ? "Обложка набора" : "Сделать обложкой");
+            cover.setBackground(rounded(0xA8075E54, 12));
+            cover.setOnClickListener(v -> {
+                if (!processing && selectedUris.contains(uri)) {
+                    coverUri = uri;
+                    invalidateCurrentPack();
+                    renderPreviews();
+                    updateUiState();
+                }
+            });
+            FrameLayout.LayoutParams coverParams = new FrameLayout.LayoutParams(dp(38), dp(38));
+            coverParams.gravity = Gravity.START | Gravity.TOP;
+            coverParams.leftMargin = dp(4);
+            coverParams.topMargin = dp(4);
+            frame.addView(cover, coverParams);
 
             frame.setOnLongClickListener(v -> {
                 if (processing) return false;
-                ClipData dragData = ClipData.newPlainText("sticker", String.valueOf(index));
-                View.DragShadowBuilder shadow = new View.DragShadowBuilder(frame);
-                if (Build.VERSION.SDK_INT >= 24) {
-                    frame.startDragAndDrop(dragData, shadow, Integer.valueOf(index), 0);
-                } else {
-                    //noinspection deprecation
-                    frame.startDrag(dragData, shadow, Integer.valueOf(index), 0);
-                }
+                v.startDragAndDrop(null, new View.DragShadowBuilder(v), index, 0);
                 return true;
             });
             frame.setOnDragListener((v, event) -> {
-                switch (event.getAction()) {
-                    case DragEvent.ACTION_DRAG_STARTED:
-                        return !processing && event.getLocalState() instanceof Integer;
-                    case DragEvent.ACTION_DRAG_ENTERED:
-                        frame.setAlpha(0.72f);
-                        return true;
-                    case DragEvent.ACTION_DRAG_EXITED:
-                        frame.setAlpha(1f);
-                        return true;
-                    case DragEvent.ACTION_DROP:
-                        frame.setAlpha(1f);
-                        Object state = event.getLocalState();
-                        if (state instanceof Integer) moveSticker((Integer) state, index);
-                        return true;
-                    case DragEvent.ACTION_DRAG_ENDED:
-                        frame.setAlpha(1f);
-                        return true;
-                    default:
-                        return true;
+                if (event.getAction() == DragEvent.ACTION_DROP && event.getLocalState() instanceof Integer) {
+                    moveSticker((Integer) event.getLocalState(), index);
+                    return true;
                 }
+                return true;
             });
 
-            if (animatedMode) {
-                TextView play = text("▶", 13, Color.WHITE, Typeface.BOLD);
-                play.setGravity(Gravity.CENTER);
-                play.setContentDescription("Анимированный стикер");
-                play.setBackground(rounded(0xAA075E54, 14));
-                FrameLayout.LayoutParams playParams = new FrameLayout.LayoutParams(dp(30), dp(30));
-                playParams.gravity = Gravity.CENTER;
-                frame.addView(play, playParams);
-            }
-
-            TextView cover = text(isCover ? "★" : "☆", 18, isCover ? 0xFF073B2B : PRIMARY, Typeface.BOLD);
-            cover.setGravity(Gravity.CENTER);
-            cover.setContentDescription(isCover ? "Текущая обложка набора" : "Сделать стикер " + (i + 1) + " обложкой");
-            cover.setBackground(rounded(isCover ? 0xE625D366 : 0xEFFFFFFF, 12));
-            cover.setOnClickListener(v -> {
-                if (processing || uri.equals(coverUri)) return;
-                coverUri = uri;
-                invalidateCurrentPack();
-                renderPreviews();
-                updateUiState();
-            });
-            FrameLayout.LayoutParams coverParams = new FrameLayout.LayoutParams(dp(28), dp(28));
-            coverParams.gravity = Gravity.BOTTOM | Gravity.START;
-            coverParams.bottomMargin = dp(4);
-            coverParams.leftMargin = dp(4);
-            frame.addView(cover, coverParams);
-
-            TextView remove = text("×", 18, Color.WHITE, Typeface.BOLD);
+            TextView remove = text("×", 22, Color.WHITE, Typeface.BOLD);
             remove.setGravity(Gravity.CENTER);
             remove.setContentDescription("Удалить стикер " + (i + 1));
             remove.setBackground(rounded(0xCC17231F, 12));
@@ -721,8 +778,8 @@ public class MainActivity extends Activity {
                     updateUiState();
                 }
             });
-            FrameLayout.LayoutParams removeParams = new FrameLayout.LayoutParams(dp(26), dp(26));
-            removeParams.gravity = Gravity.TOP | Gravity.END;
+            FrameLayout.LayoutParams removeParams = new FrameLayout.LayoutParams(dp(38), dp(38));
+            removeParams.gravity = Gravity.END | Gravity.TOP;
             removeParams.topMargin = dp(4);
             removeParams.rightMargin = dp(4);
             frame.addView(remove, removeParams);
@@ -736,788 +793,517 @@ public class MainActivity extends Activity {
         updateUiState();
     }
 
-    private void loadPreviewAsync(Uri uri, ImageView image) {
-        if (previewLoader == null || uri == null || image == null) return;
-        String requestKey = previewLoader.requestKey(uri);
-        image.setTag(requestKey);
-        image.setImageDrawable(null);
-        previewLoader.load(uri, (loadedKey, bitmap) -> postUi(() -> {
-            Object tag = image.getTag();
-            if (!(tag instanceof String) || !loadedKey.equals(tag)) return;
-            if (bitmap != null) image.setImageBitmap(bitmap);
-        }));
-    }
-
     private void handleCreateAction() {
         if (processing) {
             cancelProcessing();
             return;
         }
-        if (buildSession.isActive() && buildSession.hasFailures()) {
-            retryFailedItems();
+        if (buildSession.isActive()) {
+            if (buildSession.hasFailures()) {
+                retryFailedItems();
+            } else {
+                finalizePendingPackAsync();
+            }
             return;
         }
-        createPack();
+        startFreshBuild();
     }
 
-    private void handleAddAction() {
+    private void startFreshBuild() {
         if (processing) return;
-        if (buildSession.isActive() && buildSession.canFinalize()) {
-            finalizePendingPackAsync();
-            return;
-        }
-        addCurrentPackToWhatsApp();
-    }
-
-    private void updateUiState() {
-        if (countText != null) countText.setText(selectedUris.size() + " / " + MAX_STICKERS);
-
-        if (galleryButton != null) {
-            String open = animatedMode ? "Выбрать GIF / WebP / видео" : "Открыть галерею";
-            String more = animatedMode ? "Добавить ещё анимации" : "Добавить ещё фото";
-            galleryButton.setText(selectedUris.isEmpty() ? open : more);
-            galleryButton.setEnabled(!processing && selectedUris.size() < MAX_STICKERS);
-            galleryButton.setAlpha(galleryButton.isEnabled() ? 1f : 0.45f);
-        }
-
-        if (photoModeButton != null) {
-            photoModeButton.setEnabled(!processing);
-            animatedModeButton.setEnabled(!processing);
-        }
-
-        if (createButton != null) {
-            if (processing) {
-                styleButton(createButton, ERROR, Color.WHITE);
-                createButton.setText(buildSession.isCancelRequested() ? "Останавливаю…" : "Отменить обработку");
-                createButton.setEnabled(!buildSession.isCancelRequested());
-            } else if (buildSession.isActive() && buildSession.hasFailures()) {
-                styleButton(createButton, GREEN, 0xFF073B2B);
-                createButton.setText("Повторить ошибки (" + buildSession.failureCount() + ")");
-                createButton.setEnabled(true);
-            } else {
-                styleButton(createButton, GREEN, 0xFF073B2B);
-                boolean enough = selectedUris.size() >= MIN_STICKERS && selectedUris.size() <= MAX_STICKERS;
-                createButton.setText("Создать набор");
-                createButton.setEnabled(enough);
-            }
-            createButton.setAlpha(createButton.isEnabled() ? 1f : 0.45f);
-        }
-
-        if (addButton != null) {
-            if (!processing && buildSession.isActive() && buildSession.canFinalize()) {
-                addButton.setText("Создать из готовых (" + buildSession.successCount() + ")");
-                addButton.setEnabled(true);
-            } else {
-                addButton.setText("Добавить в WhatsApp");
-                boolean packMatchesMode = currentPack != null && currentPack.animated == animatedMode;
-                addButton.setEnabled(packMatchesMode && !processing);
-            }
-            addButton.setAlpha(addButton.isEnabled() ? 1f : 0.45f);
-        }
-
-        if (bugLogButton != null) {
-            boolean showBugLog = lastOperationFailed && lastBugLog != null && !lastBugLog.isEmpty();
-            bugLogButton.setVisibility(showBugLog ? View.VISIBLE : View.GONE);
-        }
-
-        if (statusText != null && !processing && !lastOperationFailed) {
-            if (currentPack != null && currentPack.animated == animatedMode) {
-                statusText.setText("Набор «" + currentPack.name + "» готов к добавлению в WhatsApp.");
-            } else if (selectedUris.isEmpty()) {
-                statusText.setText(animatedMode
-                        ? "Выберите минимум 3 анимации или видео. Фото-черновик сохранён отдельно."
-                        : "Выберите минимум 3 фотографии. Черновик анимации сохранён отдельно.");
-            } else if (selectedUris.size() < MIN_STICKERS) {
-                statusText.setText("Добавьте ещё " + (MIN_STICKERS - selectedUris.size())
-                        + (animatedMode ? " файла." : " фото."));
-            } else {
-                statusText.setText(animatedMode
-                        ? "Анимации выбраны. Можно менять порядок, обложку и создавать набор."
-                        : "Фото выбраны. Можно менять порядок, обложку и создавать набор.");
-            }
-        }
-    }
-
-    private void createPack() {
-        if (selectedUris.size() < MIN_STICKERS || selectedUris.size() > MAX_STICKERS) {
-            Toast.makeText(this, "Нужно выбрать от 3 до 30 файлов", Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        String enteredName = packName.getText().toString().trim();
-        String finalName = enteredName.isEmpty()
-                ? (animatedMode ? "Мои анимированные стикеры" : "Мои стикеры")
-                : enteredName;
-        List<Uri> work = new ArrayList<>(selectedUris);
-        Uri preferredCover = coverUri != null && work.contains(coverUri) ? coverUri : work.get(0);
-
         invalidateCurrentPack();
-        String packId = (animatedMode ? "animated_" : "pack_") + System.currentTimeMillis();
-        File packDir = PackStore.getPackDir(this, packId);
-        buildSession.begin(packId, finalName, packDir, animatedMode, preferredCover);
-
-        diagnosticItemIndex = -1;
-        diagnosticItemUri = null;
-        BugLogStore.reset();
-        BugLogStore.appendApp("Starting draft pack. mode=" + (buildSession.isAnimated() ? "animated" : "static")
-                + ", items=" + work.size()
-                + ", customCover=" + describeUri(preferredCover));
-        startBatch(work, false);
-    }
-
-    private void retryFailedItems() {
-        if (processing || !buildSession.isActive() || !buildSession.hasFailures()) return;
-        List<Uri> retry = buildSession.takeFailuresForRetry();
-        BugLogStore.appendApp("Retrying failed/remaining items: " + retry.size());
-        startBatch(retry, true);
-    }
-
-    private void startBatch(List<Uri> work, boolean retry) {
-        if (!buildSession.isActive() || work.isEmpty()) return;
-        buildSession.beginBatch();
-        processing = true;
-        lastOperationFailed = false;
-        lastBugLog = "";
-        statusText.setText(retry ? "Повторяю неудачные файлы…"
-                : (buildSession.isAnimated() ? "Создаю анимированные стикеры…" : "Создаю стикеры…"));
-        prepareFileProgress(work);
-        startProgress(work.size(), buildSession.isAnimated());
-        updateUiState();
-        executor.execute(() -> processBatch(work));
-    }
-
-    private void processBatch(List<Uri> work) {
-        StickerPackBuilder builder = new StickerPackBuilder(this, buildSession.isAnimated());
-        PackBuildCoordinator<Uri> coordinator = new PackBuildCoordinator<>(buildSession);
-        PackBuildCoordinator.RunResult<Uri> result = coordinator.run(
-                work,
-                (itemUri, target, progress) -> {
-                    StickerPackBuilder.ItemResult converted = builder.convert(
-                            itemUri,
-                            target,
-                            new StickerPackBuilder.ProgressListener() {
-                                @Override
-                                public void onStaticProgress(int percent, String detail) {
-                                    progress.onStaticProgress(percent, detail);
-                                }
-
-                                @Override
-                                public void onAnimatedProgress(AnimatedStickerConverter.Progress animatedProgress) {
-                                    progress.onAnimatedProgress(animatedProgress);
-                                }
-                            }
-                    );
-                    return new PackBuildCoordinator.ItemResult(
-                            converted.bytes,
-                            converted.fps,
-                            converted.quality
-                    );
-                },
-                createBuildCoordinatorListener(work)
-        );
-
-        if (activityDestroyed) {
-            discardPendingBuild();
+        if (selectedUris.size() < MIN_STICKERS || selectedUris.size() > MAX_STICKERS) {
+            Toast.makeText(this, "Выберите от 3 до 30 файлов", Toast.LENGTH_LONG).show();
             return;
         }
-        if (result.isFatal()) {
-            handleBatchFatal(result.fatalError, work);
-            return;
-        }
-        if (result.autoFinalize) {
-            try {
-                finalizePendingPackOnWorker(0);
-            } catch (Throwable finalizeError) {
-                handleBatchFatal(finalizeError, work);
-            }
-            return;
-        }
-        if (result.lastItemError != null) {
-            diagnosticItemIndex = result.lastFailureIndex;
-            diagnosticItemUri = result.lastFailureItem;
-            lastBugLog = buildBugLog(result.lastItemError, buildSession.isAnimated(), work);
-            saveBugLog(lastBugLog);
-        }
-        postUi(() -> showPendingBatchResult(result.cancelled));
-    }
-
-    private PackBuildCoordinator.Listener<Uri> createBuildCoordinatorListener(List<Uri> work) {
-        return new PackBuildCoordinator.Listener<Uri>() {
-            @Override
-            public void onItemStarted(int index, int total, Uri itemUri) {
-                diagnosticItemIndex = index;
-                diagnosticItemUri = itemUri;
-                BugLogStore.appendApp("Item " + (index + 1) + "/" + total + ": " + describeUri(itemUri));
-                postUi(() -> {
-                    updateProgress(index, total,
-                            (buildSession.isAnimated() ? "Конвертирую " : "Обрабатываю ")
-                                    + (index + 1) + " из " + total + "…");
-                    updateFileProgress(index, 0,
-                            buildSession.isAnimated() ? "Подготовка к конвертации…" : "Чтение изображения…");
-                });
-            }
-
-            @Override
-            public void onStaticProgress(int index, int percent, String detail) {
-                postUi(() -> updateFileProgress(index, percent, detail));
-            }
-
-            @Override
-            public void onAnimatedProgress(int index, AnimatedStickerConverter.Progress progress) {
-                postUi(() -> updateAnimatedFileProgress(index, progress));
-            }
-
-            @Override
-            public void onItemSucceeded(int index, Uri itemUri, PackBuildCoordinator.ItemResult result) {
-                BugLogStore.appendApp("Item converted: bytes=" + result.bytes
-                        + (result.animated() ? ", fps=" + result.fps + ", quality=" + result.quality : ""));
-                String detail = formatBytes(result.bytes)
-                        + (result.animated() ? " · " + result.fps + " FPS · q" + result.quality : "");
-                postUi(() -> completeFileProgress(index, detail));
-            }
-
-            @Override
-            public void onItemFailed(int index, Uri itemUri, Throwable error) {
-                String reason = error.getMessage() == null
-                        ? "неизвестная ошибка конвертации"
-                        : error.getMessage();
-                BugLogStore.appendApp("Item failed: " + reason);
-                postUi(() -> failFileProgress(index, reason));
-            }
-
-            @Override
-            public void onItemCompleted(int completed, int total) {
-                postUi(() -> updateProgress(
-                        completed,
-                        total,
-                        completed == total
-                                ? "Проверены все файлы."
-                                : "Проверено " + completed + " из " + total + "."));
-            }
-
-            @Override
-            public void onCancelledFrom(int startIndex) {
-                postUi(() -> markCancelledFrom(startIndex));
-            }
-        };
-    }
-
-    private void handleBatchFatal(Throwable fatalError, List<Uri> work) {
-        buildSession.setFailures(new ArrayList<>(work));
-        lastBugLog = buildBugLog(fatalError, buildSession.isAnimated(), work);
-        saveBugLog(lastBugLog);
-        BugLogStore.appendApp("Draft creation failed: " + fatalError);
-        discardPendingBuild();
-
-        postUi(() -> {
-            processing = false;
-            lastOperationFailed = true;
-            String message = fatalError.getMessage() == null
-                    ? "не удалось создать набор"
-                    : fatalError.getMessage();
-            statusText.setText("Ошибка: " + message);
-            showProgressError();
-            updateUiState();
-        });
-    }
-
-    private void cancelProcessing() {
-        if (!processing || buildSession.isCancelRequested()) return;
-        buildSession.requestCancel();
-        BugLogStore.appendApp("Cancellation requested by user");
+        boolean requiresTrim = false;
         try {
-            FFmpegKit.cancel();
+            MediaPreflightAnalyzer.SelectionReport report =
+                    MediaPreflightAnalyzer.analyze(this, new ArrayList<>(selectedUris));
+            requiresTrim = report != null && report.hasLongVideos;
         } catch (Throwable error) {
-            BugLogStore.appendApp("FFmpeg cancel failed: " + error);
+            BugLogStore.appendApp("Preflight before build failed: " + error);
         }
-        if (statusText != null) statusText.setText("Останавливаю обработку. Уже готовые стикеры будут сохранены в черновике…");
-        if (progressText != null) {
-            progressText.setText("Остановка текущей операции…");
-            progressText.setVisibility(View.VISIBLE);
-        }
-        updateUiState();
-    }
-
-    private void showPendingBatchResult(boolean cancelled) {
-        processing = false;
-        lastOperationFailed = true;
-        int remaining = buildSession.failureCount();
-        int successful = buildSession.successCount();
-        if (cancelled) {
-            statusText.setText("Обработка остановлена. Готово " + successful
-                    + ", осталось " + remaining + ". Можно продолжить с оставшихся файлов.");
-            progressText.setText("Остановлено · готово " + successful + " · осталось " + remaining);
-        } else if (buildSession.canFinalize()) {
-            statusText.setText("Готово " + successful + " стикеров, не удалось " + remaining
-                    + ". Повторите ошибки или создайте набор из готовых.");
-            progressText.setText("Частичный результат · готово " + successful
-                    + " · ошибок " + remaining);
-        } else {
-            statusText.setText("Готово " + successful + ", не удалось " + remaining
-                    + ". Для набора нужно минимум 3 стикера — повторите ошибки.");
-            progressText.setText("Нужно ещё " + Math.max(0, MIN_STICKERS - successful)
-                    + " успешных стикера.");
-        }
-        progressText.setVisibility(View.VISIBLE);
-        updateUiState();
-    }
-
-    private void finalizePendingPackAsync() {
-        if (processing || !buildSession.isActive() || !buildSession.canFinalize()) return;
-        int skippedCount = buildSession.failureCount();
-        processing = true;
-        buildSession.beginBatch();
-        lastOperationFailed = false;
-        statusText.setText("Завершаю набор из " + buildSession.successCount() + " готовых стикеров…");
-        if (progressText != null) {
-            progressText.setText("Создаю иконку и metadata набора…");
-            progressText.setVisibility(View.VISIBLE);
-        }
-        updateUiState();
-        executor.execute(() -> {
+        if (requiresTrim) {
             try {
-                finalizePendingPackOnWorker(skippedCount);
-            } catch (Throwable error) {
-                lastBugLog = buildBugLog(error, buildSession.isAnimated(), new ArrayList<>(selectedUris));
-                saveBugLog(lastBugLog);
-                if (activityDestroyed) {
-                    discardPendingBuild();
+                List<VideoTrimStore.Entry> entries = VideoTrimStore.prepare(this, selectedUris);
+                if (!entries.isEmpty()) {
+                    ArrayList<String> keys = new ArrayList<>();
+                    for (VideoTrimStore.Entry entry : entries) keys.add(entry.key);
+                    Intent trimIntent = new Intent(this, VideoTrimActivity.class);
+                    trimIntent.putStringArrayListExtra(VideoTrimActivity.EXTRA_KEYS, keys);
+                    startActivity(trimIntent);
+                    statusText.setText("Настройте фрагменты длинных видео и затем запустите сборку снова.");
                     return;
                 }
-                postUi(() -> {
-                    processing = false;
-                    lastOperationFailed = true;
-                    if (buildSession.isCancelRequested()) {
-                        statusText.setText("Завершение набора остановлено. Готовые стикеры остаются в черновике.");
-                        progressText.setText("Завершение остановлено.");
-                    } else {
-                        statusText.setText("Не удалось завершить набор: "
-                                + (error.getMessage() == null ? "неизвестная ошибка" : error.getMessage()));
-                        showProgressError();
+            } catch (Throwable error) {
+                BugLogStore.appendApp("Could not open trim before build: " + error);
+            }
+        }
+        startBuildSession(selectedUris, animatedMode);
+    }
+
+    private void startBuildSession(List<Uri> uris, boolean animated) {
+        if (uris == null || uris.size() < MIN_STICKERS || uris.size() > MAX_STICKERS) return;
+        String name = packName.getText().toString().trim();
+        if (name.isEmpty()) name = animated ? "Мои анимированные стикеры" : "Мои стикеры";
+        String packId = (animated ? "animated_" : "pack_") + System.currentTimeMillis();
+        File packDir = PackStore.getPackDir(this, packId);
+        Uri sessionCover = coverUri != null && uris.contains(coverUri) ? coverUri : uris.get(0);
+        buildSession.begin(packId, name, packDir, animated, sessionCover);
+        startBatch(new ArrayList<>(uris), false);
+    }
+
+    private void startBatch(List<Uri> workItems, boolean resetFailures) {
+        if (workItems == null || workItems.isEmpty() || processing || !buildSession.isActive()) return;
+        if (resetFailures) buildSession.setFailures(new ArrayList<>());
+        resetDiagnostics();
+        BugLogStore.reset();
+        processing = true;
+        buildSession.clearCancelRequested();
+        lastOperationFailed = false;
+        currentPack = null;
+        setBuildUiBusy(true);
+        setupFileProgress(workItems);
+
+        final List<Uri> batchItems = new ArrayList<>(workItems);
+        final boolean modeAnimated = buildSession.isAnimated();
+        executor.execute(() -> {
+            try {
+                List<Uri> failures = modeAnimated
+                        ? processAnimatedBatch(batchItems)
+                        : processStaticBatch(batchItems);
+                if (failures == null) return;
+                List<Uri> combinedFailures = new ArrayList<>(failures);
+                if (!resetFailures) {
+                    for (Uri previous : buildSession.failures()) {
+                        if (!combinedFailures.contains(previous)) combinedFailures.add(previous);
                     }
+                }
+                buildSession.setFailures(combinedFailures);
+
+                if (buildSession.isCancelRequested()) {
+                    discardPendingBuild();
+                    postStatus("Создание отменено. Можно выбрать другие файлы или запустить снова.");
+                } else if (!buildSession.hasFailures()) {
+                    if (buildSession.autoFinalizeAllowed()) {
+                        finalizePendingPack();
+                    } else {
+                        postStatus("Обработка завершена. Нажмите «Готово», чтобы сохранить набор.");
+                    }
+                } else if (buildSession.canFinalize()) {
+                    postStatus("Часть файлов не обработалась. Можно повторить ошибки или завершить набор без них.");
+                } else {
+                    postStatus("Слишком мало готовых стикеров. Повторите обработку ошибок.");
+                }
+            } catch (Throwable error) {
+                if (buildSession.isCancelRequested()) {
+                    discardPendingBuild();
+                    postStatus("Создание отменено. Можно выбрать другие файлы или запустить снова.");
+                } else {
+                    lastOperationFailed = true;
+                    recordException("Сборка набора", error);
+                    postStatus("Ошибка сборки. Откройте баг-лог, чтобы увидеть детали.");
+                }
+            } finally {
+                processing = false;
+                runOnUiThread(() -> {
+                    setBuildUiBusy(false);
                     updateUiState();
                 });
             }
         });
     }
 
-    private void finalizePendingPackOnWorker(int skippedCount) throws IOException {
-        File packDir = buildSession.packDir();
-        if (!buildSession.isActive() || packDir == null) throw new IOException("Черновик набора больше недоступен");
-        if (!buildSession.canFinalize()) throw new IOException("Для набора нужно минимум 3 готовых стикера");
-        if (activityDestroyed || buildSession.isCancelRequested()) throw new IOException("Завершение отменено");
-
-        diagnosticItemIndex = -1;
-        diagnosticItemUri = null;
-        File tray = new File(packDir, "tray.png");
-        Uri traySource = buildSession.traySource();
-        if (traySource == null) throw new IOException("Не найден источник для иконки набора");
-        new StickerPackBuilder(this, buildSession.isAnimated()).createTrayIcon(traySource, tray);
-        if (activityDestroyed || buildSession.isCancelRequested()) {
-            //noinspection ResultOfMethodCallIgnored
-            tray.delete();
-            throw new IOException("Завершение отменено");
-        }
-        BugLogStore.appendApp("Tray icon created: bytes=" + tray.length());
-
-        int stickerCount = buildSession.successCount();
-        PackStore.Pack pack = new PackStore.Pack(
-                buildSession.packId(),
-                buildSession.packName(),
-                stickerCount,
-                String.valueOf(System.currentTimeMillis()),
-                buildSession.isAnimated()
-        );
-        if (activityDestroyed || buildSession.isCancelRequested()) throw new IOException("Завершение отменено");
-        PackStore.addPack(this, pack);
-        currentPack = pack;
-
-        String authority = getPackageName() + ".stickercontentprovider";
-        getContentResolver().notifyChange(Uri.parse("content://" + authority + "/metadata"), null);
-
-        int finalFps = buildSession.lastFps();
-        int finalQuality = buildSession.lastQuality();
-        boolean wasAnimated = buildSession.isAnimated();
-        clearPendingBuildState();
-
-        postUi(() -> {
-            processing = false;
-            lastOperationFailed = false;
-            finishProgressSuccess(pack.stickerCount, skippedCount);
-            StringBuilder message = new StringBuilder("Готово: «")
-                    .append(pack.name).append("» · ").append(pack.stickerCount).append(" стикеров");
-            if (skippedCount > 0) message.append(" · пропущено ").append(skippedCount);
-            if (wasAnimated && finalFps > 0) {
-                message.append(" · последний профиль ").append(finalFps)
-                        .append(" FPS, q").append(finalQuality);
+    private List<Uri> processStaticBatch(List<Uri> workItems) throws Exception {
+        List<Uri> failed = new ArrayList<>();
+        for (int i = 0; i < workItems.size(); i++) {
+            if (buildSession.isCancelRequested()) break;
+            diagnosticItemIndex = i;
+            diagnosticItemUri = workItems.get(i);
+            Uri uri = workItems.get(i);
+            String name = queryDisplayName(uri);
+            updateFileProgress(i, "Анализ", 5);
+            try {
+                StickerPreprocessCache.Result prepared = StickerPreprocessCache.getOrPrepare(
+                        this,
+                        uri,
+                        buildSession.packDir(),
+                        "photo_" + i,
+                        null
+                );
+                updateFileProgress(i, "Конвертация в WebP", 30);
+                StickerPackBuilder.BuildResult result = StickerPackBuilder.buildSticker(
+                        this,
+                        prepared.decodeUri,
+                        buildSession.packDir(),
+                        buildSession.outputPrefixFor(uri, "photo_" + i),
+                        null,
+                        new StickerPackBuilder.ProgressListener() {
+                            @Override
+                            public void onStage(String stage, int percent) {
+                                updateFileProgress(i, stage, percent);
+                            }
+                        }
+                );
+                buildSession.markSuccess(uri, result.outputFile);
+                updateFileProgress(i, "Готово", 100);
+            } catch (Throwable error) {
+                BugLogStore.appendApp("Static item failed: " + name + " -> " + error);
+                buildSession.markFailure(uri);
+                updateFileProgress(i, "Ошибка", 100);
+                failed.add(uri);
             }
-            statusText.setText(message.append('.').toString());
-            updateUiState();
+        }
+        return failed;
+    }
+
+    private List<Uri> processAnimatedBatch(List<Uri> workItems) throws Exception {
+        List<Uri> failed = new ArrayList<>();
+        for (int i = 0; i < workItems.size(); i++) {
+            if (buildSession.isCancelRequested()) break;
+            diagnosticItemIndex = i;
+            diagnosticItemUri = workItems.get(i);
+            Uri uri = workItems.get(i);
+            String name = queryDisplayName(uri);
+            updateFileProgress(i, "Анализ", 5);
+            try {
+                MediaPreflightAnalyzer.ItemReport item = MediaPreflightAnalyzer.analyzeOne(this, uri);
+                if (item == null || !item.supported || !item.animatedCandidate) {
+                    throw new IOException(item == null ? "Не удалось определить тип файла" : item.issue);
+                }
+                String stableKey = buildSession.outputPrefixFor(uri, "anim_" + i);
+                if (item.videoCandidate) {
+                    long startOffsetMs = VideoTrimStore.getStartOffsetMs(uri);
+                    AnimatedStickerConverter.convertVideo(
+                            this,
+                            uri,
+                            buildSession.packDir(),
+                            stableKey,
+                            startOffsetMs,
+                            new AnimatedStickerConverter.ProgressListener() {
+                                @Override
+                                public void onStage(String stage, int percent) {
+                                    updateFileProgress(i, stage, percent);
+                                }
+                            }
+                    );
+                } else {
+                    AnimatedStickerConverter.convertAnimatedImage(
+                            this,
+                            uri,
+                            buildSession.packDir(),
+                            stableKey,
+                            new AnimatedStickerConverter.ProgressListener() {
+                                @Override
+                                public void onStage(String stage, int percent) {
+                                    updateFileProgress(i, stage, percent);
+                                }
+                            }
+                    );
+                }
+                buildSession.markSuccess(uri, new File(buildSession.packDir(), stableKey + ".webp"));
+                updateFileProgress(i, "Готово", 100);
+            } catch (Throwable error) {
+                BugLogStore.appendApp("Animated item failed: " + name + " -> " + error);
+                buildSession.markFailure(uri);
+                updateFileProgress(i, "Ошибка", 100);
+                failed.add(uri);
+            }
+        }
+        return failed;
+    }
+
+    private void retryFailedItems() {
+        if (processing || !buildSession.isActive() || !buildSession.hasFailures()) return;
+        startBatch(new ArrayList<>(buildSession.failures()), true);
+    }
+
+    private void cancelProcessing() {
+        if (!processing || !buildSession.isActive()) return;
+        buildSession.requestCancel();
+        progressText.setText("Останавливаем обработку…");
+        createButton.setEnabled(false);
+    }
+
+    private void finalizePendingPackAsync() {
+        if (processing || !buildSession.isActive() || !buildSession.canFinalize()) return;
+        processing = true;
+        lastOperationFailed = false;
+        setBuildUiBusy(true);
+        executor.execute(() -> {
+            try {
+                finalizePendingPack();
+            } catch (Throwable error) {
+                lastOperationFailed = true;
+                recordException("Финализация набора", error);
+                postStatus("Не удалось завершить набор. Откройте баг-лог для деталей.");
+            } finally {
+                processing = false;
+                runOnUiThread(() -> {
+                    setBuildUiBusy(false);
+                    updateUiState();
+                });
+            }
         });
     }
 
-    private void startProgress(int total, boolean animated) {
-        if (progressBar != null) {
-            progressBar.setMax(Math.max(1, total));
-            progressBar.setProgress(0);
-            progressBar.setVisibility(View.VISIBLE);
+    private void finalizePendingPack() throws Exception {
+        if (!buildSession.isActive() || !buildSession.canFinalize()) return;
+        List<Uri> successful = buildSession.successfulUris();
+        if (successful.size() < MIN_STICKERS) return;
+
+        List<File> stickers = new ArrayList<>();
+        for (Uri uri : successful) {
+            File output = buildSession.outputFor(uri);
+            if (output != null && output.isFile()) stickers.add(output);
         }
-        if (progressText != null) {
-            progressText.setText(animated
-                    ? "Запускаю обработку анимированных стикеров…"
-                    : "Запускаю обработку стикеров…");
-            progressText.setVisibility(View.VISIBLE);
-        }
-        if (bugLogButton != null) bugLogButton.setVisibility(View.GONE);
+        if (stickers.size() < MIN_STICKERS) return;
+
+        Uri chosenCover = buildSession.coverUri();
+        if (chosenCover == null || !successful.contains(chosenCover)) chosenCover = successful.get(0);
+        File tray = buildSession.isAnimated()
+                ? AnimatedStickerConverter.buildTrayIcon(this, chosenCover, buildSession.packDir(),
+                        VideoTrimStore.getStartOffsetMs(chosenCover))
+                : StickerPackBuilder.buildTrayIcon(this, chosenCover, buildSession.packDir());
+
+        PackStore.Pack pack = PackStore.savePack(
+                this,
+                buildSession.packId(),
+                buildSession.packName(),
+                buildSession.packDir(),
+                stickers,
+                tray,
+                buildSession.isAnimated()
+        );
+        currentPack = pack;
+        buildSession.reset();
+        postStatus("Набор готов: " + pack.name + ". Можно добавить в WhatsApp.");
     }
 
-    private void updateProgress(int completed, int total, String message) {
-        if (progressBar != null) {
-            progressBar.setMax(Math.max(1, total));
-            progressBar.setProgress(Math.max(0, Math.min(completed, total)));
-            progressBar.setVisibility(View.VISIBLE);
-        }
-        if (progressText != null) {
-            progressText.setText(message);
-            progressText.setVisibility(View.VISIBLE);
-        }
-    }
-
-    private void prepareFileProgress(List<Uri> work) {
-        fileProgressLabels.clear();
-        fileProgressBars.clear();
-        fileProgressNames.clear();
-        if (fileProgressContainer == null) return;
-        fileProgressContainer.removeAllViews();
-        fileProgressContainer.setVisibility(View.VISIBLE);
-
-        for (int i = 0; i < work.size(); i++) {
-            String name = getDisplayName(work.get(i), i + 1);
-            LinearLayout row = new LinearLayout(this);
-            row.setOrientation(LinearLayout.VERTICAL);
-            row.setPadding(0, dp(7), 0, dp(7));
-            fileProgressContainer.addView(row, matchWrap());
-
-            TextView label = text((i + 1) + ". " + name + " · В очереди", 12, MUTED, Typeface.NORMAL);
-            label.setMaxLines(3);
-            row.addView(label, matchWrap());
-
-            ProgressBar itemBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
-            itemBar.setMax(100);
-            itemBar.setProgress(0);
-            LinearLayout.LayoutParams itemBarParams = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, dp(7));
-            itemBarParams.topMargin = dp(5);
-            row.addView(itemBar, itemBarParams);
-
-            fileProgressNames.add(name);
-            fileProgressLabels.add(label);
-            fileProgressBars.add(itemBar);
-        }
-    }
-
-    private void updateAnimatedFileProgress(int index, AnimatedStickerConverter.Progress progress) {
-        String detail;
-        switch (progress.stage) {
-            case PREPARING: detail = "Подготовка файла"; break;
-            case INSPECTING: detail = "Проверка WebP"; break;
-            case PASSTHROUGH: detail = "Файл уже подходит WhatsApp"; break;
-            case RESIZING: detail = "Изменение размера animated WebP"; break;
-            case CHECKING:
-                detail = "Проверка размера · " + formatBytes(progress.candidateBytes)
-                        + " · " + progress.fps + " FPS · q" + progress.quality;
-                break;
-            case DONE: detail = "Завершение"; break;
-            case ENCODING:
-            default:
-                detail = "Кодирование · попытка " + progress.attempt + "/" + progress.totalAttempts
-                        + " · " + progress.fps + " FPS · q" + progress.quality;
-                break;
-        }
-        updateFileProgress(index, progress.percent, detail);
-    }
-
-    private String progressName(int index) {
-        if (index >= 0 && index < fileProgressNames.size()) return fileProgressNames.get(index);
-        return "Файл " + (index + 1);
-    }
-
-    private void updateFileProgress(int index, int percent, String detail) {
-        if (index < 0 || index >= fileProgressLabels.size() || index >= fileProgressBars.size()) return;
-        int safePercent = Math.max(0, Math.min(100, percent));
-        TextView label = fileProgressLabels.get(index);
-        ProgressBar itemBar = fileProgressBars.get(index);
-        itemBar.setProgress(safePercent);
-        label.setText((index + 1) + ". " + progressName(index)
-                + " · " + safePercent + "%\n" + detail);
-        label.setTextColor(TEXT);
-    }
-
-    private void completeFileProgress(int index, String detail) {
-        if (index < 0 || index >= fileProgressLabels.size() || index >= fileProgressBars.size()) return;
-        ProgressBar itemBar = fileProgressBars.get(index);
-        TextView label = fileProgressLabels.get(index);
-        itemBar.setProgress(100);
-        label.setText((index + 1) + ". " + progressName(index) + " · Готово\n" + detail);
-        label.setTextColor(PRIMARY);
-    }
-
-    private void failFileProgress(int index, String reason) {
-        if (index < 0 || index >= fileProgressLabels.size()) return;
-        TextView label = fileProgressLabels.get(index);
-        label.setText((index + 1) + ". " + progressName(index) + " · Ошибка\n" + reason);
-        label.setTextColor(ERROR);
-    }
-
-    private void markCancelledFrom(int startIndex) {
-        for (int i = Math.max(0, startIndex); i < fileProgressLabels.size(); i++) {
-            TextView label = fileProgressLabels.get(i);
-            label.setText((i + 1) + ". " + progressName(i) + " · Не обработано\nОстановлено пользователем");
-            label.setTextColor(MUTED);
-        }
-    }
-
-    private String getDisplayName(Uri uri, int fallbackNumber) {
-        try (Cursor cursor = getContentResolver().query(
-                uri,
-                new String[]{OpenableColumns.DISPLAY_NAME},
-                null,
-                null,
-                null)) {
-            if (cursor != null && cursor.moveToFirst()) {
-                int nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
-                if (nameIndex >= 0 && !cursor.isNull(nameIndex)) {
-                    String value = cursor.getString(nameIndex);
-                    if (value != null && !value.trim().isEmpty()) return value;
-                }
-            }
-        } catch (Throwable ignored) {
-        }
-        return (animatedMode ? "Анимация " : "Фото ") + fallbackNumber;
-    }
-
-    private String formatBytes(long bytes) {
-        if (bytes < 1024) return bytes + " B";
-        if (bytes < 1024L * 1024L) return Math.round(bytes / 1024f) + " KB";
-        return String.format(Locale.US, "%.1f MB", bytes / (1024f * 1024f));
-    }
-
-    private void finishProgressSuccess(int total, int skippedCount) {
-        if (progressBar != null) {
-            progressBar.setMax(Math.max(1, total));
-            progressBar.setProgress(Math.max(1, total));
-            progressBar.setVisibility(View.VISIBLE);
-        }
-        if (progressText != null) {
-            progressText.setText(skippedCount > 0
-                    ? "Набор создан из " + total + " готовых · пропущено " + skippedCount
-                    : "Готово. Все стикеры обработаны.");
-            progressText.setVisibility(View.VISIBLE);
-        }
-        if (bugLogButton != null) bugLogButton.setVisibility(View.GONE);
-    }
-
-    private void showProgressError() {
-        if (progressText != null) {
-            progressText.setText("Создание набора завершилось ошибкой. Откройте баг-лог ниже.");
-            progressText.setVisibility(View.VISIBLE);
-        }
-        if (bugLogButton != null) bugLogButton.setVisibility(View.VISIBLE);
-    }
-
-    private void hideDiagnosticsUi() {
-        if (progressText != null) progressText.setVisibility(View.GONE);
-        if (progressBar != null) {
-            progressBar.setProgress(0);
-            progressBar.setVisibility(View.GONE);
-        }
-        fileProgressLabels.clear();
-        fileProgressBars.clear();
-        fileProgressNames.clear();
-        if (fileProgressContainer != null) {
-            fileProgressContainer.removeAllViews();
-            fileProgressContainer.setVisibility(View.GONE);
-        }
-        if (bugLogButton != null) bugLogButton.setVisibility(View.GONE);
-    }
-
-    private String buildBugLog(Throwable error, boolean makeAnimated, List<Uri> work) {
-        StringBuilder report = new StringBuilder();
-        report.append("WA Stickers bug log\n");
-        report.append("Time: ")
-                .append(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.US).format(new Date()))
-                .append('\n');
-        report.append("App: ").append(BuildConfig.VERSION_NAME)
-                .append(" (versionCode ").append(BuildConfig.VERSION_CODE).append(")\n");
-        report.append("Android SDK: ").append(Build.VERSION.SDK_INT).append('\n');
-        report.append("Device: ").append(Build.MANUFACTURER).append(' ').append(Build.MODEL).append('\n');
-        report.append("Mode: ").append(makeAnimated ? "animated" : "static").append('\n');
-        report.append("Selected files: ").append(work.size()).append('\n');
-        report.append("Successful in draft: ").append(buildSession.successCount()).append('\n');
-        report.append("Waiting for retry: ").append(buildSession.failureCount()).append('\n');
-
-        if (diagnosticItemIndex >= 0) report.append("Failed item: ").append(diagnosticItemIndex + 1).append(" / ").append(work.size()).append('\n');
-        if (diagnosticItemUri != null) report.append("Failed file: ").append(describeUri(diagnosticItemUri)).append('\n');
-
-        report.append("\nFiles:\n");
-        for (int i = 0; i < work.size(); i++) report.append(i + 1).append(". ").append(describeUri(work.get(i))).append('\n');
-
-        report.append("\nException:\n").append(stackTrace(error));
-        String ffmpeg = BugLogStore.snapshot();
-        report.append("\nFFmpeg / app log:\n");
-        report.append(ffmpeg.isEmpty() ? "<no FFmpeg log captured>\n" : ffmpeg);
-        return report.toString();
-    }
-
-    private String describeUri(Uri uri) {
-        if (uri == null) return "<null>";
-        String displayName = "unknown";
-        long size = -1;
-        try (Cursor cursor = getContentResolver().query(
-                uri,
-                new String[]{OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE},
-                null,
-                null,
-                null)) {
-            if (cursor != null && cursor.moveToFirst()) {
-                int nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
-                int sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE);
-                if (nameIndex >= 0 && !cursor.isNull(nameIndex)) displayName = cursor.getString(nameIndex);
-                if (sizeIndex >= 0 && !cursor.isNull(sizeIndex)) size = cursor.getLong(sizeIndex);
-            }
-        } catch (Throwable ignored) {
-        }
-
-        String mime = null;
-        try {
-            mime = getContentResolver().getType(uri);
-        } catch (Throwable ignored) {
-        }
-        return displayName + " | mime=" + (mime == null ? "unknown" : mime)
-                + " | bytes=" + (size < 0 ? "unknown" : size);
-    }
-
-    private String stackTrace(Throwable error) {
-        StringWriter writer = new StringWriter();
-        PrintWriter printer = new PrintWriter(writer);
-        error.printStackTrace(printer);
-        printer.flush();
-        return writer.toString();
-    }
-
-    private void saveBugLog(String log) {
-        if (log == null || log.isEmpty()) return;
-        File dir = new File(getFilesDir(), "buglogs");
-        if (!dir.mkdirs() && !dir.isDirectory()) return;
-        File file = new File(dir, "last_bug_log.txt");
-        try (FileOutputStream output = new FileOutputStream(file, false)) {
-            output.write(log.getBytes(StandardCharsets.UTF_8));
-        } catch (IOException ignored) {
-        }
-    }
-
-    private void showBugLogDialog() {
-        if (lastBugLog == null || lastBugLog.isEmpty()) {
-            Toast.makeText(this, "Баг-лог пока отсутствует", Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        String preview = lastBugLog.length() > 8000
-                ? "…\n" + lastBugLog.substring(lastBugLog.length() - 8000)
-                : lastBugLog;
-
-        new AlertDialog.Builder(this)
-                .setTitle("Баг-лог")
-                .setMessage(preview)
-                .setPositiveButton("Копировать", (dialog, which) -> copyBugLog())
-                .setNeutralButton("Поделиться", (dialog, which) -> shareBugLog())
-                .setNegativeButton("Закрыть", null)
-                .show();
-    }
-
-    private void copyBugLog() {
-        ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-        if (clipboard != null) {
-            clipboard.setPrimaryClip(ClipData.newPlainText("WA Stickers bug log", lastBugLog));
-            Toast.makeText(this, "Баг-лог скопирован", Toast.LENGTH_SHORT).show();
-        }
-    }
-
-    private void shareBugLog() {
-        Intent share = new Intent(Intent.ACTION_SEND);
-        share.setType("text/plain");
-        share.putExtra(Intent.EXTRA_SUBJECT, "WA Stickers bug log");
-        share.putExtra(Intent.EXTRA_TEXT, lastBugLog);
-        try {
-            startActivity(Intent.createChooser(share, "Поделиться баг-логом"));
-        } catch (ActivityNotFoundException error) {
-            Toast.makeText(this, "Не найдено приложение для отправки", Toast.LENGTH_SHORT).show();
-        }
+    private void discardPendingBuild() {
+        buildSession.deletePackDir();
+        buildSession.reset();
     }
 
     private void addCurrentPackToWhatsApp() {
-        if (currentPack == null) {
-            Toast.makeText(this, "Сначала успешно создайте новый набор", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        if (currentPack.animated != animatedMode) {
-            currentPack = null;
-            updateUiState();
-            Toast.makeText(this, "Текущий набор устарел. Создайте набор заново.", Toast.LENGTH_LONG).show();
-            return;
-        }
-        File firstSticker = PackStore.getStickerFile(this, currentPack.id, "1.webp");
-        if (!firstSticker.isFile()) {
-            currentPack = null;
-            updateUiState();
-            Toast.makeText(this, "Файлы набора не найдены. Создайте набор заново.", Toast.LENGTH_LONG).show();
-            return;
-        }
-        String authority = getPackageName() + ".stickercontentprovider";
+        if (currentPack == null) return;
         Intent intent = new Intent("com.whatsapp.intent.action.ENABLE_STICKER_PACK");
         intent.putExtra("sticker_pack_id", currentPack.id);
-        intent.putExtra("sticker_pack_authority", authority);
+        intent.putExtra("sticker_pack_authority", getPackageName() + ".stickercontentprovider");
         intent.putExtra("sticker_pack_name", currentPack.name);
         try {
             startActivityForResult(intent, REQUEST_ADD_TO_WHATSAPP);
         } catch (ActivityNotFoundException error) {
-            Toast.makeText(this, "WhatsApp не найден на телефоне", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "WhatsApp не найден", Toast.LENGTH_LONG).show();
         }
     }
 
-    private void deleteRecursively(File file) {
-        if (file == null || !file.exists()) return;
-        if (file.isDirectory()) {
-            File[] files = file.listFiles();
-            if (files != null) for (File child : files) deleteRecursively(child);
-        }
-        //noinspection ResultOfMethodCallIgnored
-        file.delete();
+    private void invalidateCurrentPack() {
+        currentPack = null;
+        clearPendingBuildState();
     }
 
-    private void postUi(Runnable action) {
-        if (action == null || activityDestroyed) return;
+    private void clearPendingBuildState() {
+        buildSession.reset();
+    }
+
+    private void updateModeUi() {
+        if (photoModeButton == null || animatedModeButton == null) return;
+        photoModeButton.setBackground(rounded(animatedMode ? 0xFFF2F6F4 : PRIMARY, 14));
+        photoModeButton.setTextColor(animatedMode ? PRIMARY : Color.WHITE);
+        animatedModeButton.setBackground(rounded(animatedMode ? PRIMARY : 0xFFF2F6F4, 14));
+        animatedModeButton.setTextColor(animatedMode ? Color.WHITE : PRIMARY);
+        galleryButton.setText(animatedMode ? "Выбрать GIF / WebP / видео" : "Выбрать фото");
+        mediaTitle.setText(animatedMode ? "2  Анимации" : "2  Фотографии");
+        mediaHint.setText(animatedMode
+                ? "Выберите от 3 до 30 GIF, анимированных WebP или видео. Видео длиннее 10 секунд можно обрезать перед сборкой."
+                : "Выберите от 3 до 30 изображений. Первое станет обложкой, её можно поменять звездой.");
+    }
+
+    private void updateUiState() {
+        int count = selectedUris.size();
+        boolean enough = count >= MIN_STICKERS && count <= MAX_STICKERS;
+        boolean pending = buildSession.isActive();
+        countText.setText(count + " / " + MAX_STICKERS);
+
+        if (processing) {
+            createButton.setText("Остановить");
+            createButton.setEnabled(true);
+            galleryButton.setEnabled(false);
+            photoModeButton.setEnabled(false);
+            animatedModeButton.setEnabled(false);
+            addButton.setEnabled(false);
+            actionHint.setText("Идёт обработка. Можно остановить текущую сборку.");
+        } else if (pending && buildSession.hasFailures()) {
+            createButton.setText("Повторить ошибки");
+            createButton.setEnabled(true);
+            galleryButton.setEnabled(true);
+            photoModeButton.setEnabled(true);
+            animatedModeButton.setEnabled(true);
+            addButton.setEnabled(false);
+            actionHint.setText(buildSession.canFinalize()
+                    ? "Есть готовые стикеры и ошибки. Повторите ошибки или завершите набор без них."
+                    : "Недостаточно готовых стикеров. Повторите обработку ошибок.");
+        } else if (pending && buildSession.canFinalize()) {
+            createButton.setText("Готово");
+            createButton.setEnabled(true);
+            galleryButton.setEnabled(true);
+            photoModeButton.setEnabled(true);
+            animatedModeButton.setEnabled(true);
+            addButton.setEnabled(false);
+            actionHint.setText("Обработка завершена. Сохраните набор кнопкой «Готово».");
+        } else {
+            createButton.setText("Создать набор");
+            createButton.setEnabled(enough);
+            galleryButton.setEnabled(true);
+            photoModeButton.setEnabled(true);
+            animatedModeButton.setEnabled(true);
+            addButton.setEnabled(currentPack != null);
+            actionHint.setText(currentPack != null
+                    ? "Набор готов. Добавьте его в WhatsApp."
+                    : (enough ? "Файлы готовы к обработке." : "Нужно выбрать от 3 до 30 файлов."));
+        }
+
+        boolean showProgress = processing || pending;
+        progressText.setVisibility(showProgress ? View.VISIBLE : View.GONE);
+        progressBar.setVisibility(showProgress ? View.VISIBLE : View.GONE);
+        fileProgressContainer.setVisibility(showProgress ? View.VISIBLE : View.GONE);
+        if (pending && !processing) {
+            progressBar.setProgress(buildSession.successCount());
+            progressText.setText(buildSession.successCount() + " / " + Math.max(1, selectedUris.size()));
+        }
+        bugLogButton.setVisibility(lastOperationFailed ? View.VISIBLE : View.GONE);
+    }
+
+    private void setBuildUiBusy(boolean busy) {
+        galleryButton.setEnabled(!busy);
+        photoModeButton.setEnabled(!busy);
+        animatedModeButton.setEnabled(!busy);
+        addButton.setEnabled(!busy && currentPack != null);
+        createButton.setEnabled(true);
+        if (busy) createButton.setText("Остановить");
+    }
+
+    private void setupFileProgress(List<Uri> workItems) {
+        fileProgressContainer.removeAllViews();
+        fileProgressLabels.clear();
+        fileProgressBars.clear();
+        fileProgressNames.clear();
+        for (int i = 0; i < workItems.size(); i++) {
+            String name = queryDisplayName(workItems.get(i));
+            fileProgressNames.add(name);
+
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.VERTICAL);
+            row.setPadding(0, dp(8), 0, dp(8));
+            fileProgressContainer.addView(row, matchWrap());
+
+            TextView label = text((i + 1) + ". " + name + "\nВ очереди", 12, TEXT, Typeface.NORMAL);
+            row.addView(label, matchWrap());
+            fileProgressLabels.add(label);
+
+            ProgressBar itemProgress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+            itemProgress.setMax(100);
+            itemProgress.setProgress(0);
+            LinearLayout.LayoutParams progressParams = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(12));
+            progressParams.topMargin = dp(5);
+            row.addView(itemProgress, progressParams);
+            fileProgressBars.add(itemProgress);
+        }
+    }
+
+    private void updateFileProgress(int index, String stage, int percent) {
+        if (index < 0 || index >= fileProgressLabels.size()) return;
         runOnUiThread(() -> {
-            if (activityDestroyed || isFinishing() || (Build.VERSION.SDK_INT >= 17 && isDestroyed())) return;
-            action.run();
+            if (index < 0 || index >= fileProgressLabels.size()) return;
+            String name = fileProgressNames.get(index);
+            fileProgressLabels.get(index).setText((index + 1) + ". " + name + "\n" + stage);
+            fileProgressBars.get(index).setProgress(Math.max(0, Math.min(100, percent)));
+            int completed = 0;
+            for (ProgressBar bar : fileProgressBars) {
+                if (bar.getProgress() >= 100) completed++;
+            }
+            progressBar.setProgress(completed);
+            progressText.setText(completed + " / " + Math.max(1, fileProgressBars.size()));
         });
     }
 
-    private int dp(int value) {
-        return Math.round(value * getResources().getDisplayMetrics().density);
+    private String queryDisplayName(Uri uri) {
+        if (uri == null) return "Файл";
+        if ("content".equalsIgnoreCase(uri.getScheme())) {
+            try (Cursor cursor = getContentResolver().query(uri, null, null, null, null)) {
+                if (cursor != null && cursor.moveToFirst()) {
+                    int idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                    if (idx >= 0) {
+                        String value = cursor.getString(idx);
+                        if (value != null && !value.trim().isEmpty()) return value;
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        String last = uri.getLastPathSegment();
+        return last == null || last.trim().isEmpty() ? "Файл" : last;
+    }
+
+    private void postStatus(String message) {
+        runOnUiThread(() -> statusText.setText(message));
+    }
+
+    private void resetDiagnostics() {
+        lastBugLog = "";
+        diagnosticItemIndex = -1;
+        diagnosticItemUri = null;
+    }
+
+    private void recordException(String stage, Throwable error) {
+        StringWriter buffer = new StringWriter();
+        PrintWriter writer = new PrintWriter(buffer);
+        error.printStackTrace(writer);
+        writer.flush();
+        lastBugLog = stage + "\n" + buffer;
+        BugLogStore.appendApp(lastBugLog);
+    }
+
+    private void showBugLogDialog() {
+        String content = BugLogStore.getAppLog();
+        if (content == null || content.trim().isEmpty()) content = lastBugLog;
+        if (content == null || content.trim().isEmpty()) content = "Лог пока пуст.";
+
+        TextView logView = text(content, 12, TEXT, Typeface.NORMAL);
+        logView.setTextIsSelectable(true);
+        logView.setPadding(dp(16), dp(16), dp(16), dp(16));
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(logView, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        new AlertDialog.Builder(this)
+                .setTitle("Баг-лог")
+                .setView(scroll)
+                .setPositiveButton("Закрыть", null)
+                .setNeutralButton("Копировать", (dialog, which) -> copyBugLog())
+                .show();
+    }
+
+    private void copyBugLog() {
+        String content = BugLogStore.getAppLog();
+        if (content == null || content.trim().isEmpty()) content = lastBugLog;
+        if (content == null || content.trim().isEmpty()) return;
+        ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+        if (clipboard == null) return;
+        clipboard.setPrimaryClip(ClipData.newPlainText("WA Stickers bug log", content));
+        Toast.makeText(this, "Баг-лог скопирован", Toast.LENGTH_SHORT).show();
     }
 
     @Override
     protected void onDestroy() {
         activityDestroyed = true;
-        buildSession.requestCancel();
-        try {
-            FFmpegKit.cancel();
-        } catch (Throwable ignored) {
-        }
-        if (previewLoader != null) previewLoader.close();
-        if (!processing) discardPendingBuild();
-        super.onDestroy();
         executor.shutdownNow();
+        if (previewLoader != null) previewLoader.close();
+        FFmpegKit.cancel();
+        super.onDestroy();
     }
 }
