@@ -6,6 +6,7 @@ import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.view.View;
+import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
@@ -38,6 +39,7 @@ public abstract class LauncherActivity extends MainActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         VideoTrimStore.clear();
+        getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
         super.onCreate(savedInstanceState);
         if (savedInstanceState != null) {
             VideoTrimStore.restoreFromBundle(savedInstanceState, TRIM_STATE_PREFIX);
@@ -60,6 +62,8 @@ public abstract class LauncherActivity extends MainActivity {
         installRuntimeControls();
         FrameLayout host = new FrameLayout(this);
         host.setBackgroundColor(getColor(R.color.app_background));
+        host.setFocusableInTouchMode(true);
+        host.requestFocus();
         return host;
     }
 
