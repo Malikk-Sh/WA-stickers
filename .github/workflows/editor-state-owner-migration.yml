@@ -1,0 +1,29 @@
+name: Editor state owner migration
+
+on:
+  push:
+    branches: [ editor-state-owner ]
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout migration branch
+        uses: actions/checkout@v4
+        with:
+          ref: editor-state-owner
+
+      - name: Apply editor state migration
+        run: python tools/editor_state_owner_migration.py
+
+      - name: Commit migrated source
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/com/malikksh/wastickers/MainActivity.java
+          git diff --cached --check
+          git commit -m "Move editor runtime state out of MainActivity"
+          git push origin HEAD:editor-state-owner
