@@ -34,6 +34,7 @@ public abstract class LauncherActivity extends MainActivity {
     private final ExecutorService shellSelectionExecutor = Executors.newSingleThreadExecutor();
     private boolean restoredPersistentDraftOnLaunch;
     private boolean restoredDraftFeedbackShown;
+    private boolean initialShellFocusApplied;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -58,11 +59,30 @@ public abstract class LauncherActivity extends MainActivity {
     @Override
     protected void onPostResume() {
         super.onPostResume();
+        applyInitialShellFocusOnce();
         if (!restoredPersistentDraftOnLaunch || restoredDraftFeedbackShown) return;
         View createAction = findViewById(R.id.create_continue);
         if (createAction == null) return;
         restoredDraftFeedbackShown = true;
         createAction.post(() -> TransientFeedback.show(this, "Черновик восстановлен"));
+    }
+
+    private void applyInitialShellFocusOnce() {
+        if (initialShellFocusApplied) return;
+        View content = findViewById(android.R.id.content);
+        if (content == null) return;
+        initialShellFocusApplied = true;
+
+        EditText packName = runtimePackName();
+        if (packName != null) packName.clearFocus();
+        content.setFocusableInTouchMode(true);
+        content.requestFocus();
+
+        android.view.inputmethod.InputMethodManager inputMethodManager =
+                (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+        if (inputMethodManager != null && content.getWindowToken() != null) {
+            inputMethodManager.hideSoftInputFromWindow(content.getWindowToken(), 0);
+        }
     }
 
     /** True only for a fresh launch that restored a readable persistent editor draft. */
