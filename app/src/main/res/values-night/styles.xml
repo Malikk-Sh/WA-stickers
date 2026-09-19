@@ -3,9 +3,12 @@
     <style name="AppTheme" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:fontFamily">sans</item>
         <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
         <item name="android:navigationBarColor">@color/app_surface</item>
         <item name="android:statusBarColor">@color/app_background</item>
         <item name="android:windowBackground">@color/app_background</item>
-        <item name="android:colorAccent">@color/app_secondary</item>
+        <item name="android:colorAccent">@color/app_primary</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowActionModeOverlay">true</item>
     </style>
 </resources>
