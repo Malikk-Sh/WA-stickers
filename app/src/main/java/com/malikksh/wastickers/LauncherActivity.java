@@ -2,6 +2,7 @@ package com.malikksh.wastickers;
 
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
+import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.view.View;
@@ -66,11 +67,22 @@ public abstract class LauncherActivity extends MainActivity {
         EditText packName = new EditText(this);
         packName.setSingleLine(true);
         packName.setHint("Мои стикеры");
+        packName.setTextSize(16);
+        packName.setTextColor(getColor(R.color.app_text_primary));
+        packName.setHintTextColor(getColor(R.color.app_disabled_text));
+        packName.setPadding(runtimeDp(14), 0, runtimeDp(14), 0);
+        GradientDrawable input = new GradientDrawable();
+        input.setColor(getColor(R.color.app_surface));
+        input.setCornerRadius(runtimeDp(14));
+        input.setStroke(runtimeDp(1), getColor(R.color.app_border));
+        packName.setBackground(input);
 
         Button photoModeButton = new Button(this);
         photoModeButton.setText("Фото");
+        photoModeButton.setAllCaps(false);
         Button animatedModeButton = new Button(this);
         animatedModeButton.setText("Анимация");
+        animatedModeButton.setAllCaps(false);
         Button galleryButton = new Button(this);
         Button createButton = new Button(this);
         Button addButton = new Button(this);
@@ -113,6 +125,10 @@ public abstract class LauncherActivity extends MainActivity {
         } catch (ReflectiveOperationException error) {
             throw new IllegalStateException("Could not initialize runtime field " + name, error);
         }
+    }
+
+    private int runtimeDp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
     @Override
