@@ -16,8 +16,9 @@ import java.util.List;
 /**
  * Transitional adapter around private migration surfaces.
  *
- * Reflection stays isolated here while redesigned shell classes stop depending on field/method names
- * directly. A later state-owner refactor can replace this adapter without touching every screen.
+ * Reflection stays isolated here while redesigned shell and persistence classes stop depending on
+ * field/method names directly. A later state-owner refactor can replace this adapter without
+ * touching every screen.
  */
 final class MainActivityRuntimeAccess {
     private MainActivityRuntimeAccess() {}
@@ -85,6 +86,14 @@ final class MainActivityRuntimeAccess {
         return result;
     }
 
+    @SuppressWarnings("unchecked")
+    static EditorStateController<Uri> editorStateController(MainActivity activity) {
+        Object value = getField(activity, "editorStateController");
+        return value instanceof EditorStateController<?>
+                ? (EditorStateController<Uri>) value
+                : null;
+    }
+
     static String enteredPackName(MainActivity activity) {
         EditText input = packName(activity);
         return input == null ? "" : input.getText().toString().trim();
@@ -129,6 +138,11 @@ final class MainActivityRuntimeAccess {
             BugLogStore.appendApp("Could not clear current pack: " + error);
             return false;
         }
+    }
+
+    static TextView statusText(MainActivity activity) {
+        Object value = getField(activity, "statusText");
+        return value instanceof TextView ? (TextView) value : null;
     }
 
     static TextView progressText(MainActivity activity) {
@@ -243,9 +257,8 @@ final class MainActivityRuntimeAccess {
             EditText input = packName(activity);
             if (input != null) input.setText("");
 
-            Object controllerValue = getField(activity, "editorStateController");
-            if (controllerValue instanceof EditorStateController<?>) {
-                EditorStateController<Uri> controller = (EditorStateController<Uri>) controllerValue;
+            EditorStateController<Uri> controller = editorStateController(activity);
+            if (controller != null) {
                 controller.capture(false, new ArrayList<>(), null, "");
                 controller.capture(true, new ArrayList<>(), null, "");
             }
@@ -258,6 +271,37 @@ final class MainActivityRuntimeAccess {
             return true;
         } catch (Throwable error) {
             BugLogStore.appendApp("Could not clear editor draft through runtime adapter: " + error);
+            return false;
+        }
+    }
+
+    static boolean restoreEditorState(
+            MainActivity activity,
+            boolean animated,
+            List<Uri> items,
+            Uri cover,
+            String name,
+            PackStore.Pack currentPack
+    ) {
+        if (activity == null) return false;
+        try {
+            setField(activity, "animatedMode", animated);
+            List<Uri> selected = mutableSelectedUris(activity);
+            if (selected == null) return false;
+            selected.clear();
+            if (items != null) selected.addAll(items);
+            setField(activity, "coverUri", cover);
+
+            EditText input = packName(activity);
+            if (input != null) input.setText(name == null ? "" : name);
+            setField(activity, "currentPack", currentPack);
+
+            invokeSafely(activity, "renderPreviews", new Class<?>[0]);
+            invokeSafely(activity, "updateModeUi", new Class<?>[0]);
+            updateUiState(activity);
+            return true;
+        } catch (Throwable error) {
+            BugLogStore.appendApp("Could not restore editor state through runtime adapter: " + error);
             return false;
         }
     }
