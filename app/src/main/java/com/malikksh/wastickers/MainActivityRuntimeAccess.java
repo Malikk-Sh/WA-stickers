@@ -5,6 +5,7 @@ import android.net.Uri;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
@@ -14,16 +15,16 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Transitional adapter around private migration surfaces.
+ * Typed compatibility boundary around MainActivity's private migration surface.
  *
- * Reflection stays isolated here while redesigned shell and persistence classes stop depending on
- * field/method names directly. A later state-owner refactor can replace this adapter without
- * touching every screen.
+ * The redesigned shell and persistence layers depend only on the typed methods below. Reflection is
+ * deliberately confined to this class for the 1.6 runtime; CI prevents new production reflection
+ * from spreading outside this boundary until MainActivity state is extracted into a dedicated owner.
  */
 final class MainActivityRuntimeAccess {
     private MainActivityRuntimeAccess() {}
 
-    static void setField(MainActivity activity, String name, Object value) {
+    private static void setField(MainActivity activity, String name, Object value) {
         if (activity == null) throw new IllegalArgumentException("activity == null");
         try {
             Field field = MainActivity.class.getDeclaredField(name);
@@ -34,7 +35,7 @@ final class MainActivityRuntimeAccess {
         }
     }
 
-    static Object getField(MainActivity activity, String name) {
+    private static Object getField(MainActivity activity, String name) {
         if (activity == null) return null;
         try {
             Field field = MainActivity.class.getDeclaredField(name);
@@ -180,6 +181,42 @@ final class MainActivityRuntimeAccess {
         return result;
     }
 
+    static void installRuntimeControls(
+            MainActivity activity,
+            EditText packName,
+            TextView countText,
+            TextView statusText,
+            TextView mediaTitle,
+            TextView mediaHint,
+            TextView actionHint,
+            TextView progressText,
+            ProgressBar progressBar,
+            LinearLayout fileProgressContainer,
+            Button photoModeButton,
+            Button animatedModeButton,
+            Button galleryButton,
+            Button createButton,
+            Button addButton,
+            Button bugLogButton
+    ) {
+        setField(activity, "packName", packName);
+        setField(activity, "countText", countText);
+        setField(activity, "statusText", statusText);
+        setField(activity, "mediaTitle", mediaTitle);
+        setField(activity, "mediaHint", mediaHint);
+        setField(activity, "actionHint", actionHint);
+        setField(activity, "progressText", progressText);
+        setField(activity, "progressBar", progressBar);
+        setField(activity, "previewContainer", null);
+        setField(activity, "fileProgressContainer", fileProgressContainer);
+        setField(activity, "photoModeButton", photoModeButton);
+        setField(activity, "animatedModeButton", animatedModeButton);
+        setField(activity, "galleryButton", galleryButton);
+        setField(activity, "createButton", createButton);
+        setField(activity, "addButton", addButton);
+        setField(activity, "bugLogButton", bugLogButton);
+    }
+
     static void receivePickerResult(MainActivity activity, Intent data, boolean persistPermission) {
         invoke(activity, "receivePickerResult", new Class<?>[]{Intent.class, boolean.class}, data, persistPermission);
     }
@@ -246,7 +283,6 @@ final class MainActivityRuntimeAccess {
         }
     }
 
-    @SuppressWarnings("unchecked")
     static boolean clearEditorDraft(MainActivity activity) {
         if (activity == null || isProcessing(activity)) return false;
         try {
@@ -366,7 +402,7 @@ final class MainActivityRuntimeAccess {
         invoke(activity, "updateUiState", new Class<?>[0]);
     }
 
-    static Object invoke(MainActivity activity, String name, Class<?>[] parameterTypes, Object... args) {
+    private static Object invoke(MainActivity activity, String name, Class<?>[] parameterTypes, Object... args) {
         if (activity == null) return null;
         try {
             Method method = MainActivity.class.getDeclaredMethod(name, parameterTypes);
