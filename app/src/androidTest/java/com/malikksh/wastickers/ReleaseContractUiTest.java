@@ -8,11 +8,10 @@ import static org.junit.Assert.fail;
 
 import android.Manifest;
 import android.content.Context;
-import android.content.Intent;
+import android.content.pm.ActivityInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ProviderInfo;
-import android.content.pm.ResolveInfo;
 import android.content.res.AssetFileDescriptor;
 import android.database.Cursor;
 import android.net.Uri;
@@ -63,7 +62,9 @@ public class ReleaseContractUiTest {
         PackageManager packageManager = context.getPackageManager();
         PackageInfo info = packageManager.getPackageInfo(
                 context.getPackageName(),
-                PackageManager.GET_PROVIDERS | PackageManager.GET_PERMISSIONS
+                PackageManager.GET_ACTIVITIES
+                        | PackageManager.GET_PROVIDERS
+                        | PackageManager.GET_PERMISSIONS
         );
 
         ProviderInfo stickerProvider = null;
@@ -85,13 +86,18 @@ public class ReleaseContractUiTest {
                 requestedPermissions != null && Arrays.asList(requestedPermissions).contains(Manifest.permission.INTERNET)
         );
 
-        Intent launcherIntent = new Intent(Intent.ACTION_MAIN)
-                .addCategory(Intent.CATEGORY_LAUNCHER)
-                .setPackage(context.getPackageName());
-        ResolveInfo launcher = packageManager.resolveActivity(launcherIntent, PackageManager.MATCH_DEFAULT_ONLY);
-        assertNotNull("Launcher activity must resolve", launcher);
-        assertNotNull(launcher.activityInfo);
-        assertEquals(SettingsShellActivity.class.getName(), launcher.activityInfo.name);
+        ActivityInfo launcherActivity = null;
+        if (info.activities != null) {
+            for (ActivityInfo activity : info.activities) {
+                if (SettingsShellActivity.class.getName().equals(activity.name)) {
+                    launcherActivity = activity;
+                    break;
+                }
+            }
+        }
+        assertNotNull("Production launcher activity must be declared", launcherActivity);
+        assertTrue("Production launcher activity must be exported", launcherActivity.exported);
+        assertEquals(SettingsShellActivity.class.getName(), launcherActivity.name);
     }
 
     @Test
