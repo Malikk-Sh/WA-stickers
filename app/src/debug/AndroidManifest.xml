@@ -17,8 +17,5 @@
         <activity
             android:name=".PacksShellActivity"
             android:exported="false" />
-        <activity
-            android:name=".SavedPacksActivity"
-            android:exported="false" />
     </application>
 </manifest>
