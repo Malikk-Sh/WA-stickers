@@ -53,8 +53,8 @@ public class MainActivityBatchUiTest {
 
     @Test
     public void partialFailureOffersRetryAndRetriesOnlyFailedItem() throws Exception {
-        try (ActivityScenario<LauncherTestHostActivity> scenario =
-                     ActivityScenario.launch(LauncherTestHostActivity.class)) {
+        try (ActivityScenario<LegacyMainTestHostActivity> scenario =
+                     ActivityScenario.launch(LegacyMainTestHostActivity.class)) {
             AtomicReference<List<Uri>> sourcesRef = new AtomicReference<>();
             scenario.onActivity(activity -> {
                 try {
@@ -97,8 +97,8 @@ public class MainActivityBatchUiTest {
 
     @Test
     public void cancelButtonMovesUiIntoStoppingState() throws Exception {
-        try (ActivityScenario<LauncherTestHostActivity> scenario =
-                     ActivityScenario.launch(LauncherTestHostActivity.class)) {
+        try (ActivityScenario<LegacyMainTestHostActivity> scenario =
+                     ActivityScenario.launch(LegacyMainTestHostActivity.class)) {
             scenario.onActivity(activity -> {
                 try {
                     List<Uri> sources = Arrays.asList(
@@ -126,8 +126,8 @@ public class MainActivityBatchUiTest {
 
     @Test
     public void reorderKeepsSelectionOrderAndCoverCanBeChangedFromUi() throws Exception {
-        try (ActivityScenario<LauncherTestHostActivity> scenario =
-                     ActivityScenario.launch(LauncherTestHostActivity.class)) {
+        try (ActivityScenario<LegacyMainTestHostActivity> scenario =
+                     ActivityScenario.launch(LegacyMainTestHostActivity.class)) {
             AtomicReference<List<Uri>> sourcesRef = new AtomicReference<>();
             scenario.onActivity(activity -> {
                 try {
@@ -169,7 +169,7 @@ public class MainActivityBatchUiTest {
         }
     }
 
-    private void waitUntilProcessingStops(ActivityScenario<LauncherTestHostActivity> scenario) {
+    private void waitUntilProcessingStops(ActivityScenario<LegacyMainTestHostActivity> scenario) {
         long deadline = SystemClock.uptimeMillis() + 15_000L;
         while (SystemClock.uptimeMillis() < deadline) {
             AtomicBoolean processing = new AtomicBoolean(true);
