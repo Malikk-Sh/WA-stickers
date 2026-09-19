@@ -14,37 +14,51 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Launcher wrapper that uses the system document picker directly for animated media.
+ * Runtime bridge between the redesigned shell and MainActivity's conversion/editor state.
  *
- * The redesigned shell uses its own request codes so HomeActivity's legacy preflight dialog is
- * skipped. Selection still flows through MainActivity's existing receivePickerResult method, so
- * editor state, cover defaults and persisted URI grants keep the same behavior.
+ * The shell no longer inherits HomeActivity's legacy long-scroll additions. Draft restore/save and
+ * picker persistence live here until the editor state itself moves out of MainActivity.
  */
-public class LauncherActivity extends HomeActivity {
-    private static final int REQUEST_PICK_PHOTOS = 1001;
-    private static final int REQUEST_PICK_ANIMATED = 1002;
+public class LauncherActivity extends MainActivity {
     private static final int REQUEST_SHELL_PICK_PHOTOS = 4101;
     private static final int REQUEST_SHELL_PICK_ANIMATED = 4102;
+    private static final String TRIM_STATE_PREFIX = "home.video_trim.";
     private static final String TRIM_PERSISTENT_KEY = "home_video_trim";
 
     private final ExecutorService shellSelectionExecutor = Executors.newSingleThreadExecutor();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        VideoTrimStore.clear();
         super.onCreate(savedInstanceState);
+        if (savedInstanceState != null) {
+            VideoTrimStore.restoreFromBundle(savedInstanceState, TRIM_STATE_PREFIX);
+            EditorInstanceStateBridge.restore(this, savedInstanceState);
+        } else {
+            VideoTrimStore.restorePersistent(this, TRIM_PERSISTENT_KEY);
+            EditorInstanceStateBridge.restorePersistent(this);
+        }
         EditorInstanceStateBridge.setGalleryClickListener(this, v -> openMediaPicker());
     }
 
-    private void openMediaPicker() {
-        boolean animated = EditorInstanceStateBridge.isAnimatedMode(this);
-        boolean redesignedShell = this instanceof AppShellActivity;
-        int requestCode;
-        if (redesignedShell) {
-            requestCode = animated ? REQUEST_SHELL_PICK_ANIMATED : REQUEST_SHELL_PICK_PHOTOS;
-        } else {
-            requestCode = animated ? REQUEST_PICK_ANIMATED : REQUEST_PICK_PHOTOS;
-        }
+    @Override
+    protected void onSaveInstanceState(Bundle outState) {
+        EditorInstanceStateBridge.save(this, outState);
+        VideoTrimStore.saveToBundle(outState, TRIM_STATE_PREFIX);
+        super.onSaveInstanceState(outState);
+    }
 
+    @Override
+    protected void onPause() {
+        EditorInstanceStateBridge.savePersistent(this);
+        VideoTrimStore.savePersistent(this, TRIM_PERSISTENT_KEY);
+        super.onPause();
+    }
+
+    /** Opens the redesigned shell picker without routing through a hidden legacy button. */
+    protected final void openMediaPicker() {
+        boolean animated = EditorInstanceStateBridge.isAnimatedMode(this);
+        int requestCode = animated ? REQUEST_SHELL_PICK_ANIMATED : REQUEST_SHELL_PICK_PHOTOS;
         Intent intent = MediaPickerIntentFactory.createOpenDocumentIntent(animated);
         String title = animated ? "Выберите GIF, WebP или видео" : "Выберите фото";
 
@@ -77,8 +91,7 @@ public class LauncherActivity extends HomeActivity {
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         if ((requestCode == REQUEST_SHELL_PICK_PHOTOS || requestCode == REQUEST_SHELL_PICK_ANIMATED)
                 && resultCode == RESULT_OK && data != null) {
-            boolean animated = requestCode == REQUEST_SHELL_PICK_ANIMATED;
-            receiveShellPickerResult(data, animated);
+            receiveShellPickerResult(data, requestCode == REQUEST_SHELL_PICK_ANIMATED);
             return;
         }
         super.onActivityResult(requestCode, resultCode, data);
@@ -108,7 +121,6 @@ public class LauncherActivity extends HomeActivity {
         });
     }
 
-    @SuppressWarnings("unchecked")
     private List<Uri> selectedUrisSnapshot() {
         try {
             Field field = MainActivity.class.getDeclaredField("selectedUris");
@@ -129,6 +141,7 @@ public class LauncherActivity extends HomeActivity {
     @Override
     protected void onDestroy() {
         shellSelectionExecutor.shutdownNow();
+        VideoTrimStore.clear();
         super.onDestroy();
     }
 }
