@@ -8,15 +8,12 @@ import android.os.Looper;
 import android.provider.OpenableColumns;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
 import java.io.File;
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -102,7 +99,7 @@ public class BuildShellActivity extends AppShellActivity {
 
             @Override
             public void onCancel() {
-                invokeMainMethod("cancelProcessing", new Class<?>[0]);
+                MainActivityRuntimeAccess.cancelProcessing(BuildShellActivity.this);
                 refreshBuildPanel();
             }
 
@@ -130,20 +127,20 @@ public class BuildShellActivity extends AppShellActivity {
                 if (session == null || !session.canFinalize()) return;
                 finalizedExcludedUris.clear();
                 finalizedExcludedUris.addAll(session.failures());
-                invokeMainMethod("finalizePendingPackAsync", new Class<?>[0]);
+                MainActivityRuntimeAccess.finalizePendingPack(BuildShellActivity.this);
                 refreshBuildPanel();
             }
 
             @Override
             public void onDiscard() {
-                invokeMainMethod("discardPendingBuild", new Class<?>[0]);
+                MainActivityRuntimeAccess.discardPendingBuild(BuildShellActivity.this);
                 clearBuildPresentationState();
                 refreshBuildPanel();
             }
 
             @Override
             public void onAddToWhatsApp() {
-                invokeMainMethod("addCurrentPackToWhatsApp", new Class<?>[0]);
+                MainActivityRuntimeAccess.addCurrentPackToWhatsApp(BuildShellActivity.this);
             }
 
             @Override
@@ -166,7 +163,7 @@ public class BuildShellActivity extends AppShellActivity {
         List<Uri> selected = selectedUrisSnapshot();
         if (selected.size() < MIN_STICKERS || selected.size() > MAX_STICKERS) return;
 
-        invokeMainMethod("invalidateCurrentPack", new Class<?>[0]);
+        MainActivityRuntimeAccess.invalidateCurrentPack(this);
         PackBuildSession<Uri> session = buildSession();
         if (session == null) return;
 
@@ -180,8 +177,7 @@ public class BuildShellActivity extends AppShellActivity {
 
         session.begin(packId, name, packDir, animated, cover);
         session.setAutoFinalizeAllowed(false);
-        writeFieldQuietly(MainActivity.class, "diagnosticItemIndex", -1);
-        writeFieldQuietly(MainActivity.class, "diagnosticItemUri", null);
+        MainActivityRuntimeAccess.resetDiagnostics(this);
         BugLogStore.reset();
         BugLogStore.appendApp("Starting redesigned Build flow. mode="
                 + (animated ? "animated" : "static") + ", items=" + selected.size());
@@ -193,8 +189,7 @@ public class BuildShellActivity extends AppShellActivity {
         percentByUri.clear();
         activeWork = new ArrayList<>(selected);
         deferredFailures = null;
-        invokeMainMethod("startBatch", new Class<?>[]{List.class, boolean.class},
-                new ArrayList<>(activeWork), false);
+        MainActivityRuntimeAccess.startBatch(this, new ArrayList<>(activeWork), false);
         refreshBuildPanel();
     }
 
@@ -237,8 +232,7 @@ public class BuildShellActivity extends AppShellActivity {
             detailByUri.put(uri, "Подготовка к повторной обработке…");
             percentByUri.put(uri, 0);
         }
-        invokeMainMethod("startBatch", new Class<?>[]{List.class, boolean.class},
-                new ArrayList<>(work), true);
+        MainActivityRuntimeAccess.startBatch(this, new ArrayList<>(work), true);
         refreshBuildPanel();
     }
 
@@ -253,7 +247,7 @@ public class BuildShellActivity extends AppShellActivity {
         combined.addAll(deferredFailures);
         session.setFailures(new ArrayList<>(combined));
         deferredFailures = null;
-        invokeMainMethod("updateUiState", new Class<?>[0]);
+        MainActivityRuntimeAccess.updateUiState(this);
     }
 
     private void refreshBuildPanel() {
@@ -387,33 +381,26 @@ public class BuildShellActivity extends AppShellActivity {
         return result;
     }
 
-    @SuppressWarnings("unchecked")
     private void updateProgressCacheFromLegacy() {
-        Object labelsValue = readFieldQuietly(MainActivity.class, "fileProgressLabels");
-        Object barsValue = readFieldQuietly(MainActivity.class, "fileProgressBars");
-        Object namesValue = readFieldQuietly(MainActivity.class, "fileProgressNames");
-        if (!(labelsValue instanceof List<?>) || !(barsValue instanceof List<?>)) return;
-
-        List<?> labels = (List<?>) labelsValue;
-        List<?> bars = (List<?>) barsValue;
-        List<?> names = namesValue instanceof List<?> ? (List<?>) namesValue : new ArrayList<>();
+        List<TextView> labels = MainActivityRuntimeAccess.fileProgressLabelsSnapshot(this);
+        List<ProgressBar> bars = MainActivityRuntimeAccess.fileProgressBarsSnapshot(this);
+        List<String> names = MainActivityRuntimeAccess.fileProgressNamesSnapshot(this);
         int count = Math.min(activeWork.size(), Math.min(labels.size(), bars.size()));
         for (int i = 0; i < count; i++) {
             Uri uri = activeWork.get(i);
-            Object labelValue = labels.get(i);
-            Object barValue = bars.get(i);
-            if (!(labelValue instanceof TextView) || !(barValue instanceof ProgressBar)) continue;
+            TextView label = labels.get(i);
+            ProgressBar bar = bars.get(i);
 
-            String raw = ((TextView) labelValue).getText().toString();
+            String raw = label.getText().toString();
             int newline = raw.indexOf('\n');
             String detail = newline >= 0 && newline + 1 < raw.length()
                     ? raw.substring(newline + 1).trim()
                     : raw;
-            int percent = ((ProgressBar) barValue).getProgress();
+            int percent = bar.getProgress();
             percentByUri.put(uri, percent);
             detailByUri.put(uri, detail);
-            if (i < names.size() && names.get(i) instanceof String) {
-                nameByUri.put(uri, (String) names.get(i));
+            if (i < names.size()) {
+                nameByUri.put(uri, names.get(i));
             }
             if (raw.contains("· Готово")) {
                 readyUris.add(uri);
@@ -441,9 +428,9 @@ public class BuildShellActivity extends AppShellActivity {
 
     private String stageText(BuildPanel.Phase phase) {
         if (phase == BuildPanel.Phase.PROCESSING) {
-            Object progress = readFieldQuietly(MainActivity.class, "progressText");
-            if (progress instanceof TextView) {
-                String value = ((TextView) progress).getText().toString().trim();
+            TextView progress = MainActivityRuntimeAccess.progressText(this);
+            if (progress != null) {
+                String value = progress.getText().toString().trim();
                 if (!value.isEmpty()) return value;
             }
             return "Оптимизация и подготовка файлов…";
@@ -455,47 +442,32 @@ public class BuildShellActivity extends AppShellActivity {
         return "Готово к запуску";
     }
 
-    @SuppressWarnings("unchecked")
     private PackBuildSession<Uri> buildSession() {
-        Object value = readFieldQuietly(MainActivity.class, "buildSession");
-        return value instanceof PackBuildSession<?> ? (PackBuildSession<Uri>) value : null;
+        return MainActivityRuntimeAccess.buildSession(this);
     }
 
     private PackStore.Pack currentPack() {
-        Object value = readFieldQuietly(MainActivity.class, "currentPack");
-        return value instanceof PackStore.Pack ? (PackStore.Pack) value : null;
+        return MainActivityRuntimeAccess.currentPack(this);
     }
 
     private boolean isProcessing() {
-        Object value = readFieldQuietly(MainActivity.class, "processing");
-        return value instanceof Boolean && (Boolean) value;
+        return MainActivityRuntimeAccess.isProcessing(this);
     }
 
     private boolean animatedMode() {
-        Object value = readFieldQuietly(MainActivity.class, "animatedMode");
-        return value instanceof Boolean && (Boolean) value;
+        return MainActivityRuntimeAccess.isAnimatedMode(this);
     }
 
     private String enteredPackName() {
-        Object value = readFieldQuietly(MainActivity.class, "packName");
-        if (!(value instanceof EditText)) return "";
-        return ((EditText) value).getText().toString().trim();
+        return MainActivityRuntimeAccess.enteredPackName(this);
     }
 
     private Uri coverUriSnapshot() {
-        Object value = readFieldQuietly(MainActivity.class, "coverUri");
-        return value instanceof Uri ? (Uri) value : null;
+        return MainActivityRuntimeAccess.coverUri(this);
     }
 
-    @SuppressWarnings("unchecked")
     private List<Uri> selectedUrisSnapshot() {
-        Object value = readFieldQuietly(MainActivity.class, "selectedUris");
-        if (!(value instanceof List<?>)) return new ArrayList<>();
-        List<Uri> result = new ArrayList<>();
-        for (Object item : (List<?>) value) {
-            if (item instanceof Uri) result.add((Uri) item);
-        }
-        return result;
+        return MainActivityRuntimeAccess.selectedUrisSnapshot(this);
     }
 
     private String displayName(Uri uri, int fallback) {
@@ -524,37 +496,6 @@ public class BuildShellActivity extends AppShellActivity {
         String result = last == null || last.trim().isEmpty() ? "Файл " + fallback : last;
         nameByUri.put(uri, result);
         return result;
-    }
-
-    private Object invokeMainMethod(String name, Class<?>[] parameterTypes, Object... args) {
-        try {
-            Method method = MainActivity.class.getDeclaredMethod(name, parameterTypes);
-            method.setAccessible(true);
-            return method.invoke(this, args);
-        } catch (Throwable error) {
-            BugLogStore.appendApp("Could not invoke " + name + " from Build shell: " + error);
-            return null;
-        }
-    }
-
-    private Object readFieldQuietly(Class<?> owner, String name) {
-        try {
-            Field field = owner.getDeclaredField(name);
-            field.setAccessible(true);
-            return field.get(this);
-        } catch (Throwable ignored) {
-            return null;
-        }
-    }
-
-    private void writeFieldQuietly(Class<?> owner, String name, Object value) {
-        try {
-            Field field = owner.getDeclaredField(name);
-            field.setAccessible(true);
-            field.set(this, value);
-        } catch (Throwable error) {
-            BugLogStore.appendApp("Could not update " + name + " from Build shell: " + error);
-        }
     }
 
     private void clearBuildPresentationState() {
