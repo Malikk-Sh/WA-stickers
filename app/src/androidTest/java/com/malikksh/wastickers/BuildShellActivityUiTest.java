@@ -54,6 +54,7 @@ public class BuildShellActivityUiTest {
             onView(withId(R.id.build_pack_name)).check(matches(withText("Build UI test")));
             onView(withId(R.id.build_progress_label)).check(matches(withText("0 из 3 готовы")));
             onView(withText("Файлы стикеров")).check(matches(isDisplayed()));
+            onView(withText("Готов к сборке")).check(matches(isDisplayed()));
             onView(withId(R.id.build_primary)).check(matches(withText("Создать набор")));
             onView(withId(R.id.build_primary)).check(matches(isEnabled()));
         }
@@ -97,15 +98,13 @@ public class BuildShellActivityUiTest {
             onView(withId(R.id.build_primary)).check(matches(withText("Создать из готовых")));
             onView(withId(R.id.build_secondary)).check(matches(withText("Повторить ошибки")));
             onView(withText("! Ошибка")).check(matches(isDisplayed()));
-            // System/navigation insets legitimately reduce the visible Build viewport on API 35.
-            // Keep this interaction assertion independent of where the failed row lands onscreen.
             onView(withText("Пропустить")).perform(scrollTo(), click());
             onView(withText("Пропущено")).check(matches(isDisplayed()));
         }
     }
 
     @Test
-    public void cancellationChangesPrimaryActionToStoppingState() {
+    public void cancellationRequiresConfirmationAndChangesPrimaryActionToStoppingState() {
         try (ActivityScenario<BuildShellActivity> scenario = ActivityScenario.launch(BuildShellActivity.class)) {
             scenario.onActivity(activity -> {
                 try {
@@ -136,6 +135,8 @@ public class BuildShellActivityUiTest {
 
             onView(withId(R.id.build_primary)).check(matches(withText("Остановить обработку")));
             onView(withId(R.id.build_primary)).perform(click());
+            onView(withText("Остановить обработку?")).check(matches(isDisplayed()));
+            onView(withText("Остановить")).perform(click());
             onView(withId(R.id.build_primary)).check(matches(withText("Останавливаю…")));
             onView(withId(R.id.build_primary)).check(matches(not(isEnabled())));
         }
