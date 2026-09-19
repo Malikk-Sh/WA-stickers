@@ -155,7 +155,13 @@ public class LauncherActivityStateUiTest {
             Uri cover,
             String name
     ) {
-        activity.runtimeRestoreEditorState(MainActivity typed runtime surface.isAnimatedMode(activity), items, cover, name, MainActivity typed runtime surface.currentPack(activity));
+        activity.runtimeRestoreEditorState(
+                activity.runtimeIsAnimatedMode(),
+                items,
+                cover,
+                name,
+                activity.runtimeCurrentPack()
+        );
     }
 
     private static List<Uri> selectionSnapshot(MainActivity activity) {
