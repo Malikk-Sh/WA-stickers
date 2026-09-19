@@ -8,6 +8,9 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -107,6 +110,51 @@ final class PackStore {
         return renamed;
     }
 
+    static synchronized Pack duplicatePack(Context context, String id) {
+        Pack source = getPack(context, id);
+        if (source == null) return null;
+        File sourceDir = getPackDir(context, source.id);
+        if (!sourceDir.isDirectory()) return null;
+
+        String copyId = (source.animated ? "animated_copy_" : "pack_copy_")
+                + System.currentTimeMillis();
+        File destination = getPackDir(context, copyId);
+        try {
+            copyRecursively(sourceDir, destination);
+        } catch (IOException error) {
+            deleteRecursively(destination);
+            return null;
+        }
+
+        Pack copy = new Pack(
+                copyId,
+                source.name + " — копия",
+                source.stickerCount,
+                source.imageDataVersion,
+                source.animated
+        );
+        addPack(context, copy);
+        return copy;
+    }
+
+    static synchronized int removeUnavailablePacks(Context context) {
+        List<Pack> packs = getPacks(context);
+        List<Pack> available = new ArrayList<>();
+        int removed = 0;
+        for (Pack pack : packs) {
+            File firstSticker = getStickerFile(context, pack.id, "1.webp");
+            File tray = getStickerFile(context, pack.id, "tray.png");
+            if (firstSticker.isFile() && tray.isFile()) {
+                available.add(pack);
+            } else {
+                removed++;
+                deleteRecursively(getPackDir(context, pack.id));
+            }
+        }
+        if (removed > 0) savePacks(context, available);
+        return removed;
+    }
+
     static synchronized boolean deletePack(Context context, String id) {
         List<Pack> packs = getPacks(context);
         Pack removed = null;
@@ -149,6 +197,33 @@ final class PackStore {
 
     static File getStickerFile(Context context, String id, String fileName) {
         return new File(getPackDir(context, id), fileName);
+    }
+
+    private static void copyRecursively(File source, File destination) throws IOException {
+        if (source.isDirectory()) {
+            if (!destination.exists() && !destination.mkdirs()) {
+                throw new IOException("Could not create " + destination);
+            }
+            File[] children = source.listFiles();
+            if (children == null) return;
+            for (File child : children) {
+                copyRecursively(child, new File(destination, child.getName()));
+            }
+            return;
+        }
+
+        File parent = destination.getParentFile();
+        if (parent != null && !parent.exists() && !parent.mkdirs()) {
+            throw new IOException("Could not create " + parent);
+        }
+        byte[] buffer = new byte[32 * 1024];
+        try (FileInputStream input = new FileInputStream(source);
+             FileOutputStream output = new FileOutputStream(destination, false)) {
+            int read;
+            while ((read = input.read(buffer)) >= 0) {
+                if (read > 0) output.write(buffer, 0, read);
+            }
+        }
     }
 
     private static void deleteRecursively(File file) {
