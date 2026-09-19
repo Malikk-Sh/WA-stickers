@@ -1,5 +1,6 @@
 package com.malikksh.wastickers;
 
+import android.app.AlertDialog;
 import android.content.Context;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -144,7 +145,7 @@ final class BuildPanel extends LinearLayout {
 
         addView(buildHeader(), matchWrap());
 
-        LinearLayout summary = card();
+        LinearLayout summary = UiComponents.card(context);
         summary.setId(R.id.build_summary);
         summary.setOrientation(HORIZONTAL);
         summary.setGravity(Gravity.CENTER_VERTICAL);
@@ -155,7 +156,8 @@ final class BuildPanel extends LinearLayout {
         cover = new ImageView(context);
         cover.setId(R.id.build_cover);
         cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        cover.setBackground(rounded(color(R.color.app_disabled_surface), 16));
+        cover.setBackground(UiComponents.rounded(
+                context, R.color.app_disabled_surface, R.dimen.radius_card));
         cover.setContentDescription("Обложка набора");
         if (Build.VERSION.SDK_INT >= 21) cover.setClipToOutline(true);
         summary.addView(cover, new LinearLayout.LayoutParams(dp(76), dp(76)));
@@ -167,7 +169,7 @@ final class BuildPanel extends LinearLayout {
         summaryTextParams.leftMargin = dp(14);
         summary.addView(summaryText, summaryTextParams);
 
-        packName = text("Мои стикеры", 17, color(R.color.app_text_primary), Typeface.BOLD);
+        packName = UiComponents.cardTitle(context, "Мои стикеры");
         packName.setId(R.id.build_pack_name);
         packName.setMaxLines(2);
         summaryText.addView(packName, matchWrap());
@@ -187,11 +189,12 @@ final class BuildPanel extends LinearLayout {
         typeChip.setId(R.id.build_type);
         typeChip.setGravity(Gravity.CENTER);
         typeChip.setPadding(dp(10), 0, dp(10), 0);
-        typeChip.setBackground(rounded(color(R.color.app_primary_container), 14));
+        typeChip.setBackground(UiComponents.rounded(
+                context, R.color.app_primary_container, R.dimen.radius_pill));
         summaryMeta.addView(typeChip, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, dp(30)));
 
-        LinearLayout progressCard = card();
+        LinearLayout progressCard = UiComponents.card(context);
         progressCard.setId(R.id.build_overall);
         LinearLayout.LayoutParams progressCardParams = matchWrap();
         progressCardParams.topMargin = dp(14);
@@ -202,8 +205,7 @@ final class BuildPanel extends LinearLayout {
         progressHeader.setGravity(Gravity.CENTER_VERTICAL);
         progressCard.addView(progressHeader, matchWrap());
 
-        TextView progressTitle = text("Сборка набора", 17,
-                color(R.color.app_text_primary), Typeface.BOLD);
+        TextView progressTitle = UiComponents.cardTitle(context, "Сборка набора");
         progressHeader.addView(progressTitle, new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
@@ -228,8 +230,7 @@ final class BuildPanel extends LinearLayout {
         footerParams.topMargin = dp(8);
         progressCard.addView(progressFooter, footerParams);
 
-        stage = text("Готово к запуску", 13,
-                color(R.color.app_text_secondary), Typeface.NORMAL);
+        stage = UiComponents.metadata(context, "Готово к запуску");
         stage.setId(R.id.build_stage);
         progressFooter.addView(stage, new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
@@ -238,7 +239,7 @@ final class BuildPanel extends LinearLayout {
         progressFooter.addView(overallPercent, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        LinearLayout filesCard = card();
+        LinearLayout filesCard = UiComponents.card(context);
         LinearLayout.LayoutParams filesParams = matchWrap();
         filesParams.topMargin = dp(14);
         addView(filesCard, filesParams);
@@ -248,13 +249,11 @@ final class BuildPanel extends LinearLayout {
         filesHeader.setGravity(Gravity.CENTER_VERTICAL);
         filesCard.addView(filesHeader, matchWrap());
 
-        TextView filesTitle = text("Файлы стикеров", 17,
-                color(R.color.app_text_primary), Typeface.BOLD);
+        TextView filesTitle = UiComponents.cardTitle(context, "Файлы стикеров");
         filesHeader.addView(filesTitle, new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-        fileCount = text("0 файлов", 13,
-                color(R.color.app_text_secondary), Typeface.NORMAL);
+        fileCount = UiComponents.metadata(context, "0 файлов");
         filesHeader.addView(fileCount, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
@@ -265,7 +264,7 @@ final class BuildPanel extends LinearLayout {
         listParams.topMargin = dp(8);
         filesCard.addView(fileList, listParams);
 
-        stateMessage = text("", 13, color(R.color.app_text_secondary), Typeface.NORMAL);
+        stateMessage = UiComponents.metadata(context, "");
         stateMessage.setId(R.id.build_status);
         stateMessage.setVisibility(GONE);
         stateMessage.setPadding(dp(14), dp(12), dp(14), dp(12));
@@ -319,7 +318,8 @@ final class BuildPanel extends LinearLayout {
         ImageView logo = new ImageView(getContext());
         logo.setImageResource(R.drawable.ic_app_logo_mark);
         logo.setPadding(dp(7), dp(7), dp(7), dp(7));
-        logo.setBackground(rounded(color(R.color.app_primary), 18));
+        logo.setBackground(UiComponents.rounded(
+                getContext(), R.color.app_primary, R.dimen.radius_card));
         row.addView(logo, new LinearLayout.LayoutParams(dp(62), dp(62)));
 
         LinearLayout labels = new LinearLayout(getContext());
@@ -329,10 +329,8 @@ final class BuildPanel extends LinearLayout {
         labelsParams.leftMargin = dp(14);
         row.addView(labels, labelsParams);
 
-        TextView title = text("Сборка", 28, color(R.color.app_text_primary), Typeface.BOLD);
-        labels.addView(title, matchWrap());
-        TextView subtitle = text("Подготовка набора", 14,
-                color(R.color.app_text_secondary), Typeface.NORMAL);
+        labels.addView(UiComponents.screenTitle(getContext(), "Сборка"), matchWrap());
+        TextView subtitle = UiComponents.metadata(getContext(), "Подготовка набора");
         LinearLayout.LayoutParams subtitleParams = matchWrap();
         subtitleParams.topMargin = dp(2);
         labels.addView(subtitle, subtitleParams);
@@ -342,8 +340,8 @@ final class BuildPanel extends LinearLayout {
     private void renderItems(Snapshot snapshot) {
         fileList.removeAllViews();
         if (snapshot.items.isEmpty()) {
-            TextView empty = text("Добавьте от 3 до 30 файлов во вкладке «Медиа»", 13,
-                    color(R.color.app_text_secondary), Typeface.NORMAL);
+            TextView empty = UiComponents.metadata(
+                    getContext(), "Добавьте от 3 до 30 файлов во вкладке «Медиа»");
             empty.setGravity(Gravity.CENTER);
             empty.setPadding(dp(8), dp(20), dp(8), dp(20));
             fileList.addView(empty, matchWrap());
@@ -386,17 +384,22 @@ final class BuildPanel extends LinearLayout {
             texts.addView(name, matchWrap());
 
             if (!item.detail.isEmpty()) {
-                TextView detail = text(item.detail, 12, color(R.color.app_text_secondary), Typeface.NORMAL);
+                TextView detail = UiComponents.metadata(getContext(), item.detail);
                 detail.setMaxLines(3);
                 LinearLayout.LayoutParams detailParams = matchWrap();
                 detailParams.topMargin = dp(3);
                 texts.addView(detail, detailParams);
             }
 
-            TextView chip = text(itemChip(item.phase), 12, chipTextColor(item.phase), Typeface.BOLD);
+            TextView chip = text(
+                    itemChip(snapshot.phase, item.phase),
+                    12,
+                    chipTextColor(item.phase),
+                    Typeface.BOLD
+            );
             chip.setGravity(Gravity.CENTER);
             chip.setPadding(dp(9), 0, dp(9), 0);
-            chip.setBackground(rounded(chipBackground(item.phase), 13));
+            chip.setBackground(rounded(chipBackground(snapshot.phase, item.phase), 13));
             headline.addView(chip, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT, dp(30)));
 
@@ -421,14 +424,14 @@ final class BuildPanel extends LinearLayout {
                 Button retry = new Button(getContext());
                 retry.setText("Повторить");
                 retry.setAllCaps(false);
-                styleTertiaryButton(retry);
+                UiComponents.styleOutlineButton(retry, true);
                 retry.setOnClickListener(v -> host.onRetryItem(item.uri));
                 itemActions.addView(retry, new LinearLayout.LayoutParams(0, dp(48), 1f));
 
                 Button skip = new Button(getContext());
                 skip.setText("Пропустить");
                 skip.setAllCaps(false);
-                styleTertiaryButton(skip);
+                UiComponents.styleOutlineButton(skip, true);
                 skip.setOnClickListener(v -> host.onSkipItem(item.uri));
                 LinearLayout.LayoutParams skipParams = new LinearLayout.LayoutParams(0, dp(48), 1f);
                 skipParams.leftMargin = dp(7);
@@ -447,7 +450,7 @@ final class BuildPanel extends LinearLayout {
             case PROCESSING:
                 primary.setText("Остановить обработку");
                 styleDangerButton(primary, true);
-                primary.setOnClickListener(v -> host.onCancel());
+                primary.setOnClickListener(v -> confirmCancellation());
                 break;
             case STOPPING:
                 primary.setText("Останавливаю…");
@@ -456,47 +459,54 @@ final class BuildPanel extends LinearLayout {
             case PARTIAL:
                 if (snapshot.canFinalize) {
                     primary.setText("Создать из готовых");
-                    stylePrimaryButton(primary, true);
+                    UiComponents.stylePrimaryButton(primary, true);
                     primary.setOnClickListener(v -> host.onFinalize());
                     if (snapshot.hasRetryableFailures) {
                         secondary.setVisibility(VISIBLE);
                         secondary.setText("Повторить ошибки");
-                        styleSecondaryButton(secondary, true);
+                        UiComponents.styleOutlineButton(secondary, true);
                         secondary.setOnClickListener(v -> host.onRetryAll());
                     }
                 } else {
                     primary.setText("Повторить ошибки");
-                    stylePrimaryButton(primary, snapshot.hasRetryableFailures);
-                    if (snapshot.hasRetryableFailures) {
-                        primary.setOnClickListener(v -> host.onRetryAll());
-                    }
+                    UiComponents.stylePrimaryButton(primary, snapshot.hasRetryableFailures);
+                    if (snapshot.hasRetryableFailures) primary.setOnClickListener(v -> host.onRetryAll());
                 }
                 break;
             case READY:
                 primary.setText("Создать набор");
-                stylePrimaryButton(primary, snapshot.canFinalize);
+                UiComponents.stylePrimaryButton(primary, snapshot.canFinalize);
                 if (snapshot.canFinalize) primary.setOnClickListener(v -> host.onFinalize());
                 secondary.setVisibility(VISIBLE);
                 secondary.setText("Отменить");
-                styleSecondaryButton(secondary, true);
+                UiComponents.styleOutlineButton(secondary, true);
                 secondary.setOnClickListener(v -> host.onDiscard());
                 break;
             case FINALIZED:
                 primary.setText("Добавить в WhatsApp");
-                stylePrimaryButton(primary, true);
+                UiComponents.stylePrimaryButton(primary, true);
                 primary.setOnClickListener(v -> host.onAddToWhatsApp());
                 secondary.setVisibility(VISIBLE);
                 secondary.setText("Открыть в «Наборах»");
-                styleSecondaryButton(secondary, true);
+                UiComponents.styleOutlineButton(secondary, true);
                 secondary.setOnClickListener(v -> host.onOpenPacks());
                 break;
             case IDLE:
             default:
                 primary.setText("Создать набор");
-                stylePrimaryButton(primary, snapshot.canStart);
+                UiComponents.stylePrimaryButton(primary, snapshot.canStart);
                 if (snapshot.canStart) primary.setOnClickListener(v -> host.onStart());
                 break;
         }
+    }
+
+    private void confirmCancellation() {
+        new AlertDialog.Builder(getContext())
+                .setTitle("Остановить обработку?")
+                .setMessage("Текущий файл будет остановлен. Уже готовые результаты сохранятся для этой сборки.")
+                .setPositiveButton("Остановить", (dialog, which) -> host.onCancel())
+                .setNegativeButton("Продолжить", null)
+                .show();
     }
 
     private void renderStateMessage(Snapshot snapshot) {
@@ -507,14 +517,15 @@ final class BuildPanel extends LinearLayout {
                     message = "Готово " + snapshot.successCount + ", ошибок или пропущено "
                             + snapshot.failureCount + ". Можно собрать набор из готовых.";
                 } else {
-                    message = "Готово " + snapshot.successCount + ". Для набора нужно минимум 3 готовых стикера.";
+                    message = "Готово " + snapshot.successCount
+                            + ". Для набора нужно минимум 3 готовых стикера.";
                 }
                 break;
             case READY:
                 message = "Все файлы обработаны. Проверьте результат и создайте набор.";
                 break;
             case FINALIZED:
-                message = "✓ Набор готов";
+                message = "✓ Набор сохранён локально и готов к добавлению в WhatsApp";
                 break;
             case STOPPING:
                 message = "Останавливаю текущую операцию. Уже готовые стикеры сохранятся.";
@@ -584,14 +595,19 @@ final class BuildPanel extends LinearLayout {
         return count + " файлов";
     }
 
-    private String itemChip(ItemPhase phase) {
-        switch (phase) {
-            case READY: return "✓ Готово";
-            case PROCESSING: return "Обработка";
-            case ERROR: return "! Ошибка";
-            case SKIPPED: return "Пропущено";
+    private String itemChip(Phase buildPhase, ItemPhase itemPhase) {
+        switch (itemPhase) {
+            case READY:
+                return "✓ Готово";
+            case PROCESSING:
+                return "Обработка";
+            case ERROR:
+                return "! Ошибка";
+            case SKIPPED:
+                return "Пропущено";
             case PENDING:
-            default: return "В очереди";
+            default:
+                return buildPhase == Phase.IDLE ? "Готов к сборке" : "В очереди";
         }
     }
 
@@ -604,8 +620,11 @@ final class BuildPanel extends LinearLayout {
         }
     }
 
-    private int chipBackground(ItemPhase phase) {
-        switch (phase) {
+    private int chipBackground(Phase buildPhase, ItemPhase itemPhase) {
+        if (itemPhase == ItemPhase.PENDING && buildPhase == Phase.IDLE) {
+            return color(R.color.app_primary_container);
+        }
+        switch (itemPhase) {
             case ERROR: return color(R.color.app_error_container);
             case READY: return color(R.color.app_success_container);
             case PROCESSING: return color(R.color.app_primary_container);
@@ -620,7 +639,7 @@ final class BuildPanel extends LinearLayout {
             case READY: return color(R.color.app_success);
             case PROCESSING: return color(R.color.app_primary);
             case SKIPPED: return color(R.color.app_text_secondary);
-            default: return color(R.color.app_text_primary);
+            default: return color(R.color.app_primary);
         }
     }
 
@@ -635,15 +654,6 @@ final class BuildPanel extends LinearLayout {
         }));
     }
 
-    private LinearLayout card() {
-        LinearLayout card = new LinearLayout(getContext());
-        card.setOrientation(VERTICAL);
-        card.setPadding(dp(16), dp(16), dp(16), dp(16));
-        card.setBackground(rounded(color(R.color.app_surface), 22));
-        if (Build.VERSION.SDK_INT >= 21) card.setElevation(dp(2));
-        return card;
-    }
-
     private TextView text(String value, int size, int textColor, int style) {
         TextView view = new TextView(getContext());
         view.setText(value);
@@ -653,47 +663,21 @@ final class BuildPanel extends LinearLayout {
         return view;
     }
 
-    private void stylePrimaryButton(Button button, boolean enabled) {
-        button.setEnabled(enabled);
-        button.setTextSize(16);
-        button.setTextColor(enabled
-                ? color(R.color.app_on_primary)
-                : color(R.color.app_disabled_text));
-        button.setTypeface(Typeface.create("sans", Typeface.BOLD));
-        button.setBackground(rounded(
-                enabled ? color(R.color.app_primary) : color(R.color.app_disabled_surface), 18));
-        button.setAlpha(enabled ? 1f : 0.7f);
-    }
-
-    private void styleSecondaryButton(Button button, boolean enabled) {
-        button.setEnabled(enabled);
-        button.setTextSize(15);
-        button.setTextColor(enabled ? color(R.color.app_primary) : color(R.color.app_disabled_text));
-        button.setTypeface(Typeface.create("sans", Typeface.BOLD));
-        GradientDrawable background = rounded(color(R.color.app_surface), 18);
-        background.setStroke(dp(1), enabled ? color(R.color.app_border) : color(R.color.app_disabled_surface));
-        button.setBackground(background);
-        button.setAlpha(enabled ? 1f : 0.7f);
-    }
-
-    private void styleTertiaryButton(Button button) {
-        button.setTextSize(13);
-        button.setTextColor(color(R.color.app_primary));
-        button.setTypeface(Typeface.create("sans", Typeface.BOLD));
-        GradientDrawable background = rounded(color(R.color.app_surface), 14);
-        background.setStroke(dp(1), color(R.color.app_border));
-        button.setBackground(background);
-    }
-
     private void styleDangerButton(Button button, boolean enabled) {
         button.setEnabled(enabled);
         button.setTextSize(16);
         button.setTextColor(enabled
-                ? color(R.color.app_on_primary)
+                ? color(R.color.app_error)
                 : color(R.color.app_disabled_text));
         button.setTypeface(Typeface.create("sans", Typeface.BOLD));
-        button.setBackground(rounded(
-                enabled ? color(R.color.app_error) : color(R.color.app_disabled_surface), 18));
+        GradientDrawable background = rounded(
+                enabled ? color(R.color.app_error_container) : color(R.color.app_disabled_surface),
+                18
+        );
+        background.setStroke(dp(1), enabled
+                ? color(R.color.app_error)
+                : color(R.color.app_disabled_surface));
+        button.setBackground(background);
         button.setAlpha(enabled ? 1f : 0.7f);
     }
 
