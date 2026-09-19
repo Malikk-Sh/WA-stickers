@@ -14,7 +14,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Transitional adapter around MainActivity's private migration surface.
+ * Transitional adapter around private migration surfaces.
  *
  * Reflection stays isolated here while redesigned shell classes stop depending on field/method names
  * directly. A later state-owner refactor can replace this adapter without touching every screen.
@@ -229,6 +229,47 @@ final class MainActivityRuntimeAccess {
         } catch (Throwable error) {
             BugLogStore.appendApp("Could not clear media through runtime adapter: " + error);
             return false;
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    static boolean clearEditorDraft(MainActivity activity) {
+        if (activity == null || isProcessing(activity)) return false;
+        try {
+            List<Uri> selected = mutableSelectedUris(activity);
+            if (selected != null) selected.clear();
+            setField(activity, "coverUri", null);
+
+            EditText input = packName(activity);
+            if (input != null) input.setText("");
+
+            Object controllerValue = getField(activity, "editorStateController");
+            if (controllerValue instanceof EditorStateController<?>) {
+                EditorStateController<Uri> controller = (EditorStateController<Uri>) controllerValue;
+                controller.capture(false, new ArrayList<>(), null, "");
+                controller.capture(true, new ArrayList<>(), null, "");
+            }
+
+            discardPendingBuild(activity);
+            invalidateCurrentPack(activity);
+            invokeSafely(activity, "renderPreviews", new Class<?>[0]);
+            invokeSafely(activity, "updateModeUi", new Class<?>[0]);
+            updateUiState(activity);
+            return true;
+        } catch (Throwable error) {
+            BugLogStore.appendApp("Could not clear editor draft through runtime adapter: " + error);
+            return false;
+        }
+    }
+
+    static void refreshAppShell(AppShellActivity activity) {
+        if (activity == null) return;
+        try {
+            Method method = AppShellActivity.class.getDeclaredMethod("refreshShellState");
+            method.setAccessible(true);
+            method.invoke(activity);
+        } catch (Throwable error) {
+            BugLogStore.appendApp("Could not refresh app shell through runtime adapter: " + error);
         }
     }
 
