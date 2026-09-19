@@ -19,10 +19,6 @@
             android:exported="false" />
 
         <activity
-            android:name=".LauncherActivity"
-            android:exported="false" />
-
-        <activity
             android:name=".AppShellActivity"
             android:exported="false" />
 

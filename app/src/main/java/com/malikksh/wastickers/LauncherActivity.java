@@ -16,14 +16,14 @@ import java.util.concurrent.Executors;
 /**
  * Runtime bridge between the redesigned shell and MainActivity's conversion/editor state.
  *
- * The shell no longer inherits HomeActivity's legacy long-scroll additions. Draft restore/save and
- * picker persistence live here until the editor state itself moves out of MainActivity.
+ * This is an implementation-only base for the redesigned shell activities. It is not a standalone
+ * screen: draft restore/save and picker persistence live here until editor state moves out of
+ * MainActivity entirely.
  */
-public class LauncherActivity extends MainActivity {
+public abstract class LauncherActivity extends MainActivity {
     private static final int REQUEST_SHELL_PICK_PHOTOS = 4101;
     private static final int REQUEST_SHELL_PICK_ANIMATED = 4102;
     private static final String TRIM_STATE_PREFIX = "home.video_trim.";
-    private static final String TRIM_PERSISTENT_KEY = "home_video_trim";
 
     private final ExecutorService shellSelectionExecutor = Executors.newSingleThreadExecutor();
 
@@ -35,7 +35,7 @@ public class LauncherActivity extends MainActivity {
             VideoTrimStore.restoreFromBundle(savedInstanceState, TRIM_STATE_PREFIX);
             EditorInstanceStateBridge.restore(this, savedInstanceState);
         } else {
-            VideoTrimStore.restorePersistent(this, TRIM_PERSISTENT_KEY);
+            VideoTrimStore.restorePersistent(this, AppSettings.TRIM_PERSISTENT_KEY);
             EditorInstanceStateBridge.restorePersistent(this);
         }
         EditorInstanceStateBridge.setGalleryClickListener(this, v -> openMediaPicker());
@@ -51,7 +51,7 @@ public class LauncherActivity extends MainActivity {
     @Override
     protected void onPause() {
         EditorInstanceStateBridge.savePersistent(this);
-        VideoTrimStore.savePersistent(this, TRIM_PERSISTENT_KEY);
+        VideoTrimStore.savePersistent(this, AppSettings.TRIM_PERSISTENT_KEY);
         super.onPause();
     }
 
@@ -114,7 +114,7 @@ public class LauncherActivity extends MainActivity {
         shellSelectionExecutor.execute(() -> {
             try {
                 VideoTrimStore.prepare(this, selected);
-                VideoTrimStore.savePersistent(this, TRIM_PERSISTENT_KEY);
+                VideoTrimStore.savePersistent(this, AppSettings.TRIM_PERSISTENT_KEY);
             } catch (Throwable error) {
                 BugLogStore.appendApp("Could not prepare video trim state: " + error);
             }
