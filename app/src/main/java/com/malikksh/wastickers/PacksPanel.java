@@ -3,7 +3,6 @@ package com.malikksh.wastickers;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
-import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
@@ -19,6 +18,7 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -34,6 +34,8 @@ final class PacksPanel extends LinearLayout {
         void onAddToWhatsApp(PackStore.Pack pack);
         void onShowPackActions(PackStore.Pack pack);
         void onCreateFirstPack();
+        void onSearchRequested();
+        void onOverflowRequested(View anchor);
     }
 
     private final Host host;
@@ -48,6 +50,7 @@ final class PacksPanel extends LinearLayout {
 
     private Filter filter = Filter.ALL;
     private List<PackStore.Pack> packs = new ArrayList<>();
+    private String query = "";
     private long renderGeneration;
 
     PacksPanel(Context context, Host host) {
@@ -69,13 +72,13 @@ final class PacksPanel extends LinearLayout {
         addView(filters, filtersParams);
 
         allFilter = filterButton("Все", R.id.packs_filter_all, Filter.ALL);
-        filters.addView(allFilter, new LinearLayout.LayoutParams(0, dp(46), 1f));
+        filters.addView(allFilter, new LinearLayout.LayoutParams(0, dp(48), 1f));
         photoFilter = filterButton("Фото", R.id.packs_filter_photo, Filter.PHOTO);
-        LinearLayout.LayoutParams photoParams = new LinearLayout.LayoutParams(0, dp(46), 1f);
+        LinearLayout.LayoutParams photoParams = new LinearLayout.LayoutParams(0, dp(48), 1f);
         photoParams.leftMargin = dp(6);
         filters.addView(photoFilter, photoParams);
         animatedFilter = filterButton("Анимация", R.id.packs_filter_animated, Filter.ANIMATED);
-        LinearLayout.LayoutParams animatedParams = new LinearLayout.LayoutParams(0, dp(46), 1f);
+        LinearLayout.LayoutParams animatedParams = new LinearLayout.LayoutParams(0, dp(48), 1f);
         animatedParams.leftMargin = dp(6);
         filters.addView(animatedFilter, animatedParams);
 
@@ -128,6 +131,16 @@ final class PacksPanel extends LinearLayout {
         renderList();
     }
 
+    String query() {
+        return query;
+    }
+
+    void setQuery(String value) {
+        query = value == null ? "" : value.trim();
+        renderGeneration++;
+        renderList();
+    }
+
     void close() {
         renderGeneration++;
         previewExecutor.shutdownNow();
@@ -159,12 +172,28 @@ final class PacksPanel extends LinearLayout {
         subtitleParams.topMargin = dp(2);
         labels.addView(subtitle, subtitleParams);
 
-        TextView overflow = text("⋮", 26, color(R.color.app_primary), Typeface.BOLD);
-        overflow.setGravity(Gravity.CENTER);
-        overflow.setContentDescription("Меню наборов");
-        overflow.setBackground(rounded(color(R.color.app_primary_container), 16));
+        TextView search = headerAction("⌕", "Поиск наборов");
+        search.setId(R.id.packs_search);
+        search.setOnClickListener(v -> host.onSearchRequested());
+        LinearLayout.LayoutParams searchParams = new LinearLayout.LayoutParams(dp(48), dp(48));
+        searchParams.rightMargin = dp(6);
+        row.addView(search, searchParams);
+
+        TextView overflow = headerAction("⋮", "Меню наборов");
+        overflow.setId(R.id.packs_overflow);
+        overflow.setOnClickListener(v -> host.onOverflowRequested(v));
         row.addView(overflow, new LinearLayout.LayoutParams(dp(48), dp(48)));
         return row;
+    }
+
+    private TextView headerAction(String glyph, String description) {
+        TextView action = text(glyph, 24, color(R.color.app_primary), Typeface.BOLD);
+        action.setGravity(Gravity.CENTER);
+        action.setContentDescription(description);
+        action.setClickable(true);
+        action.setFocusable(true);
+        action.setBackground(rounded(color(R.color.app_primary_container), 16));
+        return action;
     }
 
     private Button filterButton(String label, int id, Filter value) {
@@ -214,9 +243,12 @@ final class PacksPanel extends LinearLayout {
 
     private List<PackStore.Pack> filteredPacks() {
         List<PackStore.Pack> result = new ArrayList<>();
+        String normalized = query.toLowerCase(Locale.ROOT);
         for (PackStore.Pack pack : packs) {
             if (filter == Filter.PHOTO && pack.animated) continue;
             if (filter == Filter.ANIMATED && !pack.animated) continue;
+            if (!normalized.isEmpty()
+                    && !pack.name.toLowerCase(Locale.ROOT).contains(normalized)) continue;
             result.add(pack);
         }
         return result;
@@ -226,23 +258,28 @@ final class PacksPanel extends LinearLayout {
         LinearLayout card = card();
         card.setId(R.id.packs_empty);
         card.setGravity(Gravity.CENTER_HORIZONTAL);
+        boolean searching = !query.isEmpty();
         TextView title = text(
-                filter == Filter.ALL ? "Пока нет наборов" : "Нет наборов этого типа",
+                searching
+                        ? "Ничего не найдено"
+                        : (filter == Filter.ALL ? "Пока нет наборов" : "Нет наборов этого типа"),
                 18, color(R.color.app_text_primary), Typeface.BOLD);
         title.setGravity(Gravity.CENTER);
         card.addView(title, matchWrap());
 
         TextView body = text(
-                filter == Filter.ALL
-                        ? "Созданные наборы появятся здесь"
-                        : "Выберите другой фильтр или создайте новый набор",
+                searching
+                        ? "Измените запрос или сбросьте поиск"
+                        : (filter == Filter.ALL
+                                ? "Созданные наборы появятся здесь"
+                                : "Выберите другой фильтр или создайте новый набор"),
                 13, color(R.color.app_text_secondary), Typeface.NORMAL);
         body.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams bodyParams = matchWrap();
         bodyParams.topMargin = dp(5);
         card.addView(body, bodyParams);
 
-        if (filter == Filter.ALL) {
+        if (!searching && filter == Filter.ALL) {
             Button create = new Button(getContext());
             create.setId(R.id.packs_create_first);
             create.setText("Создать первый набор");
@@ -348,14 +385,16 @@ final class PacksPanel extends LinearLayout {
     private void styleFilterButton(Button button, boolean active) {
         button.setTextSize(14);
         button.setTypeface(Typeface.create("sans", Typeface.BOLD));
-        button.setTextColor(active ? Color.WHITE : color(R.color.app_primary));
+        button.setTextColor(active
+                ? color(R.color.app_on_primary)
+                : color(R.color.app_primary));
         button.setBackground(rounded(
                 active ? color(R.color.app_primary) : color(R.color.app_disabled_surface), 14));
     }
 
     private void stylePrimaryButton(Button button) {
         button.setTextSize(15);
-        button.setTextColor(Color.WHITE);
+        button.setTextColor(color(R.color.app_on_primary));
         button.setTypeface(Typeface.create("sans", Typeface.BOLD));
         button.setBackground(rounded(color(R.color.app_primary), 16));
     }

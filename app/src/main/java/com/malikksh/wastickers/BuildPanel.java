@@ -1,7 +1,6 @@
 package com.malikksh.wastickers;
 
 import android.content.Context;
-import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
@@ -424,14 +423,14 @@ final class BuildPanel extends LinearLayout {
                 retry.setAllCaps(false);
                 styleTertiaryButton(retry);
                 retry.setOnClickListener(v -> host.onRetryItem(item.uri));
-                itemActions.addView(retry, new LinearLayout.LayoutParams(0, dp(42), 1f));
+                itemActions.addView(retry, new LinearLayout.LayoutParams(0, dp(48), 1f));
 
                 Button skip = new Button(getContext());
                 skip.setText("Пропустить");
                 skip.setAllCaps(false);
                 styleTertiaryButton(skip);
                 skip.setOnClickListener(v -> host.onSkipItem(item.uri));
-                LinearLayout.LayoutParams skipParams = new LinearLayout.LayoutParams(0, dp(42), 1f);
+                LinearLayout.LayoutParams skipParams = new LinearLayout.LayoutParams(0, dp(48), 1f);
                 skipParams.leftMargin = dp(7);
                 itemActions.addView(skip, skipParams);
             }
@@ -657,7 +656,9 @@ final class BuildPanel extends LinearLayout {
     private void stylePrimaryButton(Button button, boolean enabled) {
         button.setEnabled(enabled);
         button.setTextSize(16);
-        button.setTextColor(enabled ? Color.WHITE : color(R.color.app_disabled_text));
+        button.setTextColor(enabled
+                ? color(R.color.app_on_primary)
+                : color(R.color.app_disabled_text));
         button.setTypeface(Typeface.create("sans", Typeface.BOLD));
         button.setBackground(rounded(
                 enabled ? color(R.color.app_primary) : color(R.color.app_disabled_surface), 18));
@@ -687,7 +688,9 @@ final class BuildPanel extends LinearLayout {
     private void styleDangerButton(Button button, boolean enabled) {
         button.setEnabled(enabled);
         button.setTextSize(16);
-        button.setTextColor(enabled ? Color.WHITE : color(R.color.app_disabled_text));
+        button.setTextColor(enabled
+                ? color(R.color.app_on_primary)
+                : color(R.color.app_disabled_text));
         button.setTypeface(Typeface.create("sans", Typeface.BOLD));
         button.setBackground(rounded(
                 enabled ? color(R.color.app_error) : color(R.color.app_disabled_surface), 18));

@@ -6,6 +6,7 @@
     <item name="nav_build" type="id" />
     <item name="nav_packs" type="id" />
     <item name="create_media_counter" type="id" />
+    <item name="create_draft_chip" type="id" />
     <item name="create_pick_media" type="id" />
     <item name="create_continue" type="id" />
     <item name="media_mode_photo" type="id" />
@@ -42,6 +43,8 @@
     <item name="build_primary" type="id" />
     <item name="build_secondary" type="id" />
     <item name="packs_panel" type="id" />
+    <item name="packs_search" type="id" />
+    <item name="packs_overflow" type="id" />
     <item name="packs_filter_all" type="id" />
     <item name="packs_filter_photo" type="id" />
     <item name="packs_filter_animated" type="id" />

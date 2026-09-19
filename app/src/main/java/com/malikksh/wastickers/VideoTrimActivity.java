@@ -1,6 +1,7 @@
 package com.malikksh.wastickers;
 
 import android.app.Activity;
+import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -10,7 +11,6 @@ import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.Window;
 import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -51,9 +51,15 @@ public class VideoTrimActivity extends Activity {
     private Button next;
 
     @Override
+    protected void attachBaseContext(Context newBase) {
+        super.attachBaseContext(AppSettings.wrapForAppearance(newBase));
+    }
+
+    @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        configureWindow();
+        AppSettings.configureRuntime(this);
+        AppSettings.applySystemBars(this);
 
         ArrayList<String> keys = getIntent().getStringArrayListExtra(EXTRA_KEYS);
         entries = VideoTrimStore.getEntries(keys);
@@ -104,15 +110,6 @@ public class VideoTrimActivity extends Activity {
                     workingStarts[i]
             );
             VideoTrimStore.setStartOffsetMs(entries.get(i).key, workingStarts[i]);
-        }
-    }
-
-    private void configureWindow() {
-        Window window = getWindow();
-        window.setStatusBarColor(color(R.color.app_background));
-        window.setNavigationBarColor(color(R.color.app_background));
-        if (Build.VERSION.SDK_INT >= 23) {
-            window.getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
         }
     }
 
@@ -435,7 +432,7 @@ public class VideoTrimActivity extends Activity {
 
     private void stylePrimaryButton(Button button) {
         button.setTextSize(15);
-        button.setTextColor(color(R.color.app_surface));
+        button.setTextColor(color(R.color.app_on_primary));
         button.setTypeface(Typeface.create("sans", Typeface.BOLD));
         button.setBackground(rounded(color(R.color.app_primary), 14));
     }

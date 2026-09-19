@@ -6,20 +6,26 @@ import android.content.Intent;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.text.InputFilter;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewParent;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.LinearLayout;
 import android.widget.PopupMenu;
 import android.widget.TextView;
 import android.widget.Toast;
 
-/** Final shell phase before legacy cleanup: Settings entry points and the global overflow menu. */
+/** Final shell phase before legacy cleanup: Settings entry points and task-specific overflow menus. */
 public class SettingsShellActivity extends PacksShellActivity {
     private String appliedAppearance;
     private boolean appliedCompact;
     private boolean firstResume = true;
+    private FrameLayout topActions;
+    private TextView draftChip;
 
     @Override
     protected void attachBaseContext(Context newBase) {
@@ -33,6 +39,7 @@ public class SettingsShellActivity extends PacksShellActivity {
         AppSettings.applySystemBars(this);
         appliedAppearance = AppSettings.appearance(this);
         appliedCompact = AppSettings.compactMode(this);
+        configureCreatePresentation();
         installTopActions();
         if (appliedCompact) applyCompactMode(findViewById(android.R.id.content));
     }
@@ -41,6 +48,8 @@ public class SettingsShellActivity extends PacksShellActivity {
     protected void onResume() {
         super.onResume();
         AppSettings.configureRuntime(this);
+        updateTopActionsVisibility();
+        updateDraftChip();
         if (firstResume) {
             firstResume = false;
             return;
@@ -52,28 +61,116 @@ public class SettingsShellActivity extends PacksShellActivity {
         }
     }
 
+    private void configureCreatePresentation() {
+        EditText packName = MainActivityRuntimeAccess.packName(this);
+        if (packName != null) {
+            packName.setFilters(new InputFilter[]{new InputFilter.LengthFilter(60)});
+        }
+        rewriteText(findViewById(android.R.id.content),
+                "Фото и анимированные стикеры сохраняются как отдельные наборы.",
+                "Режимы сохраняются отдельно");
+        hideExactText(findViewById(android.R.id.content), "Файлы останутся на устройстве");
+        installDraftChip();
+    }
+
+    private void installDraftChip() {
+        View counter = findViewById(R.id.create_media_counter);
+        if (counter == null) return;
+        ViewParent headerParent = counter.getParent();
+        if (!(headerParent instanceof View)) return;
+        ViewParent cardParent = ((View) headerParent).getParent();
+        if (!(cardParent instanceof LinearLayout)) return;
+
+        LinearLayout card = (LinearLayout) cardParent;
+        draftChip = new TextView(this);
+        draftChip.setId(R.id.create_draft_chip);
+        draftChip.setText("Черновик");
+        draftChip.setTextSize(12);
+        draftChip.setTypeface(Typeface.create("sans", Typeface.BOLD));
+        draftChip.setTextColor(color(R.color.app_primary));
+        draftChip.setGravity(Gravity.CENTER);
+        draftChip.setPadding(dp(10), dp(5), dp(10), dp(5));
+        draftChip.setBackground(rounded(color(R.color.app_primary_container), 14));
+        draftChip.setVisibility(View.GONE);
+
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.topMargin = dp(10);
+        card.addView(draftChip, Math.min(1, card.getChildCount()), params);
+        updateDraftChip();
+    }
+
+    private void updateDraftChip() {
+        if (draftChip == null) return;
+        boolean visible = EditorInstanceStateBridge.hasPersistent(this)
+                && !MainActivityRuntimeAccess.selectedUrisSnapshot(this).isEmpty();
+        draftChip.setVisibility(visible ? View.VISIBLE : View.GONE);
+    }
+
+    private void rewriteText(View view, String from, String to) {
+        if (view == null) return;
+        if (view instanceof TextView) {
+            TextView text = (TextView) view;
+            CharSequence value = text.getText();
+            if (value != null && from.contentEquals(value)) text.setText(to);
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                rewriteText(group.getChildAt(i), from, to);
+            }
+        }
+    }
+
+    private void hideExactText(View view, String expected) {
+        if (view == null) return;
+        if (view instanceof TextView) {
+            TextView text = (TextView) view;
+            CharSequence value = text.getText();
+            if (value != null && expected.contentEquals(value)) text.setVisibility(View.GONE);
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                hideExactText(group.getChildAt(i), expected);
+            }
+        }
+    }
+
     private void installTopActions() {
         FrameLayout root = findViewById(android.R.id.content);
         if (root == null) return;
 
-        FrameLayout actions = new FrameLayout(this);
+        topActions = new FrameLayout(this);
         FrameLayout.LayoutParams actionsParams = new FrameLayout.LayoutParams(dp(104), dp(52));
         actionsParams.gravity = Gravity.TOP | Gravity.END;
         actionsParams.topMargin = dp(18);
         actionsParams.rightMargin = dp(14);
-        root.addView(actions, actionsParams);
+        root.addView(topActions, actionsParams);
 
         Button settings = topAction("⚙", "Настройки", R.id.app_settings);
         settings.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
         FrameLayout.LayoutParams settingsParams = new FrameLayout.LayoutParams(dp(48), dp(48));
         settingsParams.gravity = Gravity.START | Gravity.TOP;
-        actions.addView(settings, settingsParams);
+        topActions.addView(settings, settingsParams);
 
         Button overflow = topAction("⋮", "Ещё", R.id.app_overflow);
         overflow.setOnClickListener(this::showMainOverflow);
         FrameLayout.LayoutParams overflowParams = new FrameLayout.LayoutParams(dp(48), dp(48));
         overflowParams.gravity = Gravity.END | Gravity.TOP;
-        actions.addView(overflow, overflowParams);
+        topActions.addView(overflow, overflowParams);
+
+        root.addOnLayoutChangeListener((v, left, top, right, bottom,
+                                        oldLeft, oldTop, oldRight, oldBottom) ->
+                updateTopActionsVisibility());
+        root.post(this::updateTopActionsVisibility);
+    }
+
+    private void updateTopActionsVisibility() {
+        if (topActions == null) return;
+        View packsPanel = findViewById(R.id.packs_panel);
+        topActions.setVisibility(packsPanel != null && packsPanel.isShown() ? View.GONE : View.VISIBLE);
     }
 
     private Button topAction(String glyph, String description, int id) {
@@ -91,6 +188,21 @@ public class SettingsShellActivity extends PacksShellActivity {
     }
 
     private void showMainOverflow(View anchor) {
+        if (isShown(R.id.media_grid)) {
+            showMediaOverflow(anchor);
+        } else if (isShown(R.id.build_panel)) {
+            showBuildOverflow(anchor);
+        } else {
+            showCreateOverflow(anchor);
+        }
+    }
+
+    private boolean isShown(int id) {
+        View view = findViewById(id);
+        return view != null && view.isShown();
+    }
+
+    private void showCreateOverflow(View anchor) {
         PopupMenu menu = new PopupMenu(this, anchor);
         menu.getMenu().add("Очистить черновик");
         if (EditorInstanceStateBridge.hasPersistent(this)) {
@@ -121,6 +233,141 @@ public class SettingsShellActivity extends PacksShellActivity {
         menu.show();
     }
 
+    private void showMediaOverflow(View anchor) {
+        PopupMenu menu = new PopupMenu(this, anchor);
+        menu.getMenu().add("Выбрать всё");
+        menu.getMenu().add("Сбросить порядок");
+        menu.getMenu().add("Очистить");
+        menu.getMenu().add("Помощь");
+        menu.setOnMenuItemClickListener(item -> {
+            String title = String.valueOf(item.getTitle());
+            if ("Выбрать всё".equals(title)) {
+                MediaGridPanel panel = mediaPanel();
+                int count = panel == null ? 0 : panel.itemCount();
+                TransientFeedback.show(this,
+                        count == 0 ? "Сначала добавьте файлы" : "Все файлы уже входят в набор");
+                return true;
+            }
+            if ("Сбросить порядок".equals(title)) {
+                MediaGridPanel panel = mediaPanel();
+                if (panel == null || !panel.resetOrder()) {
+                    TransientFeedback.show(this, "Порядок уже исходный");
+                }
+                return true;
+            }
+            if ("Очистить".equals(title)) {
+                clearMediaFromOverflow();
+                return true;
+            }
+            if ("Помощь".equals(title)) {
+                showMediaHelp();
+                return true;
+            }
+            return false;
+        });
+        menu.show();
+    }
+
+    private MediaGridPanel mediaPanel() {
+        View detail = findViewById(R.id.media_detail);
+        if (detail == null) return null;
+        ViewParent parent = detail.getParent();
+        return parent instanceof MediaGridPanel ? (MediaGridPanel) parent : null;
+    }
+
+    private void clearMediaFromOverflow() {
+        if (MainActivityRuntimeAccess.isProcessing(this)) {
+            Toast.makeText(this, "Сначала остановите обработку", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (MainActivityRuntimeAccess.clearMedia(this)) {
+            EditorInstanceStateBridge.savePersistent(this);
+            refreshShellPresentation();
+            TransientFeedback.show(this, "Медиа очищены");
+        }
+    }
+
+    private void showMediaHelp() {
+        new AlertDialog.Builder(this)
+                .setTitle("Медиа")
+                .setMessage("3–30 файлов · удерживайте для сортировки · ★ обложка. Для длинного видео откройте карточку и измените фрагмент.")
+                .setPositiveButton("Понятно", null)
+                .show();
+    }
+
+    private void showBuildOverflow(View anchor) {
+        PopupMenu menu = new PopupMenu(this, anchor);
+        menu.getMenu().add("Повторить ошибки");
+        menu.getMenu().add("Показать диагностику");
+        menu.getMenu().add("Очистить сборку");
+        menu.getMenu().add("Помощь");
+        menu.setOnMenuItemClickListener(item -> {
+            String title = String.valueOf(item.getTitle());
+            if ("Повторить ошибки".equals(title)) {
+                retryBuildFailuresFromOverflow();
+                return true;
+            }
+            if ("Показать диагностику".equals(title)) {
+                showDiagnostics();
+                return true;
+            }
+            if ("Очистить сборку".equals(title)) {
+                clearBuildFromOverflow();
+                return true;
+            }
+            if ("Помощь".equals(title)) {
+                showBuildHelp();
+                return true;
+            }
+            return false;
+        });
+        menu.show();
+    }
+
+    private void retryBuildFailuresFromOverflow() {
+        Button secondary = findViewById(R.id.build_secondary);
+        if (secondary != null && secondary.isShown() && secondary.isEnabled()
+                && secondary.getText().toString().contains("Повторить ошибки")) {
+            secondary.performClick();
+            return;
+        }
+        Button primary = findViewById(R.id.build_primary);
+        if (primary != null && primary.isShown() && primary.isEnabled()
+                && primary.getText().toString().contains("Повторить ошибки")) {
+            primary.performClick();
+            return;
+        }
+        TransientFeedback.show(this, "Нет ошибок для повтора");
+    }
+
+    private void showDiagnostics() {
+        String diagnostics = BugLogStore.snapshot().trim();
+        if (diagnostics.isEmpty()) diagnostics = "Диагностика пока пуста.";
+        new AlertDialog.Builder(this)
+                .setTitle("Диагностика сборки")
+                .setMessage(diagnostics)
+                .setPositiveButton("Закрыть", null)
+                .show();
+    }
+
+    private void clearBuildFromOverflow() {
+        if (MainActivityRuntimeAccess.isProcessing(this)) {
+            Toast.makeText(this, "Сначала остановите обработку", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        MainActivityRuntimeAccess.discardPendingBuild(this);
+        refreshShellPresentation();
+        TransientFeedback.show(this, "Сборка очищена");
+    }
+
+    private void showBuildHelp() {
+        new AlertDialog.Builder(this)
+                .setTitle("Сборка")
+                .setMessage("Следите за общим и пофайловым прогрессом. Ошибки можно повторять отдельно, а при трёх готовых стикерах — завершить частичный набор.")
+                .setPositiveButton("Понятно", null)
+                .show();
+    }
+
     private void requestClearDraft() {
         if (MainActivityRuntimeAccess.isProcessing(this)) {
             Toast.makeText(this, "Сначала остановите обработку", Toast.LENGTH_SHORT).show();
@@ -132,7 +379,7 @@ public class SettingsShellActivity extends PacksShellActivity {
         }
         new AlertDialog.Builder(this)
                 .setTitle("Очистить черновик?")
-                .setMessage("Выбранные медиа и настройки фрагментов будут сброшены. Сохранённые наборы останутся.")
+                .setMessage("Выбранные файлы и настройки будут удалены.")
                 .setPositiveButton("Очистить", (dialog, which) -> clearDraftNow())
                 .setNegativeButton("Отмена", null)
                 .show();
@@ -148,26 +395,28 @@ public class SettingsShellActivity extends PacksShellActivity {
         VideoTrimStore.clear();
         VideoTrimStore.clearPersistent(this, AppSettings.TRIM_PERSISTENT_KEY);
         refreshShellPresentation();
-        Toast.makeText(this, "Черновик очищен", Toast.LENGTH_SHORT).show();
+        TransientFeedback.show(this, "Черновик очищен");
     }
 
     private void restoreLastDraft() {
         if (!EditorInstanceStateBridge.hasPersistent(this)) {
-            Toast.makeText(this, "Сохранённого черновика нет", Toast.LENGTH_SHORT).show();
+            TransientFeedback.show(this, "Сохранённого черновика нет");
             return;
         }
         boolean restored = EditorInstanceStateBridge.restorePersistent(this);
         VideoTrimStore.restorePersistent(this, AppSettings.TRIM_PERSISTENT_KEY);
         refreshShellPresentation();
-        Toast.makeText(this,
-                restored ? "Черновик восстановлен" : "Не удалось восстановить черновик",
-                Toast.LENGTH_SHORT).show();
+        if (restored) {
+            TransientFeedback.show(this, "Черновик восстановлен");
+        } else {
+            Toast.makeText(this, "Не удалось восстановить черновик", Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void showHelp() {
         new AlertDialog.Builder(this)
                 .setTitle("Помощь")
-                .setMessage("Создать → настроить медиа → собрать → сохранить. Ошибочные файлы на экране сборки можно повторять отдельно.")
+                .setMessage("Создать → настроить медиа → собрать → сохранить. Ошибки можно повторить отдельно.")
                 .setPositiveButton("Понятно", null)
                 .show();
     }
@@ -192,6 +441,8 @@ public class SettingsShellActivity extends PacksShellActivity {
         } catch (Throwable error) {
             BugLogStore.appendApp("Could not refresh Packs panel after overflow action: " + error);
         }
+        updateTopActionsVisibility();
+        updateDraftChip();
     }
 
     private void applyCompactMode(View view) {

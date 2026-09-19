@@ -4,7 +4,6 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
 import android.content.pm.PackageInfo;
-import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
@@ -16,7 +15,6 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.Switch;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import java.util.Locale;
 
@@ -216,6 +214,7 @@ public class SettingsActivity extends Activity {
         control.setTextColor(color(R.color.app_text_primary));
         control.setTypeface(Typeface.create("sans", Typeface.NORMAL));
         control.setGravity(Gravity.CENTER_VERTICAL);
+        control.setMinHeight(dp(48));
         control.setPadding(0, dp(5), 0, dp(5));
         control.setOnCheckedChangeListener((buttonView, isChecked) -> listener.onChanged(isChecked));
         return control;
@@ -230,7 +229,7 @@ public class SettingsActivity extends Activity {
     private void setQuality(String quality) {
         AppSettings.setQualityPreset(this, quality);
         renderSettings();
-        Toast.makeText(this, "Качество будет применено к будущим конвертациям", Toast.LENGTH_SHORT).show();
+        TransientFeedback.show(this, "Качество будет применено к будущим конвертациям");
     }
 
     private void renderSettings() {
@@ -252,13 +251,13 @@ public class SettingsActivity extends Activity {
     private void clearCache() {
         long freed = AppSettings.clearConversionCache(this);
         AppSettings.cleanupTemporaryFiles(this);
-        Toast.makeText(this, "Освобождено " + formatBytes(freed), Toast.LENGTH_SHORT).show();
+        TransientFeedback.show(this, "Освобождено " + formatBytes(freed));
     }
 
     private void showHelp() {
         new AlertDialog.Builder(this)
                 .setTitle("Помощь")
-                .setMessage("Создайте набор, настройте медиа, соберите файлы и добавьте готовый набор в WhatsApp. Ошибочные файлы можно повторять отдельно.")
+                .setMessage("Создайте набор, настройте медиа, соберите файлы и добавьте готовый набор в WhatsApp. Ошибки можно повторять отдельно.")
                 .setPositiveButton("Понятно", null)
                 .show();
     }
@@ -291,14 +290,16 @@ public class SettingsActivity extends Activity {
     }
 
     private void addSegment(LinearLayout row, Button button, boolean withMargin) {
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(46), 1f);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(48), 1f);
         if (withMargin) params.leftMargin = dp(7);
         row.addView(button, params);
     }
 
     private void styleSegment(Button button, boolean selected) {
         if (button == null) return;
-        button.setTextColor(selected ? Color.WHITE : color(R.color.app_primary));
+        button.setTextColor(selected
+                ? color(R.color.app_on_primary)
+                : color(R.color.app_primary));
         button.setBackground(rounded(
                 selected ? color(R.color.app_primary) : color(R.color.app_surface_variant),
                 15));

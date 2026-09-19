@@ -1,17 +1,19 @@
 package com.malikksh.wastickers;
 
+import android.app.Activity;
 import android.content.ClipData;
 import android.content.Context;
 import android.content.Intent;
-import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Bundle;
 import android.view.DragEvent;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.GridLayout;
@@ -30,6 +32,8 @@ final class MediaGridPanel extends LinearLayout {
     private static final int MIN_STICKERS = 3;
     private static final int MAX_STICKERS = 30;
     private static final String TRIM_PERSISTENT_KEY = "home_video_trim";
+    private static final int ACTION_MOVE_LEFT = 0x01020001;
+    private static final int ACTION_MOVE_RIGHT = 0x01020002;
 
     interface Host {
         void onModeChanged(boolean animated);
@@ -60,6 +64,8 @@ final class MediaGridPanel extends LinearLayout {
     private final Button continueButton;
 
     private final List<Uri> items = new ArrayList<>();
+    private final List<Uri> photoBaselineOrder = new ArrayList<>();
+    private final List<Uri> animatedBaselineOrder = new ArrayList<>();
     private Uri coverUri;
     private Uri selectedUri;
     private boolean animated;
@@ -85,14 +91,14 @@ final class MediaGridPanel extends LinearLayout {
         photoButton.setText("Фото");
         photoButton.setAllCaps(false);
         photoButton.setOnClickListener(v -> host.onModeChanged(false));
-        modeRow.addView(photoButton, new LinearLayout.LayoutParams(0, dp(46), 1f));
+        modeRow.addView(photoButton, new LinearLayout.LayoutParams(0, dp(48), 1f));
 
         animatedButton = new Button(context);
         animatedButton.setId(R.id.media_mode_animated);
         animatedButton.setText("Анимация");
         animatedButton.setAllCaps(false);
         animatedButton.setOnClickListener(v -> host.onModeChanged(true));
-        LinearLayout.LayoutParams animatedParams = new LinearLayout.LayoutParams(0, dp(46), 1f);
+        LinearLayout.LayoutParams animatedParams = new LinearLayout.LayoutParams(0, dp(48), 1f);
         animatedParams.leftMargin = dp(6);
         modeRow.addView(animatedButton, animatedParams);
 
@@ -114,7 +120,7 @@ final class MediaGridPanel extends LinearLayout {
         addMore.setAllCaps(false);
         addMore.setOnClickListener(v -> host.onAddMedia());
         styleTertiaryButton(addMore);
-        summaryRow.addView(addMore, new LinearLayout.LayoutParams(dp(150), dp(44)));
+        summaryRow.addView(addMore, new LinearLayout.LayoutParams(dp(150), dp(48)));
 
         grid = new GridLayout(context);
         grid.setId(R.id.media_grid);
@@ -158,7 +164,7 @@ final class MediaGridPanel extends LinearLayout {
         detailTrimButton.setVisibility(GONE);
         detailTrimButton.setOnClickListener(v -> openTrimForSelected());
         LinearLayout.LayoutParams trimParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(46));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
         trimParams.topMargin = dp(10);
         detailCard.addView(detailTrimButton, trimParams);
 
@@ -188,9 +194,13 @@ final class MediaGridPanel extends LinearLayout {
 
     void render(List<Uri> newItems, Uri newCoverUri, boolean animatedMode) {
         renderGeneration++;
+        List<Uri> incoming = new ArrayList<>();
+        if (newItems != null) incoming.addAll(newItems);
+        updateBaselineOrder(incoming, animatedMode);
+
         animated = animatedMode;
         items.clear();
-        if (newItems != null) items.addAll(newItems);
+        items.addAll(incoming);
         coverUri = newCoverUri != null && items.contains(newCoverUri)
                 ? newCoverUri
                 : (items.isEmpty() ? null : items.get(0));
@@ -212,15 +222,56 @@ final class MediaGridPanel extends LinearLayout {
         renderDetail();
     }
 
+    int itemCount() {
+        return items.size();
+    }
+
+    boolean resetOrder() {
+        List<Uri> baseline = animated ? animatedBaselineOrder : photoBaselineOrder;
+        if (items.size() < 2 || baseline.size() != items.size()
+                || !sameMembers(baseline, items) || baseline.equals(items)) {
+            return false;
+        }
+
+        List<Uri> working = new ArrayList<>(items);
+        boolean changed = false;
+        for (int target = 0; target < baseline.size(); target++) {
+            Uri expected = baseline.get(target);
+            int from = working.indexOf(expected);
+            if (from < 0 || from == target) continue;
+            host.onMoveMedia(from, target);
+            working.remove(from);
+            working.add(target, expected);
+            changed = true;
+        }
+        return changed;
+    }
+
+    private void updateBaselineOrder(List<Uri> incoming, boolean animatedMode) {
+        List<Uri> baseline = animatedMode ? animatedBaselineOrder : photoBaselineOrder;
+        if (baseline.isEmpty() || !sameMembers(baseline, incoming)) {
+            baseline.clear();
+            baseline.addAll(incoming);
+        }
+    }
+
+    private boolean sameMembers(List<Uri> first, List<Uri> second) {
+        return first.size() == second.size()
+                && first.containsAll(second)
+                && second.containsAll(first);
+    }
+
     private void renderGrid() {
         grid.removeAllViews();
+        int columns = gridColumnCount();
+        grid.setColumnCount(columns);
         if (items.isEmpty()) {
-            renderEmptyState();
+            renderEmptyState(columns);
             return;
         }
 
         int available = getResources().getDisplayMetrics().widthPixels - dp(52);
-        int tileSize = Math.max(dp(92), (available - dp(16)) / 3);
+        int tileSize = Math.max(dp(72), (available - dp(columns * 6)) / columns);
         for (int i = 0; i < items.size(); i++) {
             final int index = i;
             final Uri uri = items.get(i);
@@ -232,9 +283,8 @@ final class MediaGridPanel extends LinearLayout {
             tile.setBackground(tileBackground(isCover, isSelected));
             tile.setClickable(true);
             tile.setFocusable(true);
-            tile.setContentDescription("Медиа " + (i + 1) + " из " + items.size()
-                    + (isCover ? ", выбрано как обложка" : "")
-                    + ". Удерживайте для изменения порядка.");
+            tile.setContentDescription(mediaAccessibilityLabel(uri, i, isCover));
+            installReorderAccessibility(tile, index);
             tile.setOnClickListener(v -> {
                 selectedUri = uri;
                 renderGrid();
@@ -253,38 +303,49 @@ final class MediaGridPanel extends LinearLayout {
             tile.addView(image, imageParams);
             loadPreview(uri, image);
 
-            TextView handle = overlay("⋮⋮", 16, color(R.color.app_text_primary), 0xEFFFFFFF);
+            TextView handle = overlay("⋮⋮", 16,
+                    color(R.color.app_text_primary), color(R.color.app_overlay_light));
             handle.setContentDescription("Перетащить файл " + (i + 1));
-            FrameLayout.LayoutParams handleParams = new FrameLayout.LayoutParams(dp(34), dp(30));
+            handle.setOnLongClickListener(v -> startTileDrag(tile, index));
+            FrameLayout.LayoutParams handleParams = new FrameLayout.LayoutParams(dp(48), dp(48));
             handleParams.gravity = Gravity.TOP | Gravity.START;
-            handleParams.setMargins(dp(6), dp(6), 0, 0);
+            handleParams.setMargins(dp(2), dp(2), 0, 0);
             tile.addView(handle, handleParams);
 
-            TextView remove = overlay("×", 19, Color.WHITE, 0xCC17231F);
+            TextView remove = overlay("×", 20,
+                    color(R.color.app_on_primary), color(R.color.app_overlay_dark));
             remove.setContentDescription("Удалить файл " + (i + 1));
-            remove.setOnClickListener(v -> host.onRemoveMedia(index));
-            FrameLayout.LayoutParams removeParams = new FrameLayout.LayoutParams(dp(30), dp(30));
+            remove.setOnClickListener(v -> {
+                host.onRemoveMedia(index);
+                if (getContext() instanceof Activity) {
+                    TransientFeedback.show((Activity) getContext(), "Файл удалён");
+                }
+            });
+            FrameLayout.LayoutParams removeParams = new FrameLayout.LayoutParams(dp(48), dp(48));
             removeParams.gravity = Gravity.TOP | Gravity.END;
-            removeParams.setMargins(0, dp(6), dp(6), 0);
+            removeParams.setMargins(0, dp(2), dp(2), 0);
             tile.addView(remove, removeParams);
 
-            TextView cover = overlay(isCover ? "★" : "☆", 18,
+            TextView cover = overlay(isCover ? "★" : "☆", 19,
                     isCover ? color(R.color.app_primary) : color(R.color.app_text_primary),
-                    0xEFFFFFFF);
+                    color(R.color.app_overlay_light));
             cover.setContentDescription(isCover ? "Выбрано как обложка" : "Выбрать как обложку");
             cover.setOnClickListener(v -> host.onSelectCover(uri));
-            FrameLayout.LayoutParams coverParams = new FrameLayout.LayoutParams(dp(32), dp(30));
-            coverParams.gravity = Gravity.TOP | Gravity.END;
-            coverParams.setMargins(0, dp(6), dp(42), 0);
+            FrameLayout.LayoutParams coverParams = new FrameLayout.LayoutParams(dp(48), dp(48));
+            coverParams.gravity = Gravity.BOTTOM | Gravity.END;
+            coverParams.setMargins(0, 0, dp(2), dp(2));
             tile.addView(cover, coverParams);
 
-            TextView duration = overlay(animated ? "▶" : "", 11, Color.WHITE, 0xB814221D);
+            TextView duration = overlay(animated ? "▶" : "", 11,
+                    color(R.color.app_on_primary), color(R.color.app_overlay_badge));
+            duration.setClickable(false);
+            duration.setFocusable(false);
             duration.setTag(uri.toString());
             duration.setVisibility(animated ? VISIBLE : GONE);
             FrameLayout.LayoutParams durationParams = new FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, dp(26));
+                    ViewGroup.LayoutParams.WRAP_CONTENT, dp(32));
             durationParams.gravity = Gravity.BOTTOM | Gravity.START;
-            durationParams.setMargins(dp(6), 0, 0, dp(6));
+            durationParams.setMargins(dp(4), 0, 0, dp(4));
             tile.addView(duration, durationParams);
             if (animated) loadDuration(uri, duration, renderGeneration);
 
@@ -296,7 +357,57 @@ final class MediaGridPanel extends LinearLayout {
         }
     }
 
-    private void renderEmptyState() {
+    private int gridColumnCount() {
+        float density = getResources().getDisplayMetrics().density;
+        int widthDp = Math.round(getResources().getDisplayMetrics().widthPixels / density);
+        if (widthDp >= 840) return 6;
+        if (widthDp >= 600) return 5;
+        if (widthDp >= 520) return 4;
+        if (AppSettings.compactMode(getContext()) && widthDp >= 430) return 4;
+        return 3;
+    }
+
+    private String mediaAccessibilityLabel(Uri uri, int index, boolean isCover) {
+        String name = uri == null ? "Файл" : uri.getLastPathSegment();
+        if (name == null || name.trim().isEmpty()) name = "Файл";
+        return name + ", позиция " + (index + 1) + " из " + items.size()
+                + (isCover ? ", выбрано как обложка" : ", не выбрано как обложка")
+                + ". Удерживайте для сортировки.";
+    }
+
+    private void installReorderAccessibility(View tile, int index) {
+        tile.setAccessibilityDelegate(new View.AccessibilityDelegate() {
+            @Override
+            public void onInitializeAccessibilityNodeInfo(View hostView, AccessibilityNodeInfo info) {
+                super.onInitializeAccessibilityNodeInfo(hostView, info);
+                if (index > 0) {
+                    info.addAction(new AccessibilityNodeInfo.AccessibilityAction(
+                            ACTION_MOVE_LEFT, "Переместить влево"));
+                }
+                if (index < items.size() - 1) {
+                    info.addAction(new AccessibilityNodeInfo.AccessibilityAction(
+                            ACTION_MOVE_RIGHT, "Переместить вправо"));
+                }
+            }
+
+            @Override
+            public boolean performAccessibilityAction(View hostView, int action, Bundle args) {
+                if (action == ACTION_MOVE_LEFT && index > 0) {
+                    host.onMoveMedia(index, index - 1);
+                    hostView.announceForAccessibility("Перемещено влево");
+                    return true;
+                }
+                if (action == ACTION_MOVE_RIGHT && index < items.size() - 1) {
+                    host.onMoveMedia(index, index + 1);
+                    hostView.announceForAccessibility("Перемещено вправо");
+                    return true;
+                }
+                return super.performAccessibilityAction(hostView, action, args);
+            }
+        });
+    }
+
+    private void renderEmptyState(int columns) {
         LinearLayout empty = new LinearLayout(getContext());
         empty.setOrientation(VERTICAL);
         empty.setGravity(Gravity.CENTER);
@@ -325,7 +436,7 @@ final class MediaGridPanel extends LinearLayout {
         empty.addView(pick, pickParams);
 
         GridLayout.LayoutParams emptyParams = new GridLayout.LayoutParams();
-        emptyParams.columnSpec = GridLayout.spec(0, 3);
+        emptyParams.columnSpec = GridLayout.spec(0, columns);
         emptyParams.width = ViewGroup.LayoutParams.MATCH_PARENT;
         emptyParams.height = ViewGroup.LayoutParams.WRAP_CONTENT;
         grid.addView(empty, emptyParams);
@@ -404,9 +515,11 @@ final class MediaGridPanel extends LinearLayout {
                 if (uri.equals(coverUri)) {
                     detailStatus.setText("★ Выбрана как обложка");
                 } else if (result.assessment.severity == MediaPreflightPolicy.Severity.ERROR) {
-                    detailStatus.setText(result.assessment.message);
+                    detailStatus.setText("! " + result.assessment.message);
+                    detailStatus.setTextColor(color(R.color.app_error));
                 } else {
                     detailStatus.setText("Готово к сборке");
+                    detailStatus.setTextColor(color(R.color.app_primary));
                 }
             });
         });
@@ -481,16 +594,20 @@ final class MediaGridPanel extends LinearLayout {
     private void styleModeButton(Button button, boolean active) {
         button.setTextSize(14);
         button.setTypeface(Typeface.create("sans", Typeface.BOLD));
-        button.setTextColor(active ? Color.WHITE : color(R.color.app_primary));
+        button.setTextColor(active
+                ? color(R.color.app_on_primary)
+                : color(R.color.app_primary));
         button.setBackground(rounded(
-                active ? color(R.color.app_primary) : Color.TRANSPARENT, 14));
+                active ? color(R.color.app_primary) : color(R.color.app_transparent), 14));
     }
 
     private void stylePrimaryButton(Button button, boolean enabled) {
         button.setEnabled(enabled);
         button.setTextSize(15);
         button.setTypeface(Typeface.create("sans", Typeface.BOLD));
-        button.setTextColor(enabled ? Color.WHITE : color(R.color.app_disabled_text));
+        button.setTextColor(enabled
+                ? color(R.color.app_on_primary)
+                : color(R.color.app_disabled_text));
         button.setBackground(rounded(
                 enabled ? color(R.color.app_primary) : color(R.color.app_disabled_surface), 16));
     }
@@ -506,7 +623,7 @@ final class MediaGridPanel extends LinearLayout {
         button.setTextSize(13);
         button.setTypeface(Typeface.create("sans", Typeface.BOLD));
         button.setTextColor(color(R.color.app_primary));
-        button.setBackground(rounded(Color.TRANSPARENT, 14));
+        button.setBackground(rounded(color(R.color.app_transparent), 14));
     }
 
     private TextView text(String value, int size, int textColor, int style) {

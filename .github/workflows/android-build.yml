@@ -38,6 +38,24 @@ jobs:
             exit 1
           fi
 
+      - name: Enforce redesigned UI color tokens
+        run: |
+          files=(
+            app/src/main/java/com/malikksh/wastickers/AppShellActivity.java
+            app/src/main/java/com/malikksh/wastickers/MediaGridPanel.java
+            app/src/main/java/com/malikksh/wastickers/BuildPanel.java
+            app/src/main/java/com/malikksh/wastickers/PacksPanel.java
+            app/src/main/java/com/malikksh/wastickers/SettingsActivity.java
+            app/src/main/java/com/malikksh/wastickers/SettingsShellActivity.java
+            app/src/main/java/com/malikksh/wastickers/VideoTrimActivity.java
+          )
+          violations="$(grep -n -E 'Color\.WHITE|Color\.BLACK|0xFF25D366|0xFF128C7E|0xFF075E54' "${files[@]}" || true)"
+          if [ -n "$violations" ]; then
+            echo "Hardcoded colors are not allowed in redesigned screen code:"
+            echo "$violations"
+            exit 1
+          fi
+
       - name: Run lint
         run: gradle :app:lintDebug --stacktrace
 
