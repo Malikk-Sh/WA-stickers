@@ -66,6 +66,8 @@ public class SettingsShellActivity extends PacksShellActivity {
         EditText packName = this.runtimePackName();
         if (packName != null) {
             packName.setFilters(new InputFilter[]{new InputFilter.LengthFilter(60)});
+            TextView nameCounter = findViewById(R.id.create_name_counter);
+            CreateNameCounterPolicy.attach(packName, nameCounter);
         }
         rewriteText(findViewById(android.R.id.content),
                 "Фото и анимированные стикеры сохраняются как отдельные наборы.",
