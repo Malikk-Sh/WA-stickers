@@ -5,6 +5,8 @@ import android.net.Uri;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.ProgressBar;
+import android.widget.TextView;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -83,6 +85,57 @@ final class MainActivityRuntimeAccess {
         return result;
     }
 
+    static String enteredPackName(MainActivity activity) {
+        EditText input = packName(activity);
+        return input == null ? "" : input.getText().toString().trim();
+    }
+
+    @SuppressWarnings("unchecked")
+    static PackBuildSession<Uri> buildSession(MainActivity activity) {
+        Object value = getField(activity, "buildSession");
+        return value instanceof PackBuildSession<?> ? (PackBuildSession<Uri>) value : null;
+    }
+
+    static PackStore.Pack currentPack(MainActivity activity) {
+        Object value = getField(activity, "currentPack");
+        return value instanceof PackStore.Pack ? (PackStore.Pack) value : null;
+    }
+
+    static TextView progressText(MainActivity activity) {
+        Object value = getField(activity, "progressText");
+        return value instanceof TextView ? (TextView) value : null;
+    }
+
+    static List<TextView> fileProgressLabelsSnapshot(MainActivity activity) {
+        Object value = getField(activity, "fileProgressLabels");
+        List<TextView> result = new ArrayList<>();
+        if (!(value instanceof List<?>)) return result;
+        for (Object item : (List<?>) value) {
+            if (item instanceof TextView) result.add((TextView) item);
+        }
+        return result;
+    }
+
+    static List<ProgressBar> fileProgressBarsSnapshot(MainActivity activity) {
+        Object value = getField(activity, "fileProgressBars");
+        List<ProgressBar> result = new ArrayList<>();
+        if (!(value instanceof List<?>)) return result;
+        for (Object item : (List<?>) value) {
+            if (item instanceof ProgressBar) result.add((ProgressBar) item);
+        }
+        return result;
+    }
+
+    static List<String> fileProgressNamesSnapshot(MainActivity activity) {
+        Object value = getField(activity, "fileProgressNames");
+        List<String> result = new ArrayList<>();
+        if (!(value instanceof List<?>)) return result;
+        for (Object item : (List<?>) value) {
+            if (item instanceof String) result.add((String) item);
+        }
+        return result;
+    }
+
     static void receivePickerResult(MainActivity activity, Intent data, boolean persistPermission) {
         invoke(activity, "receivePickerResult", new Class<?>[]{Intent.class, boolean.class}, data, persistPermission);
     }
@@ -147,6 +200,43 @@ final class MainActivityRuntimeAccess {
             BugLogStore.appendApp("Could not clear media through runtime adapter: " + error);
             return false;
         }
+    }
+
+    static void resetDiagnostics(MainActivity activity) {
+        try {
+            setField(activity, "diagnosticItemIndex", -1);
+            setField(activity, "diagnosticItemUri", null);
+        } catch (Throwable error) {
+            BugLogStore.appendApp("Could not reset Build diagnostics: " + error);
+        }
+    }
+
+    static void invalidateCurrentPack(MainActivity activity) {
+        invokeSafely(activity, "invalidateCurrentPack", new Class<?>[0]);
+    }
+
+    static void startBatch(MainActivity activity, List<Uri> work, boolean retry) {
+        invokeSafely(activity, "startBatch", new Class<?>[]{List.class, boolean.class}, work, retry);
+    }
+
+    static void updateUiState(MainActivity activity) {
+        invokeSafely(activity, "updateUiState", new Class<?>[0]);
+    }
+
+    static void cancelProcessing(MainActivity activity) {
+        invokeSafely(activity, "cancelProcessing", new Class<?>[0]);
+    }
+
+    static void finalizePendingPack(MainActivity activity) {
+        invokeSafely(activity, "finalizePendingPackAsync", new Class<?>[0]);
+    }
+
+    static void discardPendingBuild(MainActivity activity) {
+        invokeSafely(activity, "discardPendingBuild", new Class<?>[0]);
+    }
+
+    static void addCurrentPackToWhatsApp(MainActivity activity) {
+        invokeSafely(activity, "addCurrentPackToWhatsApp", new Class<?>[0]);
     }
 
     @SuppressWarnings("unchecked")
