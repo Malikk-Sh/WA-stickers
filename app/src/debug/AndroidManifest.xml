@@ -1,8 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
+        <!-- Test-only hosts/routes. These are intentionally absent from the production manifest. -->
         <activity
             android:name=".LauncherTestHostActivity"
+            android:exported="false" />
+        <activity
+            android:name=".AppShellActivity"
+            android:exported="false" />
+        <activity
+            android:name=".BuildShellActivity"
+            android:exported="false" />
+        <activity
+            android:name=".PacksShellActivity"
             android:exported="false" />
     </application>
 </manifest>
