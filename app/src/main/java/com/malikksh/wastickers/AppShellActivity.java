@@ -354,36 +354,10 @@ public class AppShellActivity extends LauncherActivity {
     private View buildPacksScreen() {
         LinearLayout body = newScreenBody();
         body.addView(buildTopBar("Мои наборы", "Сохранённые наборы"), matchWrap());
-        View content = buildPacksFallback();
-        LinearLayout.LayoutParams packsParams = matchWrap();
-        packsParams.topMargin = dp(16);
-        packsParams.bottomMargin = dp(12);
-        body.addView(content, packsParams);
+        // PacksShellActivity replaces this body with the redesigned PacksPanel immediately after
+        // the base shell is installed. Keeping the base screen empty avoids retaining any route
+        // to the removed standalone saved-packs activity.
         return wrap(body);
-    }
-
-    private View buildPacksFallback() {
-        List<PackStore.Pack> packs = PackStore.getPacks(this);
-        LinearLayout card = card();
-        card.addView(text(
-                packs.isEmpty() ? "Пока нет наборов" : "Сохранено наборов: " + packs.size(),
-                18, color(R.color.app_text_primary), Typeface.BOLD), matchWrap());
-        TextView hint = text(
-                packs.isEmpty() ? "Созданные наборы появятся здесь" : "Откройте список для управления наборами",
-                13, color(R.color.app_text_secondary), Typeface.NORMAL);
-        LinearLayout.LayoutParams hintParams = matchWrap();
-        hintParams.topMargin = dp(4);
-        card.addView(hint, hintParams);
-
-        Button open = new Button(this);
-        open.setText("Открыть сохранённые наборы");
-        stylePrimaryButton(open, true);
-        open.setOnClickListener(v -> startActivity(new Intent(this, SavedPacksActivity.class)));
-        LinearLayout.LayoutParams openParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(52));
-        openParams.topMargin = dp(14);
-        card.addView(open, openParams);
-        return card;
     }
 
     private View buildTopBar(String titleValue, String subtitleValue) {
