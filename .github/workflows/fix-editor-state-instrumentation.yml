@@ -1,0 +1,35 @@
+name: Fix editor state instrumentation tests
+
+on:
+  push:
+    branches: [ editor-state-owner ]
+
+permissions:
+  contents: write
+
+jobs:
+  migrate-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout editor state branch
+        uses: actions/checkout@v4
+        with:
+          ref: editor-state-owner
+
+      - name: Migrate instrumentation tests to typed runtime access
+        run: python tools/fix_editor_state_instrumentation_tests.py
+
+      - name: Commit migrated tests and remove one-shot tooling
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/androidTest/java/com/malikksh/wastickers/BuildShellActivityUiTest.java
+          git add app/src/androidTest/java/com/malikksh/wastickers/HandoffComplianceUiTest.java
+          git add app/src/androidTest/java/com/malikksh/wastickers/LauncherActivityStateUiTest.java
+          git add app/src/androidTest/java/com/malikksh/wastickers/MainActivityBatchUiTest.java
+          git add app/src/androidTest/java/com/malikksh/wastickers/SettingsShellActivityUiTest.java
+          git rm tools/fix_editor_state_instrumentation_tests.py
+          git rm .github/workflows/fix-editor-state-instrumentation.yml
+          git diff --cached --check
+          git commit -m "Migrate instrumentation tests to typed editor state access"
+          git push origin HEAD:editor-state-owner
