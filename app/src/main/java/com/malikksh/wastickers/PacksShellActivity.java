@@ -232,7 +232,7 @@ public class PacksShellActivity extends BuildShellActivity {
                     }
                     PackStore.Pack renamed = PackStore.renamePack(this, pack.id, name);
                     if (renamed != null) {
-                        MainActivityRuntimeAccess.replaceCurrentPackIfId(this, pack.id, renamed);
+                        this.runtimeReplaceCurrentPackIfId(pack.id, renamed);
                         notifyMetadataChanged();
                         refreshPacksPanel();
                     }
@@ -269,7 +269,7 @@ public class PacksShellActivity extends BuildShellActivity {
                 .setMessage("Набор будет удалён с устройства.")
                 .setPositiveButton("Удалить", (dialog, which) -> {
                     if (PackStore.deletePack(this, pack.id)) {
-                        MainActivityRuntimeAccess.clearCurrentPackIfId(this, pack.id);
+                        this.runtimeClearCurrentPackIfId(pack.id);
                         notifyMetadataChanged();
                         refreshPacksPanel();
                         TransientFeedback.show(this, "Набор удалён");

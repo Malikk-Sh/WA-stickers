@@ -45,7 +45,7 @@ public abstract class LauncherActivity extends MainActivity {
             VideoTrimStore.restorePersistent(this, AppSettings.TRIM_PERSISTENT_KEY);
             EditorInstanceStateBridge.restorePersistent(this);
         }
-        MainActivityRuntimeAccess.setGalleryClickListener(this, v -> openMediaPicker());
+        this.runtimeSetGalleryClickListener(v -> openMediaPicker());
     }
 
     /**
@@ -100,24 +100,7 @@ public abstract class LauncherActivity extends MainActivity {
         LinearLayout fileProgressContainer = new LinearLayout(this);
         fileProgressContainer.setOrientation(LinearLayout.VERTICAL);
 
-        MainActivityRuntimeAccess.installRuntimeControls(
-                this,
-                packName,
-                countText,
-                statusText,
-                mediaTitle,
-                mediaHint,
-                actionHint,
-                progressText,
-                progressBar,
-                fileProgressContainer,
-                photoModeButton,
-                animatedModeButton,
-                galleryButton,
-                createButton,
-                addButton,
-                bugLogButton
-        );
+        this.runtimeInstallControls(packName, countText, statusText, mediaTitle, mediaHint, actionHint, progressText, progressBar, fileProgressContainer, photoModeButton, animatedModeButton, galleryButton, createButton, addButton, bugLogButton);
     }
 
     private int runtimeDp(int value) {
@@ -140,7 +123,7 @@ public abstract class LauncherActivity extends MainActivity {
 
     /** Opens the redesigned shell picker without routing through a hidden legacy button. */
     protected final void openMediaPicker() {
-        boolean animated = MainActivityRuntimeAccess.isAnimatedMode(this);
+        boolean animated = this.runtimeIsAnimatedMode();
         int requestCode = animated ? REQUEST_SHELL_PICK_ANIMATED : REQUEST_SHELL_PICK_PHOTOS;
         Intent intent = MediaPickerIntentFactory.createOpenDocumentIntent(animated);
         String title = animated ? "Выберите GIF, WebP или видео" : "Выберите фото";
@@ -184,7 +167,7 @@ public abstract class LauncherActivity extends MainActivity {
         try {
             // Shell pickers use ACTION_OPEN_DOCUMENT when available, so keep URI access for both
             // photo and animated drafts. GET_CONTENT fallback persistence failures are tolerated.
-            MainActivityRuntimeAccess.receivePickerResult(this, data, true);
+            this.runtimeReceivePickerResult(data, true);
             EditorInstanceStateBridge.savePersistent(this);
         } catch (Throwable error) {
             BugLogStore.appendApp("Could not apply redesigned picker result: " + error);
@@ -192,7 +175,7 @@ public abstract class LauncherActivity extends MainActivity {
         }
 
         if (!animated) return;
-        List<Uri> selected = MainActivityRuntimeAccess.selectedUrisSnapshot(this);
+        List<Uri> selected = this.runtimeSelectedUrisSnapshot();
         shellSelectionExecutor.execute(() -> {
             try {
                 VideoTrimStore.prepare(this, selected);

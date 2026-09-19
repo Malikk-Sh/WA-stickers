@@ -79,14 +79,7 @@ public class SettingsShellActivityUiTest {
             scenario.onActivity(activity -> {
                 try {
                     Uri item = writeImage(activity, "settings_shell_draft.png");
-                    MainActivityRuntimeAccess.restoreEditorState(
-                            activity,
-                            false,
-                            java.util.Collections.singletonList(item),
-                            item,
-                            "",
-                            null
-                    );
+                    activity.runtimeRestoreEditorState(false, java.util.Collections.singletonList(item), item, "", null);
                     EditorInstanceStateBridge.savePersistent(activity);
                     assertTrue(EditorInstanceStateBridge.hasPersistent(activity));
                     invokeShellRefresh(activity);
@@ -102,7 +95,7 @@ public class SettingsShellActivityUiTest {
                     clearDraft.setAccessible(true);
                     clearDraft.invoke(activity);
 
-                    assertTrue(MainActivityRuntimeAccess.selectedUrisSnapshot(activity).isEmpty());
+                    assertTrue(activity.runtimeSelectedUrisSnapshot().isEmpty());
                     assertFalse(EditorInstanceStateBridge.hasPersistent(activity));
 
                     TextView counter = activity.findViewById(R.id.create_media_counter);
