@@ -36,8 +36,12 @@ public abstract class LauncherActivity extends MainActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         VideoTrimStore.clear();
-        getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
+        getWindow().setSoftInputMode(
+                WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN
+                        | WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+        );
         super.onCreate(savedInstanceState);
+        AppSettings.applySystemBars(this);
         if (savedInstanceState != null) {
             VideoTrimStore.restoreFromBundle(savedInstanceState, TRIM_STATE_PREFIX);
             EditorInstanceStateBridge.restore(this, savedInstanceState);

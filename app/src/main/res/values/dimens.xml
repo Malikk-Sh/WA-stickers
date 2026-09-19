@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 4 dp spacing grid -->
+    <dimen name="space_4">4dp</dimen>
+    <dimen name="space_8">8dp</dimen>
+    <dimen name="space_12">12dp</dimen>
+    <dimen name="space_16">16dp</dimen>
+    <dimen name="space_20">20dp</dimen>
+    <dimen name="space_24">24dp</dimen>
+    <dimen name="space_32">32dp</dimen>
+
+    <dimen name="screen_gutter_phone">20dp</dimen>
+    <dimen name="screen_gutter_wide">24dp</dimen>
+    <dimen name="screen_gutter_tablet">32dp</dimen>
+
+    <dimen name="radius_small">12dp</dimen>
+    <dimen name="radius_card">18dp</dimen>
+    <dimen name="radius_large">24dp</dimen>
+    <dimen name="radius_pill">999dp</dimen>
+
+    <dimen name="touch_target">48dp</dimen>
+    <dimen name="button_height">54dp</dimen>
+    <dimen name="primary_app_bar_height">68dp</dimen>
+    <dimen name="bottom_nav_content_height">76dp</dimen>
+    <dimen name="icon_inline">20dp</dimen>
+    <dimen name="icon_standard">24dp</dimen>
+    <dimen name="icon_hero">32dp</dimen>
+    <dimen name="app_icon_size">48dp</dimen>
+
+    <dimen name="type_screen_title">28sp</dimen>
+    <dimen name="type_section_title">22sp</dimen>
+    <dimen name="type_card_title">18sp</dimen>
+    <dimen name="type_body">16sp</dimen>
+    <dimen name="type_button">16sp</dimen>
+    <dimen name="type_label">14sp</dimen>
+    <dimen name="type_metadata">13sp</dimen>
+    <dimen name="type_caption">12sp</dimen>
+</resources>

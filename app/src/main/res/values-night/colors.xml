@@ -1,36 +1,37 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="launcher_background">#0A302C</color>
+    <color name="launcher_background">#0E7F68</color>
 
-    <color name="app_background">#101816</color>
-    <color name="app_surface">#17211E</color>
-    <color name="app_surface_variant">#1D2A26</color>
-    <color name="app_surface_strong">#24332E</color>
+    <color name="app_background">#071410</color>
+    <color name="app_surface">#0C1D18</color>
+    <color name="app_surface_variant">#112820</color>
+    <color name="app_surface_strong">#173A2F</color>
 
-    <color name="app_primary">#7FDCC2</color>
-    <color name="app_on_primary">#0B201A</color>
-    <color name="app_primary_container">#23483C</color>
-    <color name="app_primary_pressed">#9AE8D2</color>
-    <color name="app_secondary">#6FD0C0</color>
-    <color name="app_accent">#50D68C</color>
+    <color name="app_primary">#74E7C8</color>
+    <color name="app_on_primary">#031B15</color>
+    <color name="app_primary_container">#145443</color>
+    <color name="app_primary_pressed">#58D8B6</color>
+    <color name="app_secondary">#74E7C8</color>
+    <color name="app_accent">#58D8B6</color>
 
-    <color name="app_text_primary">#EAF3EF</color>
-    <color name="app_text_secondary">#B1C2BB</color>
-    <color name="app_text_tertiary">#82968E</color>
-    <color name="app_border">#31423C</color>
+    <color name="app_text_primary">#F3FAF7</color>
+    <color name="app_text_secondary">#A7B8B2</color>
+    <color name="app_text_tertiary">#82958E</color>
+    <color name="app_border">#29453C</color>
 
-    <color name="app_success">#73D8A5</color>
-    <color name="app_success_container">#183E2C</color>
-    <color name="app_warning">#F1C36A</color>
-    <color name="app_warning_container">#493817</color>
-    <color name="app_error">#FFB4AB</color>
-    <color name="app_error_container">#5B2421</color>
+    <color name="app_success">#66E5C0</color>
+    <color name="app_success_container">#12382E</color>
+    <color name="app_warning">#F2C76A</color>
+    <color name="app_warning_container">#453713</color>
+    <color name="app_error">#FF6B70</color>
+    <color name="app_error_container">#4A1F24</color>
 
-    <color name="app_disabled_surface">#29332F</color>
-    <color name="app_disabled_text">#7E8C86</color>
+    <color name="app_disabled_surface">#1B2A25</color>
+    <color name="app_disabled_text">#72827D</color>
 
-    <color name="app_feedback_surface">#DDE9E4</color>
-    <color name="app_feedback_text">#17211E</color>
+    <color name="app_feedback_surface">#E6F2ED</color>
+    <color name="app_feedback_text">#0C1D18</color>
+    <color name="app_scrim">#99000000</color>
     <color name="app_overlay_light">#E617211E</color>
     <color name="app_overlay_dark">#E6DDE9E4</color>
     <color name="app_overlay_badge">#CCDDE9E4</color>
