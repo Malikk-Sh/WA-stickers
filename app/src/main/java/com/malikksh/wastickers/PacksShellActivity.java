@@ -15,7 +15,6 @@ import android.widget.ScrollView;
 import android.widget.Toast;
 
 import java.io.File;
-import java.lang.reflect.Field;
 import java.util.List;
 
 /** Packs-phase migration layer that moves SavedPacksActivity functionality into the main tab. */
@@ -129,7 +128,7 @@ public class PacksShellActivity extends BuildShellActivity {
                     }
                     PackStore.Pack renamed = PackStore.renamePack(this, pack.id, name);
                     if (renamed != null) {
-                        syncCurrentPackAfterRename(pack.id, renamed);
+                        MainActivityRuntimeAccess.replaceCurrentPackIfId(this, pack.id, renamed);
                         notifyMetadataChanged();
                         refreshPacksPanel();
                     }
@@ -144,7 +143,7 @@ public class PacksShellActivity extends BuildShellActivity {
                 .setMessage("«" + pack.name + "» будет удалён из приложения вместе с локальными файлами.")
                 .setPositiveButton("Удалить", (dialog, which) -> {
                     if (PackStore.deletePack(this, pack.id)) {
-                        clearCurrentPackIfDeleted(pack.id);
+                        MainActivityRuntimeAccess.clearCurrentPackIfId(this, pack.id);
                         notifyMetadataChanged();
                         refreshPacksPanel();
                     }
@@ -176,40 +175,6 @@ public class PacksShellActivity extends BuildShellActivity {
     private void notifyMetadataChanged() {
         String authority = getPackageName() + ".stickercontentprovider";
         getContentResolver().notifyChange(Uri.parse("content://" + authority + "/metadata"), null);
-    }
-
-    private void syncCurrentPackAfterRename(String oldId, PackStore.Pack renamed) {
-        Object current = readMainField("currentPack");
-        if (current instanceof PackStore.Pack && ((PackStore.Pack) current).id.equals(oldId)) {
-            writeMainField("currentPack", renamed);
-        }
-    }
-
-    private void clearCurrentPackIfDeleted(String deletedId) {
-        Object current = readMainField("currentPack");
-        if (current instanceof PackStore.Pack && ((PackStore.Pack) current).id.equals(deletedId)) {
-            writeMainField("currentPack", null);
-        }
-    }
-
-    private Object readMainField(String name) {
-        try {
-            Field field = MainActivity.class.getDeclaredField(name);
-            field.setAccessible(true);
-            return field.get(this);
-        } catch (Throwable ignored) {
-            return null;
-        }
-    }
-
-    private void writeMainField(String name, Object value) {
-        try {
-            Field field = MainActivity.class.getDeclaredField(name);
-            field.setAccessible(true);
-            field.set(this, value);
-        } catch (Throwable error) {
-            BugLogStore.appendApp("Could not update " + name + " from Packs shell: " + error);
-        }
     }
 
     private GradientDrawable rounded(int fillColor, int radiusDp) {
