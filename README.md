@@ -36,12 +36,14 @@ Android-приложение для создания обычных и аним�
 
 ### Через GitHub Actions
 
-После каждого push в `main` запускается workflow **Android build**: проверки архитектурных ограничений UI, lint, JVM-тесты, debug APK и instrumentation-тесты на Android API 35.
+После каждого push в `main` запускается workflow **Android build**: архитектурные guards, lint, JVM-тесты, debug APK, проверочная сборка release-варианта и instrumentation-тесты на Android API 35.
 
 1. Откройте вкладку **Actions** в репозитории.
 2. Выберите последний успешный запуск **Android build**.
 3. Внизу страницы скачайте artifact **WA-Stickers-debug-apk**.
 4. Распакуйте архив и установите `app-debug.apk` на Android-телефон.
+
+CI собирает release-вариант как отдельную проверку компиляции, но не публикует и не подписывает его. Для распространяемого release APK нужен ваш закрытый signing keystore; ключи подписи не должны храниться в репозитории.
 
 ### Через Android Studio
 

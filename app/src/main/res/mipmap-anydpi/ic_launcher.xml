@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<bitmap xmlns:android="http://schemas.android.com/apk/res/android"
-    android:src="@drawable/ic_launcher_legacy"
-    android:gravity="fill"
-    android:antialias="true"
-    android:filter="true" />
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/launcher_background" />
+    <item android:drawable="@drawable/ic_launcher_foreground" />
+</layer-list>
