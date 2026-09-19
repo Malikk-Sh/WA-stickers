@@ -32,6 +32,7 @@ public abstract class LauncherActivity extends MainActivity {
     private static final String TRIM_STATE_PREFIX = "home.video_trim.";
 
     private final ExecutorService shellSelectionExecutor = Executors.newSingleThreadExecutor();
+    private boolean restoredPersistentDraftOnLaunch;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -47,9 +48,15 @@ public abstract class LauncherActivity extends MainActivity {
             EditorInstanceStateBridge.restore(this, savedInstanceState);
         } else {
             VideoTrimStore.restorePersistent(this, AppSettings.TRIM_PERSISTENT_KEY);
-            EditorInstanceStateBridge.restorePersistent(this);
+            restoredPersistentDraftOnLaunch = EditorInstanceStateBridge.restorePersistent(this)
+                    && !runtimeSelectedUrisSnapshot().isEmpty();
         }
         runtimeSetGalleryClickListener(v -> openMediaPicker());
+    }
+
+    /** True only for a fresh launch that restored a readable persistent editor draft. */
+    protected final boolean restoredPersistentDraftOnLaunch() {
+        return restoredPersistentDraftOnLaunch;
     }
 
     /**
