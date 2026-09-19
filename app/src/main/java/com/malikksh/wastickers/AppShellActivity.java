@@ -1,7 +1,6 @@
 package com.malikksh.wastickers;
 
 import android.content.Intent;
-import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
@@ -139,7 +138,7 @@ public class AppShellActivity extends LauncherActivity {
                 color(R.color.app_text_primary), Typeface.BOLD), matchWrap());
 
         TextView hint = text(
-                "Фото и анимированные стикеры сохраняются как отдельные наборы.",
+                "Режимы сохраняются отдельно",
                 12, color(R.color.app_text_secondary), Typeface.NORMAL);
         LinearLayout.LayoutParams hintParams = matchWrap();
         hintParams.topMargin = dp(4);
@@ -256,13 +255,6 @@ public class AppShellActivity extends LauncherActivity {
         LinearLayout.LayoutParams pickParams = new LinearLayout.LayoutParams(dp(250), dp(54));
         pickParams.topMargin = dp(14);
         dropZone.addView(createPickButton, pickParams);
-
-        TextView helper = text("Файлы останутся на устройстве", 12,
-                color(R.color.app_text_secondary), Typeface.NORMAL);
-        helper.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams helperParams = matchWrap();
-        helperParams.topMargin = dp(9);
-        dropZone.addView(helper, helperParams);
 
         createPreviewRow = new LinearLayout(this);
         createPreviewRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -445,7 +437,7 @@ public class AppShellActivity extends LauncherActivity {
             boolean selected = navTabs.get(i) == activeTab;
             item.setBackground(selected
                     ? rounded(color(R.color.app_primary_container), 22)
-                    : rounded(Color.TRANSPARENT, 22));
+                    : rounded(color(R.color.app_transparent), 22));
             for (int child = 0; child < item.getChildCount(); child++) {
                 View view = item.getChildAt(child);
                 if (view instanceof TextView) {
@@ -631,7 +623,9 @@ public class AppShellActivity extends LauncherActivity {
         button.setTypeface(Typeface.create("sans", Typeface.BOLD));
         button.setGravity(Gravity.CENTER);
         button.setPadding(dp(14), 0, dp(14), 0);
-        button.setTextColor(enabled ? Color.WHITE : color(R.color.app_disabled_text));
+        button.setTextColor(enabled
+                ? color(R.color.app_on_primary)
+                : color(R.color.app_disabled_text));
         button.setBackground(rounded(
                 enabled ? color(R.color.app_primary) : color(R.color.app_disabled_surface),
                 18));
