@@ -4,7 +4,6 @@ ROOT = Path(__file__).resolve().parents[1]
 MAIN = ROOT / "app/src/main/java/com/malikksh/wastickers/MainActivity.java"
 ACCESS = ROOT / "app/src/main/java/com/malikksh/wastickers/MainActivityRuntimeAccess.java"
 SHELL = ROOT / "app/src/main/java/com/malikksh/wastickers/AppShellActivity.java"
-CI = ROOT / ".github/workflows/android-build.yml"
 
 marker = "Typed runtime surface for the redesigned shell"
 main = MAIN.read_text()
@@ -503,36 +502,5 @@ new_shell = "    void refreshShellState() {"
 if shell.count(old_shell) != 1:
     raise SystemExit("Unexpected AppShellActivity refreshShellState signature")
 SHELL.write_text(shell.replace(old_shell, new_shell, 1))
-
-workflow = CI.read_text()
-workflow = workflow.replace(
-    "      - name: Enforce runtime reflection boundary",
-    "      - name: Enforce no production reflection",
-    1,
-)
-lines = workflow.splitlines()
-updated = []
-skip_next = False
-changed_guard = False
-for line in lines:
-    if skip_next:
-        if "grep -v '/MainActivityRuntimeAccess.java:'" not in line:
-            raise SystemExit("Unexpected reflection guard layout")
-        skip_next = False
-        continue
-    if "app/src/main/java --include='*.java'" in line and line.rstrip().endswith("\\"):
-        updated.append("            app/src/main/java --include='*.java' || true)\"")
-        skip_next = True
-        changed_guard = True
-    elif "Reflection outside MainActivityRuntimeAccess is not allowed:" in line:
-        updated.append(line.replace(
-            "Reflection outside MainActivityRuntimeAccess is not allowed:",
-            "Production reflection is not allowed:",
-        ))
-    else:
-        updated.append(line)
-if skip_next or not changed_guard:
-    raise SystemExit("Could not update reflection guard")
-CI.write_text("\n".join(updated) + "\n")
 
 print("Typed runtime migration prepared")
