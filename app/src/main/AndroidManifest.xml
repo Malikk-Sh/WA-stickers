@@ -19,18 +19,6 @@
             android:exported="false" />
 
         <activity
-            android:name=".AppShellActivity"
-            android:exported="false" />
-
-        <activity
-            android:name=".BuildShellActivity"
-            android:exported="false" />
-
-        <activity
-            android:name=".PacksShellActivity"
-            android:exported="false" />
-
-        <activity
             android:name=".SettingsActivity"
             android:exported="false" />
 
