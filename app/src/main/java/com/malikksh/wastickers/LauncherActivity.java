@@ -100,22 +100,24 @@ public abstract class LauncherActivity extends MainActivity {
         LinearLayout fileProgressContainer = new LinearLayout(this);
         fileProgressContainer.setOrientation(LinearLayout.VERTICAL);
 
-        MainActivityRuntimeAccess.setField(this, "packName", packName);
-        MainActivityRuntimeAccess.setField(this, "countText", countText);
-        MainActivityRuntimeAccess.setField(this, "statusText", statusText);
-        MainActivityRuntimeAccess.setField(this, "mediaTitle", mediaTitle);
-        MainActivityRuntimeAccess.setField(this, "mediaHint", mediaHint);
-        MainActivityRuntimeAccess.setField(this, "actionHint", actionHint);
-        MainActivityRuntimeAccess.setField(this, "progressText", progressText);
-        MainActivityRuntimeAccess.setField(this, "progressBar", progressBar);
-        MainActivityRuntimeAccess.setField(this, "previewContainer", null);
-        MainActivityRuntimeAccess.setField(this, "fileProgressContainer", fileProgressContainer);
-        MainActivityRuntimeAccess.setField(this, "photoModeButton", photoModeButton);
-        MainActivityRuntimeAccess.setField(this, "animatedModeButton", animatedModeButton);
-        MainActivityRuntimeAccess.setField(this, "galleryButton", galleryButton);
-        MainActivityRuntimeAccess.setField(this, "createButton", createButton);
-        MainActivityRuntimeAccess.setField(this, "addButton", addButton);
-        MainActivityRuntimeAccess.setField(this, "bugLogButton", bugLogButton);
+        MainActivityRuntimeAccess.installRuntimeControls(
+                this,
+                packName,
+                countText,
+                statusText,
+                mediaTitle,
+                mediaHint,
+                actionHint,
+                progressText,
+                progressBar,
+                fileProgressContainer,
+                photoModeButton,
+                animatedModeButton,
+                galleryButton,
+                createButton,
+                addButton,
+                bugLogButton
+        );
     }
 
     private int runtimeDp(int value) {
