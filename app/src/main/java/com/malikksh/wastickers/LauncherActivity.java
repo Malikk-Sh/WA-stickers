@@ -181,7 +181,9 @@ public abstract class LauncherActivity extends MainActivity {
 
     private void receiveShellPickerResult(Intent data, boolean animated) {
         try {
-            runtimeReceivePickerResult(data, animated);
+            // ACTION_OPEN_DOCUMENT grants should survive process death for both photo and animated drafts.
+            // GET_CONTENT fallbacks simply ignore takePersistableUriPermission failures in MainActivity.
+            runtimeReceivePickerResult(data, true);
             EditorInstanceStateBridge.savePersistent(this);
         } catch (Throwable error) {
             BugLogStore.appendApp("Could not apply redesigned picker result: " + error);
