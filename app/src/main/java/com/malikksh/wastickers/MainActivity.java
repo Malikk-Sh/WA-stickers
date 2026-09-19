@@ -135,7 +135,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    private View buildUi() {
+    protected View buildUi() {
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
         scroll.setBackgroundColor(BG);
