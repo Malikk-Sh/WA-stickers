@@ -27,7 +27,6 @@ import java.util.List;
 /** Lifecycle coverage for the redesigned launcher's editor-state bridge. */
 @RunWith(AndroidJUnit4.class)
 public class LauncherActivityStateUiTest {
-    private static final String TRIM_PERSISTENT_KEY = "home_video_trim";
     private static final String TEST_FILE_PREFIX = "launcher_state_";
     private Context context;
 
@@ -35,7 +34,7 @@ public class LauncherActivityStateUiTest {
     public void setUp() {
         context = ApplicationProvider.getApplicationContext();
         EditorInstanceStateBridge.clearPersistent(context);
-        VideoTrimStore.clearPersistent(context, TRIM_PERSISTENT_KEY);
+        VideoTrimStore.clearPersistent(context, AppSettings.TRIM_PERSISTENT_KEY);
         clearTestFiles();
         VideoTrimStore.clear();
     }
@@ -43,14 +42,15 @@ public class LauncherActivityStateUiTest {
     @After
     public void tearDown() {
         EditorInstanceStateBridge.clearPersistent(context);
-        VideoTrimStore.clearPersistent(context, TRIM_PERSISTENT_KEY);
+        VideoTrimStore.clearPersistent(context, AppSettings.TRIM_PERSISTENT_KEY);
         clearTestFiles();
         VideoTrimStore.clear();
     }
 
     @Test
     public void modeDraftNamesSurviveRecreate() {
-        try (ActivityScenario<LauncherActivity> scenario = ActivityScenario.launch(LauncherActivity.class)) {
+        try (ActivityScenario<LauncherTestHostActivity> scenario =
+                     ActivityScenario.launch(LauncherTestHostActivity.class)) {
             scenario.onActivity(activity -> {
                 try {
                     ((EditText) getField(activity, "packName")).setText("Фото-черновик");
@@ -87,7 +87,8 @@ public class LauncherActivityStateUiTest {
                 Uri.parse("content://launcher.test/animated-2"),
                 Uri.parse("content://launcher.test/animated-3"));
 
-        try (ActivityScenario<LauncherActivity> scenario = ActivityScenario.launch(LauncherActivity.class)) {
+        try (ActivityScenario<LauncherTestHostActivity> scenario =
+                     ActivityScenario.launch(LauncherTestHostActivity.class)) {
             scenario.onActivity(activity -> {
                 try {
                     seedCurrentEditor(activity, photos, photos.get(1), "Фото-порядок");
@@ -121,7 +122,8 @@ public class LauncherActivityStateUiTest {
         VideoTrimStore.Entry entry = new VideoTrimStore.Entry(
                 video.toString(), video, "long-video.mp4", 30_000L, 7_000L);
 
-        try (ActivityScenario<LauncherActivity> scenario = ActivityScenario.launch(LauncherActivity.class)) {
+        try (ActivityScenario<LauncherTestHostActivity> scenario =
+                     ActivityScenario.launch(LauncherTestHostActivity.class)) {
             scenario.onActivity(activity -> VideoTrimStore.replaceEntries(Arrays.asList(entry)));
             scenario.recreate();
             scenario.onActivity(activity -> assertEquals(7_000L, VideoTrimStore.getStartOffsetMs(video)));
@@ -140,7 +142,8 @@ public class LauncherActivityStateUiTest {
                 testFileUri("animated-2.webp"),
                 video);
 
-        ActivityScenario<LauncherActivity> first = ActivityScenario.launch(LauncherActivity.class);
+        ActivityScenario<LauncherTestHostActivity> first =
+                ActivityScenario.launch(LauncherTestHostActivity.class);
         first.onActivity(activity -> {
             try {
                 seedCurrentEditor(activity, photos, photos.get(1), "Фото после рестарта");
@@ -154,7 +157,8 @@ public class LauncherActivityStateUiTest {
         });
         first.close();
 
-        try (ActivityScenario<LauncherActivity> second = ActivityScenario.launch(LauncherActivity.class)) {
+        try (ActivityScenario<LauncherTestHostActivity> second =
+                     ActivityScenario.launch(LauncherTestHostActivity.class)) {
             second.onActivity(activity -> {
                 try {
                     assertTrue((Boolean) getField(activity, "animatedMode"));
