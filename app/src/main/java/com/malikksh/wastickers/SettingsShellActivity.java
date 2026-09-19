@@ -6,12 +6,15 @@ import android.content.Intent;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.text.InputFilter;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewParent;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.LinearLayout;
 import android.widget.PopupMenu;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -22,6 +25,7 @@ public class SettingsShellActivity extends PacksShellActivity {
     private boolean appliedCompact;
     private boolean firstResume = true;
     private FrameLayout topActions;
+    private TextView draftChip;
 
     @Override
     protected void attachBaseContext(Context newBase) {
@@ -35,6 +39,7 @@ public class SettingsShellActivity extends PacksShellActivity {
         AppSettings.applySystemBars(this);
         appliedAppearance = AppSettings.appearance(this);
         appliedCompact = AppSettings.compactMode(this);
+        configureCreatePresentation();
         installTopActions();
         if (appliedCompact) applyCompactMode(findViewById(android.R.id.content));
     }
@@ -44,6 +49,7 @@ public class SettingsShellActivity extends PacksShellActivity {
         super.onResume();
         AppSettings.configureRuntime(this);
         updateTopActionsVisibility();
+        updateDraftChip();
         if (firstResume) {
             firstResume = false;
             return;
@@ -52,6 +58,83 @@ public class SettingsShellActivity extends PacksShellActivity {
         boolean currentCompact = AppSettings.compactMode(this);
         if (!currentAppearance.equals(appliedAppearance) || currentCompact != appliedCompact) {
             recreate();
+        }
+    }
+
+    private void configureCreatePresentation() {
+        EditText packName = MainActivityRuntimeAccess.packName(this);
+        if (packName != null) {
+            packName.setFilters(new InputFilter[]{new InputFilter.LengthFilter(60)});
+        }
+        rewriteText(findViewById(android.R.id.content),
+                "Фото и анимированные стикеры сохраняются как отдельные наборы.",
+                "Режимы сохраняются отдельно");
+        hideExactText(findViewById(android.R.id.content), "Файлы останутся на устройстве");
+        installDraftChip();
+    }
+
+    private void installDraftChip() {
+        View counter = findViewById(R.id.create_media_counter);
+        if (counter == null) return;
+        ViewParent headerParent = counter.getParent();
+        if (!(headerParent instanceof View)) return;
+        ViewParent cardParent = ((View) headerParent).getParent();
+        if (!(cardParent instanceof LinearLayout)) return;
+
+        LinearLayout card = (LinearLayout) cardParent;
+        draftChip = new TextView(this);
+        draftChip.setId(R.id.create_draft_chip);
+        draftChip.setText("Черновик");
+        draftChip.setTextSize(12);
+        draftChip.setTypeface(Typeface.create("sans", Typeface.BOLD));
+        draftChip.setTextColor(color(R.color.app_primary));
+        draftChip.setGravity(Gravity.CENTER);
+        draftChip.setPadding(dp(10), dp(5), dp(10), dp(5));
+        draftChip.setBackground(rounded(color(R.color.app_primary_container), 14));
+        draftChip.setVisibility(View.GONE);
+
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.topMargin = dp(10);
+        card.addView(draftChip, Math.min(1, card.getChildCount()), params);
+        updateDraftChip();
+    }
+
+    private void updateDraftChip() {
+        if (draftChip == null) return;
+        boolean visible = EditorInstanceStateBridge.hasPersistent(this)
+                && !MainActivityRuntimeAccess.selectedUrisSnapshot(this).isEmpty();
+        draftChip.setVisibility(visible ? View.VISIBLE : View.GONE);
+    }
+
+    private void rewriteText(View view, String from, String to) {
+        if (view == null) return;
+        if (view instanceof TextView) {
+            TextView text = (TextView) view;
+            CharSequence value = text.getText();
+            if (value != null && from.contentEquals(value)) text.setText(to);
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                rewriteText(group.getChildAt(i), from, to);
+            }
+        }
+    }
+
+    private void hideExactText(View view, String expected) {
+        if (view == null) return;
+        if (view instanceof TextView) {
+            TextView text = (TextView) view;
+            CharSequence value = text.getText();
+            if (value != null && expected.contentEquals(value)) text.setVisibility(View.GONE);
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                hideExactText(group.getChildAt(i), expected);
+            }
         }
     }
 
@@ -207,7 +290,7 @@ public class SettingsShellActivity extends PacksShellActivity {
     private void showMediaHelp() {
         new AlertDialog.Builder(this)
                 .setTitle("Медиа")
-                .setMessage("Удерживайте карточку для сортировки, ★ выбирает обложку. Для длинного видео откройте карточку и измените фрагмент.")
+                .setMessage("3–30 файлов · удерживайте для сортировки · ★ обложка. Для длинного видео откройте карточку и измените фрагмент.")
                 .setPositiveButton("Понятно", null)
                 .show();
     }
@@ -333,7 +416,7 @@ public class SettingsShellActivity extends PacksShellActivity {
     private void showHelp() {
         new AlertDialog.Builder(this)
                 .setTitle("Помощь")
-                .setMessage("Создать → настроить медиа → собрать → сохранить. Ошибочные файлы на экране сборки можно повторять отдельно.")
+                .setMessage("Создать → настроить медиа → собрать → сохранить. Ошибки можно повторить отдельно.")
                 .setPositiveButton("Понятно", null)
                 .show();
     }
@@ -359,6 +442,7 @@ public class SettingsShellActivity extends PacksShellActivity {
             BugLogStore.appendApp("Could not refresh Packs panel after overflow action: " + error);
         }
         updateTopActionsVisibility();
+        updateDraftChip();
     }
 
     private void applyCompactMode(View view) {
