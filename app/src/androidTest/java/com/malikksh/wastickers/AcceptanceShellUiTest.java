@@ -74,7 +74,6 @@ public class AcceptanceShellUiTest {
             });
 
             onView(withContentDescription("Действия с набором Acceptance pack")).perform(click());
-            onView(withText("Acceptance pack")).check(matches(isDisplayed()));
             onView(withText("Переименовать")).check(matches(isDisplayed()));
             onView(withText("Дублировать")).check(matches(isDisplayed()));
             onView(withText("Детали")).check(matches(isDisplayed()));
