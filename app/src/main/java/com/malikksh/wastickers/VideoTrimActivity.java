@@ -4,7 +4,6 @@ import android.app.Activity;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Typeface;
-import android.graphics.drawable.GradientDrawable;
 import android.media.MediaMetadataRetriever;
 import android.os.Build;
 import android.os.Bundle;
@@ -47,6 +46,8 @@ public class VideoTrimActivity extends Activity {
     private TextView duration;
     private TextView range;
     private SeekBar seekBar;
+    private Button stepBack;
+    private Button stepForward;
     private Button previous;
     private Button next;
 
@@ -116,11 +117,12 @@ public class VideoTrimActivity extends Activity {
     private View buildUi() {
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
+        scroll.setClipToPadding(false);
         scroll.setBackgroundColor(color(R.color.app_background));
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(18), dp(18), dp(18), dp(28));
+        root.setPadding(dp(20), dp(18), dp(20), dp(28));
         scroll.addView(root, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -135,13 +137,11 @@ public class VideoTrimActivity extends Activity {
         header.addView(headerText, new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-        TextView title = text("Фрагмент видео", 26,
-                color(R.color.app_text_primary), Typeface.BOLD);
+        TextView title = UiComponents.screenTitle(this, "Фрагмент видео");
         title.setId(R.id.trim_title);
         headerText.addView(title, matchWrap());
 
-        TextView subtitle = text("Выберите участок до 10 секунд", 13,
-                color(R.color.app_text_secondary), Typeface.NORMAL);
+        TextView subtitle = UiComponents.metadata(this, "Выберите участок до 10 секунд");
         LinearLayout.LayoutParams subtitleParams = matchWrap();
         subtitleParams.topMargin = dp(2);
         headerText.addView(subtitle, subtitleParams);
@@ -150,11 +150,12 @@ public class VideoTrimActivity extends Activity {
         indicator.setId(R.id.trim_indicator);
         indicator.setGravity(Gravity.CENTER);
         indicator.setPadding(dp(12), 0, dp(12), 0);
-        indicator.setBackground(rounded(color(R.color.app_primary_container), 16));
+        indicator.setBackground(UiComponents.rounded(
+                this, R.color.app_primary_container, R.dimen.radius_pill));
         header.addView(indicator, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, dp(38)));
 
-        LinearLayout editorCard = card();
+        LinearLayout editorCard = UiComponents.card(this);
         LinearLayout.LayoutParams cardParams = matchWrap();
         cardParams.topMargin = dp(16);
         root.addView(editorCard, cardParams);
@@ -162,19 +163,20 @@ public class VideoTrimActivity extends Activity {
         preview = new ImageView(this);
         preview.setId(R.id.trim_preview);
         preview.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        preview.setBackground(rounded(color(R.color.app_disabled_surface), 18));
+        preview.setBackground(UiComponents.rounded(
+                this, R.color.app_disabled_surface, R.dimen.radius_card));
         if (Build.VERSION.SDK_INT >= 21) preview.setClipToOutline(true);
         editorCard.addView(preview, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(240)));
 
-        filename = text("", 18, color(R.color.app_text_primary), Typeface.BOLD);
+        filename = UiComponents.cardTitle(this, "");
         filename.setId(R.id.trim_filename);
         filename.setMaxLines(2);
         LinearLayout.LayoutParams filenameParams = matchWrap();
         filenameParams.topMargin = dp(14);
         editorCard.addView(filename, filenameParams);
 
-        duration = text("", 13, color(R.color.app_text_secondary), Typeface.NORMAL);
+        duration = UiComponents.metadata(this, "");
         duration.setId(R.id.trim_duration);
         LinearLayout.LayoutParams durationParams = matchWrap();
         durationParams.topMargin = dp(4);
@@ -186,15 +188,17 @@ public class VideoTrimActivity extends Activity {
         rangeParams.topMargin = dp(16);
         editorCard.addView(range, rangeParams);
 
-        TextView hint = text(
-                "Перемещайте ползунок. Превью обновится после отпускания.",
-                12, color(R.color.app_text_secondary), Typeface.NORMAL);
+        TextView hint = UiComponents.metadata(
+                this,
+                "Перемещайте ползунок или используйте шаг ±0.1 с. Превью обновляется после выбора."
+        );
         LinearLayout.LayoutParams hintParams = matchWrap();
         hintParams.topMargin = dp(4);
         editorCard.addView(hint, hintParams);
 
         seekBar = new SeekBar(this);
         seekBar.setId(R.id.trim_seek);
+        seekBar.setContentDescription("Начало 10-секундного фрагмента");
         LinearLayout.LayoutParams seekParams = matchWrap();
         seekParams.topMargin = dp(8);
         editorCard.addView(seekBar, seekParams);
@@ -204,9 +208,7 @@ public class VideoTrimActivity extends Activity {
                 if (!fromUser || entries == null || entries.isEmpty()) return;
                 VideoTrimStore.Entry entry = entries.get(currentIndex);
                 long start = VideoTrimPolicy.startFromSeekBar(entry.durationMs, progress);
-                workingStarts[currentIndex] = start;
-                VideoTrimStore.setStartOffsetMs(entry.key, start);
-                updateRangeLabel(entry.durationMs, start);
+                setWorkingStart(entry, start, false);
             }
 
             @Override
@@ -216,15 +218,34 @@ public class VideoTrimActivity extends Activity {
             @Override
             public void onStopTrackingTouch(SeekBar bar) {
                 VideoTrimStore.Entry entry = entries.get(currentIndex);
-                long start = VideoTrimPolicy.startFromSeekBar(
-                        entry.durationMs,
-                        bar.getProgress()
-                );
-                workingStarts[currentIndex] = start;
-                VideoTrimStore.setStartOffsetMs(entry.key, start);
-                loadPreview(entry, start);
+                long start = VideoTrimPolicy.startFromSeekBar(entry.durationMs, bar.getProgress());
+                setWorkingStart(entry, start, true);
             }
         });
+
+        LinearLayout stepRow = new LinearLayout(this);
+        stepRow.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams stepParams = matchWrap();
+        stepParams.topMargin = dp(10);
+        editorCard.addView(stepRow, stepParams);
+
+        stepBack = new Button(this);
+        stepBack.setId(R.id.trim_step_back);
+        stepBack.setText("−0.1 с");
+        stepBack.setAllCaps(false);
+        stepBack.setContentDescription("Сдвинуть начало фрагмента на 0,1 секунды назад");
+        stepBack.setOnClickListener(v -> adjustStartBy(-VideoTrimPolicy.SEEK_STEP_MS));
+        stepRow.addView(stepBack, new LinearLayout.LayoutParams(0, dp(48), 1f));
+
+        stepForward = new Button(this);
+        stepForward.setId(R.id.trim_step_forward);
+        stepForward.setText("+0.1 с");
+        stepForward.setAllCaps(false);
+        stepForward.setContentDescription("Сдвинуть начало фрагмента на 0,1 секунды вперёд");
+        stepForward.setOnClickListener(v -> adjustStartBy(VideoTrimPolicy.SEEK_STEP_MS));
+        LinearLayout.LayoutParams forwardParams = new LinearLayout.LayoutParams(0, dp(48), 1f);
+        forwardParams.leftMargin = dp(8);
+        stepRow.addView(stepForward, forwardParams);
 
         LinearLayout pager = new LinearLayout(this);
         pager.setOrientation(LinearLayout.HORIZONTAL);
@@ -236,7 +257,6 @@ public class VideoTrimActivity extends Activity {
         previous.setId(R.id.trim_previous);
         previous.setText("← Предыдущее");
         previous.setAllCaps(false);
-        styleSecondaryButton(previous);
         previous.setOnClickListener(v -> showEntry(currentIndex - 1));
         pager.addView(previous, new LinearLayout.LayoutParams(0, dp(48), 1f));
 
@@ -244,7 +264,6 @@ public class VideoTrimActivity extends Activity {
         next.setId(R.id.trim_next);
         next.setText("Следующее →");
         next.setAllCaps(false);
-        styleSecondaryButton(next);
         next.setOnClickListener(v -> showEntry(currentIndex + 1));
         LinearLayout.LayoutParams nextParams = new LinearLayout.LayoutParams(0, dp(48), 1f);
         nextParams.leftMargin = dp(8);
@@ -260,7 +279,7 @@ public class VideoTrimActivity extends Activity {
         cancel.setId(R.id.trim_cancel);
         cancel.setText("Отмена");
         cancel.setAllCaps(false);
-        styleSecondaryButton(cancel);
+        UiComponents.styleOutlineButton(cancel, true);
         cancel.setOnClickListener(v -> cancelAndFinish());
         actions.addView(cancel, new LinearLayout.LayoutParams(0, dp(54), 1f));
 
@@ -268,7 +287,7 @@ public class VideoTrimActivity extends Activity {
         done.setId(R.id.trim_done);
         done.setText("Готово");
         done.setAllCaps(false);
-        stylePrimaryButton(done);
+        UiComponents.stylePrimaryButton(done, true);
         done.setOnClickListener(v -> saveAndFinish());
         LinearLayout.LayoutParams doneParams = new LinearLayout.LayoutParams(0, dp(54), 1f);
         doneParams.leftMargin = dp(8);
@@ -298,18 +317,45 @@ public class VideoTrimActivity extends Activity {
         seekBar.setMax(VideoTrimPolicy.seekBarMax(entry.durationMs));
         seekBar.setProgress(VideoTrimPolicy.seekBarProgress(entry.durationMs, start));
         updateRangeLabel(entry.durationMs, start);
+        updateStepButtons(entry.durationMs, start);
         loadPreview(entry, start);
         updatePagerButtons();
+    }
+
+    private void adjustStartBy(long deltaMs) {
+        if (entries == null || entries.isEmpty()) return;
+        VideoTrimStore.Entry entry = entries.get(currentIndex);
+        long start = VideoTrimPolicy.clampStartMs(
+                entry.durationMs,
+                workingStarts[currentIndex] + deltaMs
+        );
+        setWorkingStart(entry, start, true);
+        seekBar.setProgress(VideoTrimPolicy.seekBarProgress(entry.durationMs, start));
+    }
+
+    private void setWorkingStart(VideoTrimStore.Entry entry, long requestedStart, boolean refreshPreview) {
+        long start = VideoTrimPolicy.clampStartMs(entry.durationMs, requestedStart);
+        workingStarts[currentIndex] = start;
+        VideoTrimStore.setStartOffsetMs(entry.key, start);
+        updateRangeLabel(entry.durationMs, start);
+        updateStepButtons(entry.durationMs, start);
+        if (refreshPreview) loadPreview(entry, start);
+    }
+
+    private void updateStepButtons(long durationMs, long start) {
+        if (stepBack == null || stepForward == null) return;
+        long back = VideoTrimPolicy.clampStartMs(durationMs, start - VideoTrimPolicy.SEEK_STEP_MS);
+        long forward = VideoTrimPolicy.clampStartMs(durationMs, start + VideoTrimPolicy.SEEK_STEP_MS);
+        UiComponents.styleOutlineButton(stepBack, back != start);
+        UiComponents.styleOutlineButton(stepForward, forward != start);
     }
 
     private void updatePagerButtons() {
         boolean multiple = entries.size() > 1;
         previous.setVisibility(multiple ? View.VISIBLE : View.GONE);
         next.setVisibility(multiple ? View.VISIBLE : View.GONE);
-        previous.setEnabled(currentIndex > 0);
-        next.setEnabled(currentIndex < entries.size() - 1);
-        previous.setAlpha(previous.isEnabled() ? 1f : 0.45f);
-        next.setAlpha(next.isEnabled() ? 1f : 0.45f);
+        UiComponents.styleOutlineButton(previous, currentIndex > 0);
+        UiComponents.styleOutlineButton(next, currentIndex < entries.size() - 1);
     }
 
     private void updateRangeLabel(long durationMs, long requestedStartMs) {
@@ -412,15 +458,6 @@ public class VideoTrimActivity extends Activity {
         super.onSaveInstanceState(outState);
     }
 
-    private LinearLayout card() {
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(16), dp(16), dp(16), dp(16));
-        card.setBackground(rounded(color(R.color.app_surface), 20));
-        if (Build.VERSION.SDK_INT >= 21) card.setElevation(dp(2));
-        return card;
-    }
-
     private TextView text(String value, int size, int textColor, int style) {
         TextView view = new TextView(this);
         view.setText(value);
@@ -428,29 +465,6 @@ public class VideoTrimActivity extends Activity {
         view.setTextColor(textColor);
         view.setTypeface(Typeface.create("sans", style));
         return view;
-    }
-
-    private void stylePrimaryButton(Button button) {
-        button.setTextSize(15);
-        button.setTextColor(color(R.color.app_on_primary));
-        button.setTypeface(Typeface.create("sans", Typeface.BOLD));
-        button.setBackground(rounded(color(R.color.app_primary), 14));
-    }
-
-    private void styleSecondaryButton(Button button) {
-        button.setTextSize(14);
-        button.setTextColor(color(R.color.app_primary));
-        button.setTypeface(Typeface.create("sans", Typeface.BOLD));
-        GradientDrawable background = rounded(color(R.color.app_surface), 14);
-        background.setStroke(dp(1), color(R.color.app_border));
-        button.setBackground(background);
-    }
-
-    private GradientDrawable rounded(int fillColor, int radiusDp) {
-        GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(fillColor);
-        drawable.setCornerRadius(dp(radiusDp));
-        return drawable;
     }
 
     private LinearLayout.LayoutParams matchWrap() {

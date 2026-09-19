@@ -28,6 +28,8 @@
     <item name="trim_duration" type="id" />
     <item name="trim_range" type="id" />
     <item name="trim_seek" type="id" />
+    <item name="trim_step_back" type="id" />
+    <item name="trim_step_forward" type="id" />
     <item name="trim_previous" type="id" />
     <item name="trim_next" type="id" />
     <item name="trim_cancel" type="id" />
