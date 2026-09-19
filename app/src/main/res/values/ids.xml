@@ -42,6 +42,8 @@
     <item name="build_primary" type="id" />
     <item name="build_secondary" type="id" />
     <item name="packs_panel" type="id" />
+    <item name="packs_search" type="id" />
+    <item name="packs_overflow" type="id" />
     <item name="packs_filter_all" type="id" />
     <item name="packs_filter_photo" type="id" />
     <item name="packs_filter_animated" type="id" />
