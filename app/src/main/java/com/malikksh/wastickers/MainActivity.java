@@ -65,11 +65,10 @@ public class MainActivity extends Activity {
     private static final int BORDER = 0xFFDCE7E1;
     private static final int ERROR = 0xFFB3261E;
 
-    private final List<Uri> selectedUris = new ArrayList<>();
+    private final EditorRuntimeState<Uri> editorState = new EditorRuntimeState<>();
     private final List<TextView> fileProgressLabels = new ArrayList<>();
     private final List<ProgressBar> fileProgressBars = new ArrayList<>();
     private final List<String> fileProgressNames = new ArrayList<>();
-    private final EditorStateController<Uri> editorStateController = new EditorStateController<>();
     private final PackBuildSession<Uri> buildSession = new PackBuildSession<>();
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
@@ -93,12 +92,10 @@ public class MainActivity extends Activity {
 
     private PackStore.Pack currentPack;
     private boolean processing;
-    private boolean animatedMode;
     private boolean lastOperationFailed;
     private String lastBugLog = "";
     private int diagnosticItemIndex = -1;
     private Uri diagnosticItemUri;
-    private Uri coverUri;
     private volatile boolean activityDestroyed;
 
     @Override
@@ -467,20 +464,10 @@ public class MainActivity extends Activity {
     }
 
     private void setAnimatedMode(boolean animated) {
-        if (processing || animatedMode == animated) return;
+        if (processing || editorState.isAnimated() == animated) return;
         String currentName = packName == null ? "" : packName.getText().toString();
-        EditorStateController.Snapshot<Uri> next = editorStateController.switchMode(
-                animatedMode,
-                animated,
-                selectedUris,
-                coverUri,
-                currentName
-        );
+        EditorStateController.Snapshot<Uri> next = editorState.switchMode(animated, currentName);
         invalidateCurrentPack();
-        animatedMode = animated;
-        selectedUris.clear();
-        selectedUris.addAll(next.items());
-        coverUri = next.cover();
         if (packName != null) packName.setText(next.name());
         renderPreviews();
         updateModeUi();
@@ -489,10 +476,10 @@ public class MainActivity extends Activity {
 
     private void updateModeUi() {
         if (photoModeButton == null) return;
-        styleModeButton(photoModeButton, !animatedMode);
-        styleModeButton(animatedModeButton, animatedMode);
+        styleModeButton(photoModeButton, !editorState.isAnimated());
+        styleModeButton(animatedModeButton, editorState.isAnimated());
 
-        if (animatedMode) {
+        if (editorState.isAnimated()) {
             mediaTitle.setText("2  Анимации и видео");
             mediaHint.setText("Выберите 3–30 файлов. Удерживайте превью, чтобы поменять порядок; ★ выбирает обложку набора.");
             actionHint.setText("До 10 секунд на стикер. Ошибки отдельных файлов не сбрасывают уже готовые стикеры: их можно повторить отдельно.");
@@ -504,7 +491,7 @@ public class MainActivity extends Activity {
     }
 
     private void openMediaPicker() {
-        if (animatedMode) openAnimatedPicker();
+        if (editorState.isAnimated()) openAnimatedPicker();
         else openPhotoGallery();
     }
 
@@ -587,11 +574,8 @@ public class MainActivity extends Activity {
 
         boolean changed = false;
         for (Uri uri : incoming) {
-            if (selectedUris.size() >= MAX_STICKERS) break;
-            if (!selectedUris.contains(uri)) {
-                selectedUris.add(uri);
-                changed = true;
-            }
+            if (editorState.items().size() >= MAX_STICKERS) break;
+            if (editorState.addUnique(uri, MAX_STICKERS)) changed = true;
             if (persistPermission) {
                 try {
                     getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
@@ -600,7 +584,7 @@ public class MainActivity extends Activity {
             }
         }
 
-        if (coverUri == null && !selectedUris.isEmpty()) coverUri = selectedUris.get(0);
+        editorState.ensureCover();
         if (changed) invalidateCurrentPack();
         renderPreviews();
         updateUiState();
@@ -610,10 +594,10 @@ public class MainActivity extends Activity {
         if (previewContainer == null) return;
         previewContainer.removeAllViews();
 
-        if (selectedUris.isEmpty()) {
-            coverUri = null;
+        if (editorState.items().isEmpty()) {
+            editorState.ensureCover();
             TextView empty = text(
-                    animatedMode ? "Выбранные анимации появятся здесь" : "Выбранные фото появятся здесь",
+                    editorState.isAnimated() ? "Выбранные анимации появятся здесь" : "Выбранные фото появятся здесь",
                     13, MUTED, Typeface.NORMAL);
             empty.setGravity(Gravity.CENTER);
             empty.setPadding(dp(16), 0, dp(16), 0);
@@ -622,12 +606,12 @@ public class MainActivity extends Activity {
             return;
         }
 
-        if (coverUri == null || !selectedUris.contains(coverUri)) coverUri = selectedUris.get(0);
+        editorState.ensureCover();
 
-        for (int i = 0; i < selectedUris.size(); i++) {
+        for (int i = 0; i < editorState.items().size(); i++) {
             final int index = i;
-            Uri uri = selectedUris.get(i);
-            boolean isCover = uri.equals(coverUri);
+            Uri uri = editorState.items().get(i);
+            boolean isCover = uri.equals(editorState.cover());
 
             FrameLayout frame = new FrameLayout(this);
             LinearLayout.LayoutParams frameParams = new LinearLayout.LayoutParams(dp(96), dp(96));
@@ -637,7 +621,7 @@ public class MainActivity extends Activity {
             ImageView image = new ImageView(this);
             image.setScaleType(ImageView.ScaleType.CENTER_CROP);
             image.setBackground(rounded(0xFFE9EFEC, 15));
-            image.setContentDescription("Стикер " + (i + 1) + " из " + selectedUris.size()
+            image.setContentDescription("Стикер " + (i + 1) + " из " + editorState.items().size()
                     + (isCover ? ", выбран как обложка" : "")
                     + ". Удерживайте для изменения порядка.");
             if (Build.VERSION.SDK_INT >= 21) image.setClipToOutline(true);
@@ -681,7 +665,7 @@ public class MainActivity extends Activity {
                 }
             });
 
-            if (animatedMode) {
+            if (editorState.isAnimated()) {
                 TextView play = text("▶", 13, Color.WHITE, Typeface.BOLD);
                 play.setGravity(Gravity.CENTER);
                 play.setContentDescription("Анимированный стикер");
@@ -696,8 +680,7 @@ public class MainActivity extends Activity {
             cover.setContentDescription(isCover ? "Текущая обложка набора" : "Сделать стикер " + (i + 1) + " обложкой");
             cover.setBackground(rounded(isCover ? 0xE625D366 : 0xEFFFFFFF, 12));
             cover.setOnClickListener(v -> {
-                if (processing || uri.equals(coverUri)) return;
-                coverUri = uri;
+                if (processing || uri.equals(editorState.cover()) || !editorState.selectCover(uri)) return;
                 invalidateCurrentPack();
                 renderPreviews();
                 updateUiState();
@@ -713,9 +696,7 @@ public class MainActivity extends Activity {
             remove.setContentDescription("Удалить стикер " + (i + 1));
             remove.setBackground(rounded(0xCC17231F, 12));
             remove.setOnClickListener(v -> {
-                if (!processing && index >= 0 && index < selectedUris.size()) {
-                    Uri removed = selectedUris.remove(index);
-                    if (removed.equals(coverUri)) coverUri = selectedUris.isEmpty() ? null : selectedUris.get(0);
+                if (!processing && editorState.removeAt(index)) {
                     invalidateCurrentPack();
                     renderPreviews();
                     updateUiState();
@@ -730,7 +711,7 @@ public class MainActivity extends Activity {
     }
 
     private void moveSticker(int fromIndex, int toIndex) {
-        if (processing || !StickerOrderPolicy.move(selectedUris, fromIndex, toIndex)) return;
+        if (processing || !editorState.move(fromIndex, toIndex)) return;
         invalidateCurrentPack();
         renderPreviews();
         updateUiState();
@@ -770,13 +751,13 @@ public class MainActivity extends Activity {
     }
 
     private void updateUiState() {
-        if (countText != null) countText.setText(selectedUris.size() + " / " + MAX_STICKERS);
+        if (countText != null) countText.setText(editorState.items().size() + " / " + MAX_STICKERS);
 
         if (galleryButton != null) {
-            String open = animatedMode ? "Выбрать GIF / WebP / видео" : "Открыть галерею";
-            String more = animatedMode ? "Добавить ещё анимации" : "Добавить ещё фото";
-            galleryButton.setText(selectedUris.isEmpty() ? open : more);
-            galleryButton.setEnabled(!processing && selectedUris.size() < MAX_STICKERS);
+            String open = editorState.isAnimated() ? "Выбрать GIF / WebP / видео" : "Открыть галерею";
+            String more = editorState.isAnimated() ? "Добавить ещё анимации" : "Добавить ещё фото";
+            galleryButton.setText(editorState.items().isEmpty() ? open : more);
+            galleryButton.setEnabled(!processing && editorState.items().size() < MAX_STICKERS);
             galleryButton.setAlpha(galleryButton.isEnabled() ? 1f : 0.45f);
         }
 
@@ -796,7 +777,7 @@ public class MainActivity extends Activity {
                 createButton.setEnabled(true);
             } else {
                 styleButton(createButton, GREEN, 0xFF073B2B);
-                boolean enough = selectedUris.size() >= MIN_STICKERS && selectedUris.size() <= MAX_STICKERS;
+                boolean enough = editorState.items().size() >= MIN_STICKERS && editorState.items().size() <= MAX_STICKERS;
                 createButton.setText("Создать набор");
                 createButton.setEnabled(enough);
             }
@@ -809,7 +790,7 @@ public class MainActivity extends Activity {
                 addButton.setEnabled(true);
             } else {
                 addButton.setText("Добавить в WhatsApp");
-                boolean packMatchesMode = currentPack != null && currentPack.animated == animatedMode;
+                boolean packMatchesMode = currentPack != null && currentPack.animated == editorState.isAnimated();
                 addButton.setEnabled(packMatchesMode && !processing);
             }
             addButton.setAlpha(addButton.isEnabled() ? 1f : 0.45f);
@@ -821,17 +802,17 @@ public class MainActivity extends Activity {
         }
 
         if (statusText != null && !processing && !lastOperationFailed) {
-            if (currentPack != null && currentPack.animated == animatedMode) {
+            if (currentPack != null && currentPack.animated == editorState.isAnimated()) {
                 statusText.setText("Набор «" + currentPack.name + "» готов к добавлению в WhatsApp.");
-            } else if (selectedUris.isEmpty()) {
-                statusText.setText(animatedMode
+            } else if (editorState.items().isEmpty()) {
+                statusText.setText(editorState.isAnimated()
                         ? "Выберите минимум 3 анимации или видео. Фото-черновик сохранён отдельно."
                         : "Выберите минимум 3 фотографии. Черновик анимации сохранён отдельно.");
-            } else if (selectedUris.size() < MIN_STICKERS) {
-                statusText.setText("Добавьте ещё " + (MIN_STICKERS - selectedUris.size())
-                        + (animatedMode ? " файла." : " фото."));
+            } else if (editorState.items().size() < MIN_STICKERS) {
+                statusText.setText("Добавьте ещё " + (MIN_STICKERS - editorState.items().size())
+                        + (editorState.isAnimated() ? " файла." : " фото."));
             } else {
-                statusText.setText(animatedMode
+                statusText.setText(editorState.isAnimated()
                         ? "Анимации выбраны. Можно менять порядок, обложку и создавать набор."
                         : "Фото выбраны. Можно менять порядок, обложку и создавать набор.");
             }
@@ -839,22 +820,22 @@ public class MainActivity extends Activity {
     }
 
     private void createPack() {
-        if (selectedUris.size() < MIN_STICKERS || selectedUris.size() > MAX_STICKERS) {
+        if (editorState.items().size() < MIN_STICKERS || editorState.items().size() > MAX_STICKERS) {
             Toast.makeText(this, "Нужно выбрать от 3 до 30 файлов", Toast.LENGTH_SHORT).show();
             return;
         }
 
         String enteredName = packName.getText().toString().trim();
         String finalName = enteredName.isEmpty()
-                ? (animatedMode ? "Мои анимированные стикеры" : "Мои стикеры")
+                ? (editorState.isAnimated() ? "Мои анимированные стикеры" : "Мои стикеры")
                 : enteredName;
-        List<Uri> work = new ArrayList<>(selectedUris);
-        Uri preferredCover = coverUri != null && work.contains(coverUri) ? coverUri : work.get(0);
+        List<Uri> work = new ArrayList<>(editorState.items());
+        Uri preferredCover = editorState.cover() != null && work.contains(editorState.cover()) ? editorState.cover() : work.get(0);
 
         invalidateCurrentPack();
-        String packId = (animatedMode ? "animated_" : "pack_") + System.currentTimeMillis();
+        String packId = (editorState.isAnimated() ? "animated_" : "pack_") + System.currentTimeMillis();
         File packDir = PackStore.getPackDir(this, packId);
-        buildSession.begin(packId, finalName, packDir, animatedMode, preferredCover);
+        buildSession.begin(packId, finalName, packDir, editorState.isAnimated(), preferredCover);
 
         diagnosticItemIndex = -1;
         diagnosticItemUri = null;
@@ -1078,7 +1059,7 @@ public class MainActivity extends Activity {
             try {
                 finalizePendingPackOnWorker(skippedCount);
             } catch (Throwable error) {
-                lastBugLog = buildBugLog(error, buildSession.isAnimated(), new ArrayList<>(selectedUris));
+                lastBugLog = buildBugLog(error, buildSession.isAnimated(), new ArrayList<>(editorState.items()));
                 saveBugLog(lastBugLog);
                 if (activityDestroyed) {
                     discardPendingBuild();
@@ -1293,7 +1274,7 @@ public class MainActivity extends Activity {
             }
         } catch (Throwable ignored) {
         }
-        return (animatedMode ? "Анимация " : "Фото ") + fallbackNumber;
+        return (editorState.isAnimated() ? "Анимация " : "Фото ") + fallbackNumber;
     }
 
     private String formatBytes(long bytes) {
@@ -1460,7 +1441,7 @@ public class MainActivity extends Activity {
             Toast.makeText(this, "Сначала успешно создайте новый набор", Toast.LENGTH_SHORT).show();
             return;
         }
-        if (currentPack.animated != animatedMode) {
+        if (currentPack.animated != editorState.isAnimated()) {
             currentPack = null;
             updateUiState();
             Toast.makeText(this, "Текущий набор устарел. Создайте набор заново.", Toast.LENGTH_LONG).show();
@@ -1540,7 +1521,7 @@ public class MainActivity extends Activity {
     }
 
     boolean runtimeIsAnimatedMode() {
-        return animatedMode;
+        return editorState.isAnimated();
     }
 
     boolean runtimeIsProcessing() {
@@ -1548,15 +1529,15 @@ public class MainActivity extends Activity {
     }
 
     Uri runtimeCoverUri() {
-        return coverUri;
+        return editorState.cover();
     }
 
     List<Uri> runtimeSelectedUrisSnapshot() {
-        return new ArrayList<>(selectedUris);
+        return editorState.snapshotItems();
     }
 
     EditorStateController<Uri> runtimeEditorStateController() {
-        return editorStateController;
+        return editorState.drafts();
     }
 
     String runtimeEnteredPackName() {
@@ -1660,8 +1641,7 @@ public class MainActivity extends Activity {
     }
 
     boolean runtimeSelectCover(Uri uri) {
-        if (uri == null || processing || !selectedUris.contains(uri)) return false;
-        coverUri = uri;
+        if (processing || !editorState.selectCover(uri)) return false;
         invalidateCurrentPack();
         renderPreviews();
         updateUiState();
@@ -1669,11 +1649,7 @@ public class MainActivity extends Activity {
     }
 
     boolean runtimeRemoveMediaAt(int index) {
-        if (processing || index < 0 || index >= selectedUris.size()) return false;
-        Uri removed = selectedUris.remove(index);
-        if (removed != null && removed.equals(coverUri)) {
-            coverUri = selectedUris.isEmpty() ? null : selectedUris.get(0);
-        }
+        if (processing || !editorState.removeAt(index)) return false;
         invalidateCurrentPack();
         renderPreviews();
         updateUiState();
@@ -1681,9 +1657,7 @@ public class MainActivity extends Activity {
     }
 
     boolean runtimeClearMedia() {
-        if (processing || selectedUris.isEmpty()) return false;
-        selectedUris.clear();
-        coverUri = null;
+        if (processing || !editorState.clearSelection()) return false;
         invalidateCurrentPack();
         renderPreviews();
         updateUiState();
@@ -1693,11 +1667,10 @@ public class MainActivity extends Activity {
     boolean runtimeClearEditorDraft() {
         if (processing) return false;
         try {
-            selectedUris.clear();
-            coverUri = null;
+            editorState.clearSelection();
             if (packName != null) packName.setText("");
-            editorStateController.capture(false, new ArrayList<>(), null, "");
-            editorStateController.capture(true, new ArrayList<>(), null, "");
+            editorState.drafts().capture(false, new ArrayList<>(), null, "");
+            editorState.drafts().capture(true, new ArrayList<>(), null, "");
             discardPendingBuild();
             invalidateCurrentPack();
             renderPreviews();
@@ -1718,10 +1691,7 @@ public class MainActivity extends Activity {
             PackStore.Pack restoredPack
     ) {
         try {
-            animatedMode = animated;
-            selectedUris.clear();
-            if (items != null) selectedUris.addAll(items);
-            coverUri = cover;
+            editorState.restoreActive(animated, items, cover);
             if (packName != null) packName.setText(name == null ? "" : name);
             currentPack = restoredPack;
             renderPreviews();
