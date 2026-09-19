@@ -18,8 +18,6 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -94,10 +92,10 @@ public class AppShellActivity extends LauncherActivity {
         super.onDestroy();
     }
 
-    private void installShell() throws Exception {
-        EditText packName = (EditText) readField(MainActivity.class, "packName");
-        photoModeButton = (Button) readField(MainActivity.class, "photoModeButton");
-        animatedModeButton = (Button) readField(MainActivity.class, "animatedModeButton");
+    private void installShell() {
+        EditText packName = MainActivityRuntimeAccess.packName(this);
+        photoModeButton = MainActivityRuntimeAccess.photoModeButton(this);
+        animatedModeButton = MainActivityRuntimeAccess.animatedModeButton(this);
         if (packName == null || photoModeButton == null || animatedModeButton == null) {
             throw new IllegalStateException("Editor controls are missing");
         }
@@ -491,7 +489,7 @@ public class AppShellActivity extends LauncherActivity {
     private void refreshShellState() {
         if (createMediaCounter == null) return;
         List<Uri> items = selectedUrisSnapshot();
-        boolean animated = EditorInstanceStateBridge.isAnimatedMode(this);
+        boolean animated = MainActivityRuntimeAccess.isAnimatedMode(this);
         refreshCreateMediaCard(items, animated);
         if (mediaPanel != null) mediaPanel.render(items, coverUriSnapshot(), animated);
     }
@@ -561,47 +559,26 @@ public class AppShellActivity extends LauncherActivity {
 
     private void moveMediaFromShell(int fromIndex, int toIndex) {
         if (isProcessing()) return;
-        invokeMainMethod("moveSticker", new Class<?>[]{int.class, int.class}, fromIndex, toIndex);
+        MainActivityRuntimeAccess.moveSticker(this, fromIndex, toIndex);
         persistAndRefreshShell();
     }
 
     private void selectCoverFromShell(Uri uri) {
-        if (isProcessing() || uri == null || !selectedUrisSnapshot().contains(uri)) return;
-        writeFieldQuietly(MainActivity.class, "coverUri", uri);
-        syncEditorAfterMediaMutation();
-    }
-
-    @SuppressWarnings("unchecked")
-    private void removeMediaFromShell(int index) {
-        if (isProcessing()) return;
-        Object value = readFieldQuietly(MainActivity.class, "selectedUris");
-        if (!(value instanceof List<?>)) return;
-        List<Uri> selected = (List<Uri>) value;
-        if (index < 0 || index >= selected.size()) return;
-        Uri removed = selected.remove(index);
-        Uri cover = coverUriSnapshot();
-        if (removed != null && removed.equals(cover)) {
-            writeFieldQuietly(MainActivity.class, "coverUri",
-                    selected.isEmpty() ? null : selected.get(0));
+        if (MainActivityRuntimeAccess.selectCover(this, uri)) {
+            persistAndRefreshShell();
         }
-        syncEditorAfterMediaMutation();
     }
 
-    @SuppressWarnings("unchecked")
+    private void removeMediaFromShell(int index) {
+        if (MainActivityRuntimeAccess.removeMediaAt(this, index)) {
+            persistAndRefreshShell();
+        }
+    }
+
     private void clearMediaFromShell() {
-        if (isProcessing()) return;
-        Object value = readFieldQuietly(MainActivity.class, "selectedUris");
-        if (!(value instanceof List<?>)) return;
-        ((List<Uri>) value).clear();
-        writeFieldQuietly(MainActivity.class, "coverUri", null);
-        syncEditorAfterMediaMutation();
-    }
-
-    private void syncEditorAfterMediaMutation() {
-        invokeMainMethod("invalidateCurrentPack", new Class<?>[0]);
-        invokeMainMethod("renderPreviews", new Class<?>[0]);
-        invokeMainMethod("updateUiState", new Class<?>[0]);
-        persistAndRefreshShell();
+        if (MainActivityRuntimeAccess.clearMedia(this)) {
+            persistAndRefreshShell();
+        }
     }
 
     private void persistAndRefreshShell() {
@@ -614,13 +591,11 @@ public class AppShellActivity extends LauncherActivity {
     }
 
     private boolean isProcessing() {
-        Object value = readFieldQuietly(MainActivity.class, "processing");
-        return value instanceof Boolean && (Boolean) value;
+        return MainActivityRuntimeAccess.isProcessing(this);
     }
 
     private Uri coverUriSnapshot() {
-        Object value = readFieldQuietly(MainActivity.class, "coverUri");
-        return value instanceof Uri ? (Uri) value : null;
+        return MainActivityRuntimeAccess.coverUri(this);
     }
 
     private void installModeListeners() {
@@ -635,52 +610,11 @@ public class AppShellActivity extends LauncherActivity {
     }
 
     private void invokeSetAnimatedMode(boolean animated) {
-        invokeMainMethod("setAnimatedMode", new Class<?>[]{boolean.class}, animated);
-    }
-
-    private Object invokeMainMethod(String name, Class<?>[] parameterTypes, Object... args) {
-        try {
-            Method method = MainActivity.class.getDeclaredMethod(name, parameterTypes);
-            method.setAccessible(true);
-            return method.invoke(this, args);
-        } catch (Throwable error) {
-            BugLogStore.appendApp("Could not invoke " + name + " from app shell: " + error);
-            return null;
-        }
+        MainActivityRuntimeAccess.setAnimatedMode(this, animated);
     }
 
     private List<Uri> selectedUrisSnapshot() {
-        Object value = readFieldQuietly(MainActivity.class, "selectedUris");
-        if (!(value instanceof List<?>)) return new ArrayList<>();
-        List<Uri> result = new ArrayList<>();
-        for (Object item : (List<?>) value) {
-            if (item instanceof Uri) result.add((Uri) item);
-        }
-        return result;
-    }
-
-    private Object readField(Class<?> owner, String name) throws Exception {
-        Field field = owner.getDeclaredField(name);
-        field.setAccessible(true);
-        return field.get(this);
-    }
-
-    private Object readFieldQuietly(Class<?> owner, String name) {
-        try {
-            return readField(owner, name);
-        } catch (Throwable ignored) {
-            return null;
-        }
-    }
-
-    private void writeFieldQuietly(Class<?> owner, String name, Object value) {
-        try {
-            Field field = owner.getDeclaredField(name);
-            field.setAccessible(true);
-            field.set(this, value);
-        } catch (Throwable error) {
-            BugLogStore.appendApp("Could not update " + name + " from app shell: " + error);
-        }
+        return MainActivityRuntimeAccess.selectedUrisSnapshot(this);
     }
 
     private static void detach(View view) {
