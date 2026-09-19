@@ -1,7 +1,6 @@
 package com.malikksh.wastickers;
 
 import static androidx.test.espresso.Espresso.onView;
-import static androidx.test.espresso.action.ViewActions.click;
 import static androidx.test.espresso.assertion.ViewAssertions.matches;
 import static androidx.test.espresso.matcher.ViewMatchers.isDisplayed;
 import static androidx.test.espresso.matcher.ViewMatchers.isEnabled;
@@ -99,9 +98,20 @@ public class HandoffComplianceUiTest {
 
     @Test
     public void packsTabUsesItsOwnSearchAndOverflowHeader() {
-        try (ActivityScenario<SettingsShellActivity> ignored =
+        try (ActivityScenario<SettingsShellActivity> scenario =
                      ActivityScenario.launch(SettingsShellActivity.class)) {
-            onView(withId(R.id.nav_packs)).perform(click());
+            scenario.onActivity(activity -> {
+                View packs = activity.findViewById(R.id.nav_packs);
+                assertNotNull(packs);
+                assertTrue(packs.performClick());
+                View search = activity.findViewById(R.id.packs_search);
+                View overflow = activity.findViewById(R.id.packs_overflow);
+                assertNotNull(search);
+                assertNotNull(overflow);
+                assertTrue(search.isShown());
+                assertTrue(overflow.isShown());
+            });
+
             onView(withId(R.id.packs_search)).check(matches(isDisplayed()));
             onView(withId(R.id.packs_overflow)).check(matches(isDisplayed()));
             onView(withId(R.id.app_settings)).check(matches(not(isDisplayed())));
