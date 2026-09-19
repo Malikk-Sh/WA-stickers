@@ -101,6 +101,36 @@ final class MainActivityRuntimeAccess {
         return value instanceof PackStore.Pack ? (PackStore.Pack) value : null;
     }
 
+    static boolean replaceCurrentPackIfId(
+            MainActivity activity,
+            String expectedId,
+            PackStore.Pack replacement
+    ) {
+        if (activity == null || expectedId == null || replacement == null) return false;
+        PackStore.Pack current = currentPack(activity);
+        if (current == null || !expectedId.equals(current.id)) return false;
+        try {
+            setField(activity, "currentPack", replacement);
+            return true;
+        } catch (Throwable error) {
+            BugLogStore.appendApp("Could not replace current pack: " + error);
+            return false;
+        }
+    }
+
+    static boolean clearCurrentPackIfId(MainActivity activity, String expectedId) {
+        if (activity == null || expectedId == null) return false;
+        PackStore.Pack current = currentPack(activity);
+        if (current == null || !expectedId.equals(current.id)) return false;
+        try {
+            setField(activity, "currentPack", null);
+            return true;
+        } catch (Throwable error) {
+            BugLogStore.appendApp("Could not clear current pack: " + error);
+            return false;
+        }
+    }
+
     static TextView progressText(MainActivity activity) {
         Object value = getField(activity, "progressText");
         return value instanceof TextView ? (TextView) value : null;
