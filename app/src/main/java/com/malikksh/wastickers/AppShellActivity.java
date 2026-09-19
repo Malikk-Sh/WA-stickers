@@ -24,10 +24,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Transitional application shell for the redesigned four-tab flow.
+ * Four-tab application shell for the redesigned flow.
  *
- * Conversion and editor state still live in MainActivity/HomeActivity. The shell presents that
- * state as task-focused screens while the legacy UI is migrated incrementally.
+ * Conversion state still lives in MainActivity for now, but the shell no longer discovers its UI
+ * by walking the legacy long-scroll hierarchy. Only the live name/mode controls are re-parented;
+ * Build and Packs own their redesigned presentation in the later shell layers.
  */
 public class AppShellActivity extends LauncherActivity {
     private static final int MIN_STICKERS = 3;
@@ -60,10 +61,6 @@ public class AppShellActivity extends LauncherActivity {
     private Button createContinueButton;
 
     private MediaGridPanel mediaPanel;
-    private View legacyBuildCard;
-    private View legacyPacksCard;
-    private TextView legacyStatusText;
-    private Button legacyGalleryButton;
     private Button photoModeButton;
     private Button animatedModeButton;
 
@@ -98,50 +95,21 @@ public class AppShellActivity extends LauncherActivity {
     }
 
     private void installShell() throws Exception {
-        FrameLayout activityContent = findViewById(android.R.id.content);
-        if (activityContent == null || activityContent.getChildCount() == 0) {
-            throw new IllegalStateException("Legacy content is missing");
-        }
-        View legacyScreen = activityContent.getChildAt(0);
-        if (!(legacyScreen instanceof ScrollView)) {
-            throw new IllegalStateException("Unexpected legacy root: " + legacyScreen.getClass().getName());
-        }
-        ScrollView legacyScroll = (ScrollView) legacyScreen;
-        if (legacyScroll.getChildCount() == 0 || !(legacyScroll.getChildAt(0) instanceof LinearLayout)) {
-            throw new IllegalStateException("Legacy editor container is missing");
-        }
-        LinearLayout legacyRoot = (LinearLayout) legacyScroll.getChildAt(0);
-
         EditText packName = (EditText) readField(MainActivity.class, "packName");
-        legacyGalleryButton = (Button) readField(MainActivity.class, "galleryButton");
-        Button createButton = (Button) readField(MainActivity.class, "createButton");
         photoModeButton = (Button) readField(MainActivity.class, "photoModeButton");
         animatedModeButton = (Button) readField(MainActivity.class, "animatedModeButton");
-        legacyStatusText = (TextView) readField(MainActivity.class, "statusText");
-        TextView packsMeta = (TextView) readField(HomeActivity.class, "packsMeta");
-
-        View nameCard = directChildContaining(legacyRoot, packName);
-        View legacyMediaCard = directChildContaining(legacyRoot, legacyGalleryButton);
-        legacyBuildCard = directChildContaining(legacyRoot, createButton);
-        legacyPacksCard = directChildContaining(legacyRoot, packsMeta);
-        View modeRow = parentView(photoModeButton);
-
-        if (nameCard == null || legacyMediaCard == null || legacyBuildCard == null || modeRow == null) {
-            throw new IllegalStateException("Could not locate legacy editor sections");
+        if (packName == null || photoModeButton == null || animatedModeButton == null) {
+            throw new IllegalStateException("Editor controls are missing");
         }
 
-        detach(modeRow);
-        detach(nameCard);
-        detach(legacyMediaCard);
-        detach(legacyBuildCard);
-        detach(legacyPacksCard);
-        detach(legacyStatusText);
-
-        normalizeNameCard(nameCard);
-        normalizeBuildCard(legacyBuildCard);
+        // MainActivity still owns these live controls because its build pipeline reads their state.
+        // Re-parent them directly instead of locating cards by traversing the old view hierarchy.
+        detach(packName);
+        detach(photoModeButton);
+        detach(animatedModeButton);
         installModeListeners();
 
-        createScreen = buildCreateScreen(modeRow, nameCard);
+        createScreen = buildCreateScreen(buildModeSelector(), buildNameCard(packName));
         mediaScreen = buildMediaScreen();
         buildScreen = buildBuildScreen();
         packsScreen = buildPacksScreen();
@@ -167,13 +135,50 @@ public class AppShellActivity extends LauncherActivity {
         showTab(AppTab.CREATE);
     }
 
-    private View buildCreateScreen(View modeRow, View nameCard) {
+    private View buildModeSelector() {
+        LinearLayout card = card();
+        card.addView(text("Тип набора", 17,
+                color(R.color.app_text_primary), Typeface.BOLD), matchWrap());
+
+        TextView hint = text(
+                "Фото и анимированные стикеры сохраняются как отдельные наборы.",
+                12, color(R.color.app_text_secondary), Typeface.NORMAL);
+        LinearLayout.LayoutParams hintParams = matchWrap();
+        hintParams.topMargin = dp(4);
+        card.addView(hint, hintParams);
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams rowParams = matchWrap();
+        rowParams.topMargin = dp(12);
+        card.addView(row, rowParams);
+
+        row.addView(photoModeButton, new LinearLayout.LayoutParams(0, dp(48), 1f));
+        LinearLayout.LayoutParams animatedParams = new LinearLayout.LayoutParams(0, dp(48), 1f);
+        animatedParams.leftMargin = dp(8);
+        row.addView(animatedModeButton, animatedParams);
+        return card;
+    }
+
+    private View buildNameCard(EditText packName) {
+        LinearLayout card = card();
+        card.addView(text("Название набора", 17,
+                color(R.color.app_text_primary), Typeface.BOLD), matchWrap());
+
+        LinearLayout.LayoutParams nameParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(54));
+        nameParams.topMargin = dp(12);
+        card.addView(packName, nameParams);
+        return card;
+    }
+
+    private View buildCreateScreen(View modeSelector, View nameCard) {
         LinearLayout body = newScreenBody();
         body.addView(buildTopBar("WA Stickers", "Ваши идеи в стикерах"), matchWrap());
 
         LinearLayout.LayoutParams modeParams = matchWrap();
         modeParams.topMargin = dp(16);
-        body.addView(modeRow, modeParams);
+        body.addView(modeSelector, modeParams);
 
         LinearLayout.LayoutParams nameParams = matchWrap();
         nameParams.topMargin = dp(14);
@@ -333,24 +338,25 @@ public class AppShellActivity extends LauncherActivity {
         LinearLayout body = newScreenBody();
         body.addView(buildTopBar("Сборка", "Подготовка набора"), matchWrap());
 
-        LinearLayout.LayoutParams buildParams = matchWrap();
-        buildParams.topMargin = dp(16);
-        body.addView(legacyBuildCard, buildParams);
-
-        if (legacyStatusText != null) {
-            LinearLayout.LayoutParams statusParams = matchWrap();
-            statusParams.topMargin = dp(12);
-            statusParams.bottomMargin = dp(12);
-            body.addView(legacyStatusText, statusParams);
-        }
+        LinearLayout placeholder = card();
+        placeholder.addView(text("Подготовка сборки", 18,
+                color(R.color.app_text_primary), Typeface.BOLD), matchWrap());
+        TextView hint = text(
+                "Параметры и прогресс сборки появятся здесь.",
+                13, color(R.color.app_text_secondary), Typeface.NORMAL);
+        LinearLayout.LayoutParams hintParams = matchWrap();
+        hintParams.topMargin = dp(5);
+        placeholder.addView(hint, hintParams);
+        LinearLayout.LayoutParams params = matchWrap();
+        params.topMargin = dp(16);
+        body.addView(placeholder, params);
         return wrap(body);
     }
 
     private View buildPacksScreen() {
         LinearLayout body = newScreenBody();
         body.addView(buildTopBar("Мои наборы", "Сохранённые наборы"), matchWrap());
-
-        View content = legacyPacksCard != null ? legacyPacksCard : buildPacksFallback();
+        View content = buildPacksFallback();
         LinearLayout.LayoutParams packsParams = matchWrap();
         packsParams.topMargin = dp(16);
         packsParams.bottomMargin = dp(12);
@@ -359,11 +365,14 @@ public class AppShellActivity extends LauncherActivity {
     }
 
     private View buildPacksFallback() {
+        List<PackStore.Pack> packs = PackStore.getPacks(this);
         LinearLayout card = card();
-        card.addView(text("Пока нет наборов", 18,
-                color(R.color.app_text_primary), Typeface.BOLD), matchWrap());
-        TextView hint = text("Созданные наборы появятся здесь", 13,
-                color(R.color.app_text_secondary), Typeface.NORMAL);
+        card.addView(text(
+                packs.isEmpty() ? "Пока нет наборов" : "Сохранено наборов: " + packs.size(),
+                18, color(R.color.app_text_primary), Typeface.BOLD), matchWrap());
+        TextView hint = text(
+                packs.isEmpty() ? "Созданные наборы появятся здесь" : "Откройте список для управления наборами",
+                13, color(R.color.app_text_secondary), Typeface.NORMAL);
         LinearLayout.LayoutParams hintParams = matchWrap();
         hintParams.topMargin = dp(4);
         card.addView(hint, hintParams);
@@ -481,7 +490,6 @@ public class AppShellActivity extends LauncherActivity {
 
     private void refreshShellState() {
         if (createMediaCounter == null) return;
-        normalizeLegacyLabels();
         List<Uri> items = selectedUrisSnapshot();
         boolean animated = EditorInstanceStateBridge.isAnimatedMode(this);
         refreshCreateMediaCard(items, animated);
@@ -548,7 +556,7 @@ public class AppShellActivity extends LauncherActivity {
     }
 
     private void openPickerFromShell() {
-        if (legacyGalleryButton != null) legacyGalleryButton.performClick();
+        openMediaPicker();
     }
 
     private void moveMediaFromShell(int fromIndex, int toIndex) {
@@ -560,7 +568,7 @@ public class AppShellActivity extends LauncherActivity {
     private void selectCoverFromShell(Uri uri) {
         if (isProcessing() || uri == null || !selectedUrisSnapshot().contains(uri)) return;
         writeFieldQuietly(MainActivity.class, "coverUri", uri);
-        syncLegacyEditorAfterMediaMutation();
+        syncEditorAfterMediaMutation();
     }
 
     @SuppressWarnings("unchecked")
@@ -576,7 +584,7 @@ public class AppShellActivity extends LauncherActivity {
             writeFieldQuietly(MainActivity.class, "coverUri",
                     selected.isEmpty() ? null : selected.get(0));
         }
-        syncLegacyEditorAfterMediaMutation();
+        syncEditorAfterMediaMutation();
     }
 
     @SuppressWarnings("unchecked")
@@ -586,10 +594,10 @@ public class AppShellActivity extends LauncherActivity {
         if (!(value instanceof List<?>)) return;
         ((List<Uri>) value).clear();
         writeFieldQuietly(MainActivity.class, "coverUri", null);
-        syncLegacyEditorAfterMediaMutation();
+        syncEditorAfterMediaMutation();
     }
 
-    private void syncLegacyEditorAfterMediaMutation() {
+    private void syncEditorAfterMediaMutation() {
         invokeMainMethod("invalidateCurrentPack", new Class<?>[0]);
         invokeMainMethod("renderPreviews", new Class<?>[0]);
         invokeMainMethod("updateUiState", new Class<?>[0]);
@@ -615,38 +623,15 @@ public class AppShellActivity extends LauncherActivity {
         return value instanceof Uri ? (Uri) value : null;
     }
 
-    private void normalizeLegacyLabels() {
-        boolean animated = EditorInstanceStateBridge.isAnimatedMode(this);
-        TextView mediaTitle = (TextView) readFieldQuietly(MainActivity.class, "mediaTitle");
-        if (mediaTitle != null) mediaTitle.setText(animated ? "Анимации и видео" : "Фотографии");
-
-        TextView actionHint = (TextView) readFieldQuietly(MainActivity.class, "actionHint");
-        if (actionHint != null) actionHint.setVisibility(View.GONE);
-    }
-
-    private void normalizeNameCard(View nameCard) {
-        TextView label = findTextView(nameCard, "1  Название набора");
-        if (label != null) label.setText("Название набора");
-    }
-
-    private void normalizeBuildCard(View buildCard) {
-        TextView label = findTextView(buildCard, "3  Готовый набор");
-        if (label != null) label.setText("Сборка набора");
-    }
-
     private void installModeListeners() {
-        if (photoModeButton != null) {
-            photoModeButton.setOnClickListener(v -> {
-                invokeSetAnimatedMode(false);
-                refreshShellState();
-            });
-        }
-        if (animatedModeButton != null) {
-            animatedModeButton.setOnClickListener(v -> {
-                invokeSetAnimatedMode(true);
-                refreshShellState();
-            });
-        }
+        photoModeButton.setOnClickListener(v -> {
+            invokeSetAnimatedMode(false);
+            refreshShellState();
+        });
+        animatedModeButton.setOnClickListener(v -> {
+            invokeSetAnimatedMode(true);
+            refreshShellState();
+        });
     }
 
     private void invokeSetAnimatedMode(boolean animated) {
@@ -664,7 +649,6 @@ public class AppShellActivity extends LauncherActivity {
         }
     }
 
-    @SuppressWarnings("unchecked")
     private List<Uri> selectedUrisSnapshot() {
         Object value = readFieldQuietly(MainActivity.class, "selectedUris");
         if (!(value instanceof List<?>)) return new ArrayList<>();
@@ -699,40 +683,9 @@ public class AppShellActivity extends LauncherActivity {
         }
     }
 
-    private static View directChildContaining(ViewGroup root, View target) {
-        if (root == null || target == null) return null;
-        View current = target;
-        while (current != null && current.getParent() instanceof View) {
-            View parent = (View) current.getParent();
-            if (parent == root) return current;
-            current = parent;
-        }
-        return current != null && current.getParent() == root ? current : null;
-    }
-
-    private static View parentView(View view) {
-        if (view == null || !(view.getParent() instanceof View)) return null;
-        return (View) view.getParent();
-    }
-
     private static void detach(View view) {
         if (view == null || !(view.getParent() instanceof ViewGroup)) return;
         ((ViewGroup) view.getParent()).removeView(view);
-    }
-
-    private TextView findTextView(View root, String exactText) {
-        if (root instanceof TextView) {
-            CharSequence value = ((TextView) root).getText();
-            if (value != null && exactText.contentEquals(value)) return (TextView) root;
-        }
-        if (root instanceof ViewGroup) {
-            ViewGroup group = (ViewGroup) root;
-            for (int i = 0; i < group.getChildCount(); i++) {
-                TextView found = findTextView(group.getChildAt(i), exactText);
-                if (found != null) return found;
-            }
-        }
-        return null;
     }
 
     private LinearLayout newScreenBody() {
