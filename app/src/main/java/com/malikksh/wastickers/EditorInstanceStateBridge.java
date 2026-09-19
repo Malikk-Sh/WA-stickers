@@ -6,7 +6,6 @@ import android.content.UriPermission;
 import android.net.Uri;
 import android.os.Bundle;
 import android.view.View;
-import android.widget.Button;
 import android.widget.EditText;
 import android.widget.TextView;
 
@@ -14,17 +13,14 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.File;
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Persists the legacy programmatic editor across Activity recreation and fresh app launches.
+ * Persists editor drafts across Activity recreation and fresh app launches.
  *
- * MainActivity still owns its UI state privately. Keeping the reflection in one small bridge lets
- * lifecycle persistence stay isolated from conversion/build logic until that editor state moves to
- * a dedicated state holder.
+ * Runtime access is delegated to MainActivityRuntimeAccess so persistence owns serialization only;
+ * conversion/build logic and private activity implementation details stay outside this bridge.
  */
 final class EditorInstanceStateBridge {
     private static final String PREFIX = "editor.instance.";
@@ -41,14 +37,13 @@ final class EditorInstanceStateBridge {
     static void save(MainActivity activity, Bundle outState) {
         if (activity == null || outState == null) return;
         try {
-            boolean animated = (Boolean) getField(activity, "animatedMode");
-            @SuppressWarnings("unchecked")
-            List<Uri> selected = (List<Uri>) getField(activity, "selectedUris");
-            Uri cover = (Uri) getField(activity, "coverUri");
-            EditText packName = (EditText) getField(activity, "packName");
-            @SuppressWarnings("unchecked")
+            boolean animated = MainActivityRuntimeAccess.isAnimatedMode(activity);
+            List<Uri> selected = MainActivityRuntimeAccess.selectedUrisSnapshot(activity);
+            Uri cover = MainActivityRuntimeAccess.coverUri(activity);
+            EditText packName = MainActivityRuntimeAccess.packName(activity);
             EditorStateController<Uri> controller =
-                    (EditorStateController<Uri>) getField(activity, "editorStateController");
+                    MainActivityRuntimeAccess.editorStateController(activity);
+            if (controller == null) throw new IllegalStateException("Editor state controller is missing");
 
             controller.capture(
                     animated,
@@ -59,14 +54,14 @@ final class EditorInstanceStateBridge {
             writeSnapshot(outState, "photo", controller.snapshot(false));
             writeSnapshot(outState, "animated", controller.snapshot(true));
             outState.putBoolean(KEY_ACTIVE_ANIMATED, animated);
-            outState.putBoolean(KEY_WAS_PROCESSING, (Boolean) getField(activity, "processing"));
+            outState.putBoolean(KEY_WAS_PROCESSING,
+                    MainActivityRuntimeAccess.isProcessing(activity));
 
-            PackBuildSession<?> buildSession =
-                    (PackBuildSession<?>) getField(activity, "buildSession");
+            PackBuildSession<?> buildSession = MainActivityRuntimeAccess.buildSession(activity);
             outState.putBoolean(KEY_HAD_PENDING_BUILD,
                     buildSession != null && buildSession.isActive());
 
-            PackStore.Pack currentPack = (PackStore.Pack) getField(activity, "currentPack");
+            PackStore.Pack currentPack = MainActivityRuntimeAccess.currentPack(activity);
             if (currentPack != null) outState.putString(KEY_CURRENT_PACK_ID, currentPack.id);
         } catch (Throwable error) {
             BugLogStore.appendApp("Could not save editor instance state: " + error);
@@ -78,39 +73,34 @@ final class EditorInstanceStateBridge {
             return false;
         }
         try {
-            @SuppressWarnings("unchecked")
             EditorStateController<Uri> controller =
-                    (EditorStateController<Uri>) getField(activity, "editorStateController");
+                    MainActivityRuntimeAccess.editorStateController(activity);
+            if (controller == null) return false;
             restoreSnapshot(savedState, "photo", false, controller);
             restoreSnapshot(savedState, "animated", true, controller);
 
             boolean animated = savedState.getBoolean(KEY_ACTIVE_ANIMATED, false);
             EditorStateController.Snapshot<Uri> active = controller.snapshot(animated);
 
-            setField(activity, "animatedMode", animated);
-            @SuppressWarnings("unchecked")
-            List<Uri> selected = (List<Uri>) getField(activity, "selectedUris");
-            selected.clear();
-            selected.addAll(active.items());
-            setField(activity, "coverUri", active.cover());
-
-            EditText packName = (EditText) getField(activity, "packName");
-            if (packName != null) packName.setText(active.name());
-
             String currentPackId = savedState.getString(KEY_CURRENT_PACK_ID);
             PackStore.Pack currentPack = currentPackId == null
                     ? null
                     : PackStore.getPack(activity, currentPackId);
             if (currentPack != null && currentPack.animated != animated) currentPack = null;
-            setField(activity, "currentPack", currentPack);
 
-            invoke(activity, "renderPreviews");
-            invoke(activity, "updateModeUi");
-            invoke(activity, "updateUiState");
+            if (!MainActivityRuntimeAccess.restoreEditorState(
+                    activity,
+                    animated,
+                    active.items(),
+                    active.cover(),
+                    active.name(),
+                    currentPack)) {
+                return false;
+            }
 
             if (savedState.getBoolean(KEY_WAS_PROCESSING, false)
                     || savedState.getBoolean(KEY_HAD_PENDING_BUILD, false)) {
-                TextView status = (TextView) getField(activity, "statusText");
+                TextView status = MainActivityRuntimeAccess.statusText(activity);
                 if (status != null) {
                     status.setText("Редактор восстановлен. Незавершённая обработка была остановлена — создайте набор снова.");
                 }
@@ -189,23 +179,12 @@ final class EditorInstanceStateBridge {
     }
 
     static boolean isAnimatedMode(MainActivity activity) {
-        if (activity == null) return false;
-        try {
-            return (Boolean) getField(activity, "animatedMode");
-        } catch (Throwable error) {
-            BugLogStore.appendApp("Could not read editor mode: " + error);
-            return false;
-        }
+        return MainActivityRuntimeAccess.isAnimatedMode(activity);
     }
 
     static void setGalleryClickListener(MainActivity activity, View.OnClickListener listener) {
         if (activity == null || listener == null) return;
-        try {
-            Button gallery = (Button) getField(activity, "galleryButton");
-            if (gallery != null) gallery.setOnClickListener(listener);
-        } catch (Throwable error) {
-            BugLogStore.appendApp("Could not install persistent media picker: " + error);
-        }
+        MainActivityRuntimeAccess.setGalleryClickListener(activity, listener);
     }
 
     static boolean canReadUri(Context context, Uri uri) {
@@ -308,23 +287,5 @@ final class EditorInstanceStateBridge {
 
     private static String key(String slot, String value) {
         return PREFIX + slot + "." + value;
-    }
-
-    private static Object getField(MainActivity activity, String name) throws Exception {
-        Field field = MainActivity.class.getDeclaredField(name);
-        field.setAccessible(true);
-        return field.get(activity);
-    }
-
-    private static void setField(MainActivity activity, String name, Object value) throws Exception {
-        Field field = MainActivity.class.getDeclaredField(name);
-        field.setAccessible(true);
-        field.set(activity, value);
-    }
-
-    private static void invoke(MainActivity activity, String name) throws Exception {
-        Method method = MainActivity.class.getDeclaredMethod(name);
-        method.setAccessible(true);
-        method.invoke(activity);
     }
 }
