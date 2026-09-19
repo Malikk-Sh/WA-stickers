@@ -20,11 +20,11 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Runtime bridge between the redesigned shell and MainActivity's conversion/editor state.
+ * Runtime host between the redesigned shell and MainActivity's conversion pipeline.
  *
- * This is an implementation-only base for the redesigned shell activities. It is not a standalone
- * screen: draft restore/save and picker persistence live here until editor state moves out of
- * MainActivity entirely.
+ * Editor selection/draft and finalized-pack ownership now live in dedicated typed state owners.
+ * This implementation-only base keeps lifecycle persistence and picker handling near the shell while
+ * the remaining conversion orchestration is cleaned up independently.
  */
 public abstract class LauncherActivity extends MainActivity {
     private static final int REQUEST_SHELL_PICK_PHOTOS = 4101;
@@ -45,14 +45,14 @@ public abstract class LauncherActivity extends MainActivity {
             VideoTrimStore.restorePersistent(this, AppSettings.TRIM_PERSISTENT_KEY);
             EditorInstanceStateBridge.restorePersistent(this);
         }
-        this.runtimeSetGalleryClickListener(v -> openMediaPicker());
+        runtimeSetGalleryClickListener(v -> openMediaPicker());
     }
 
     /**
-     * MainActivity still owns the conversion/editor state for the migration period, but production
-     * shells no longer need its historical long-scroll screen. MainActivity calls this virtual
-     * factory from onCreate; the debug-only LegacyMainTestHostActivity continues to use the full
-     * legacy implementation because it extends MainActivity directly.
+     * Production shells never construct MainActivity's historical long-scroll presentation.
+     * MainActivity calls this virtual factory from onCreate; the debug-only LegacyMainTestHostActivity
+     * continues to use the full legacy implementation while its conversion regression coverage is
+     * still useful.
      */
     @Override
     protected View buildUi() {
@@ -100,7 +100,23 @@ public abstract class LauncherActivity extends MainActivity {
         LinearLayout fileProgressContainer = new LinearLayout(this);
         fileProgressContainer.setOrientation(LinearLayout.VERTICAL);
 
-        this.runtimeInstallControls(packName, countText, statusText, mediaTitle, mediaHint, actionHint, progressText, progressBar, fileProgressContainer, photoModeButton, animatedModeButton, galleryButton, createButton, addButton, bugLogButton);
+        runtimeInstallControls(
+                packName,
+                countText,
+                statusText,
+                mediaTitle,
+                mediaHint,
+                actionHint,
+                progressText,
+                progressBar,
+                fileProgressContainer,
+                photoModeButton,
+                animatedModeButton,
+                galleryButton,
+                createButton,
+                addButton,
+                bugLogButton
+        );
     }
 
     private int runtimeDp(int value) {
@@ -123,7 +139,7 @@ public abstract class LauncherActivity extends MainActivity {
 
     /** Opens the redesigned shell picker without routing through a hidden legacy button. */
     protected final void openMediaPicker() {
-        boolean animated = this.runtimeIsAnimatedMode();
+        boolean animated = runtimeIsAnimatedMode();
         int requestCode = animated ? REQUEST_SHELL_PICK_ANIMATED : REQUEST_SHELL_PICK_PHOTOS;
         Intent intent = MediaPickerIntentFactory.createOpenDocumentIntent(animated);
         String title = animated ? "Выберите GIF, WebP или видео" : "Выберите фото";
@@ -167,7 +183,7 @@ public abstract class LauncherActivity extends MainActivity {
         try {
             // Shell pickers use ACTION_OPEN_DOCUMENT when available, so keep URI access for both
             // photo and animated drafts. GET_CONTENT fallback persistence failures are tolerated.
-            this.runtimeReceivePickerResult(data, true);
+            runtimeReceivePickerResult(data, true);
             EditorInstanceStateBridge.savePersistent(this);
         } catch (Throwable error) {
             BugLogStore.appendApp("Could not apply redesigned picker result: " + error);
@@ -175,7 +191,7 @@ public abstract class LauncherActivity extends MainActivity {
         }
 
         if (!animated) return;
-        List<Uri> selected = this.runtimeSelectedUrisSnapshot();
+        List<Uri> selected = runtimeSelectedUrisSnapshot();
         shellSelectionExecutor.execute(() -> {
             try {
                 VideoTrimStore.prepare(this, selected);
