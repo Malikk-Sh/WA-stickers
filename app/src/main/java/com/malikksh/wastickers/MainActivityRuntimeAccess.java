@@ -5,6 +5,7 @@ import android.net.Uri;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
@@ -178,6 +179,42 @@ final class MainActivityRuntimeAccess {
             if (item instanceof String) result.add((String) item);
         }
         return result;
+    }
+
+    static void installRuntimeControls(
+            MainActivity activity,
+            EditText packName,
+            TextView countText,
+            TextView statusText,
+            TextView mediaTitle,
+            TextView mediaHint,
+            TextView actionHint,
+            TextView progressText,
+            ProgressBar progressBar,
+            LinearLayout fileProgressContainer,
+            Button photoModeButton,
+            Button animatedModeButton,
+            Button galleryButton,
+            Button createButton,
+            Button addButton,
+            Button bugLogButton
+    ) {
+        setField(activity, "packName", packName);
+        setField(activity, "countText", countText);
+        setField(activity, "statusText", statusText);
+        setField(activity, "mediaTitle", mediaTitle);
+        setField(activity, "mediaHint", mediaHint);
+        setField(activity, "actionHint", actionHint);
+        setField(activity, "progressText", progressText);
+        setField(activity, "progressBar", progressBar);
+        setField(activity, "previewContainer", null);
+        setField(activity, "fileProgressContainer", fileProgressContainer);
+        setField(activity, "photoModeButton", photoModeButton);
+        setField(activity, "animatedModeButton", animatedModeButton);
+        setField(activity, "galleryButton", galleryButton);
+        setField(activity, "createButton", createButton);
+        setField(activity, "addButton", addButton);
+        setField(activity, "bugLogButton", bugLogButton);
     }
 
     static void receivePickerResult(MainActivity activity, Intent data, boolean persistPermission) {
