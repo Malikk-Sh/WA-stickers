@@ -25,9 +25,7 @@ import org.junit.runner.RunWith;
 
 import java.io.File;
 import java.io.FileOutputStream;
-import java.lang.reflect.Field;
 import java.lang.reflect.Method;
-import java.util.List;
 
 @RunWith(AndroidJUnit4.class)
 public class SettingsShellActivityUiTest {
@@ -81,11 +79,14 @@ public class SettingsShellActivityUiTest {
             scenario.onActivity(activity -> {
                 try {
                     Uri item = writeImage(activity, "settings_shell_draft.png");
-                    @SuppressWarnings("unchecked")
-                    List<Uri> selected = (List<Uri>) getMainField(activity, "selectedUris");
-                    selected.clear();
-                    selected.add(item);
-                    setMainField(activity, "coverUri", item);
+                    MainActivityRuntimeAccess.restoreEditorState(
+                            activity,
+                            false,
+                            java.util.Collections.singletonList(item),
+                            item,
+                            "",
+                            null
+                    );
                     EditorInstanceStateBridge.savePersistent(activity);
                     assertTrue(EditorInstanceStateBridge.hasPersistent(activity));
                     invokeShellRefresh(activity);
@@ -101,9 +102,7 @@ public class SettingsShellActivityUiTest {
                     clearDraft.setAccessible(true);
                     clearDraft.invoke(activity);
 
-                    @SuppressWarnings("unchecked")
-                    List<Uri> cleared = (List<Uri>) getMainField(activity, "selectedUris");
-                    assertTrue(cleared.isEmpty());
+                    assertTrue(MainActivityRuntimeAccess.selectedUrisSnapshot(activity).isEmpty());
                     assertFalse(EditorInstanceStateBridge.hasPersistent(activity));
 
                     TextView counter = activity.findViewById(R.id.create_media_counter);
@@ -130,21 +129,7 @@ public class SettingsShellActivityUiTest {
         return Uri.fromFile(file);
     }
 
-    private static Object getMainField(SettingsShellActivity activity, String name) throws Exception {
-        Field field = MainActivity.class.getDeclaredField(name);
-        field.setAccessible(true);
-        return field.get(activity);
-    }
-
-    private static void setMainField(SettingsShellActivity activity, String name, Object value) throws Exception {
-        Field field = MainActivity.class.getDeclaredField(name);
-        field.setAccessible(true);
-        field.set(activity, value);
-    }
-
-    private static void invokeShellRefresh(SettingsShellActivity activity) throws Exception {
-        Method method = AppShellActivity.class.getDeclaredMethod("refreshShellState");
-        method.setAccessible(true);
-        method.invoke(activity);
+    private static void invokeShellRefresh(SettingsShellActivity activity) {
+        activity.refreshShellState();
     }
 }

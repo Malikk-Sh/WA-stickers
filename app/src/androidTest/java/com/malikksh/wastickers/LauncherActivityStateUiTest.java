@@ -6,7 +6,6 @@ import static org.junit.Assert.assertTrue;
 
 import android.content.Context;
 import android.net.Uri;
-import android.widget.EditText;
 
 import androidx.test.core.app.ActivityScenario;
 import androidx.test.core.app.ApplicationProvider;
@@ -18,9 +17,6 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import java.io.File;
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
@@ -52,26 +48,18 @@ public class LauncherActivityStateUiTest {
         try (ActivityScenario<LauncherTestHostActivity> scenario =
                      ActivityScenario.launch(LauncherTestHostActivity.class)) {
             scenario.onActivity(activity -> {
-                try {
-                    ((EditText) getField(activity, "packName")).setText("Фото-черновик");
-                    invoke(activity, "setAnimatedMode", new Class<?>[]{boolean.class}, true);
-                    ((EditText) getField(activity, "packName")).setText("Анимация-черновик");
-                } catch (Exception error) {
-                    throw new RuntimeException(error);
-                }
+                MainActivityRuntimeAccess.packName(activity).setText("Фото-черновик");
+                MainActivityRuntimeAccess.setAnimatedMode(activity, true);
+                MainActivityRuntimeAccess.packName(activity).setText("Анимация-черновик");
             });
 
             scenario.recreate();
             scenario.onActivity(activity -> {
-                try {
-                    assertTrue((Boolean) getField(activity, "animatedMode"));
-                    assertEquals("Анимация-черновик", packName(activity));
-                    invoke(activity, "setAnimatedMode", new Class<?>[]{boolean.class}, false);
-                    assertFalse((Boolean) getField(activity, "animatedMode"));
-                    assertEquals("Фото-черновик", packName(activity));
-                } catch (Exception error) {
-                    throw new RuntimeException(error);
-                }
+                assertTrue(MainActivityRuntimeAccess.isAnimatedMode(activity));
+                assertEquals("Анимация-черновик", packName(activity));
+                MainActivityRuntimeAccess.setAnimatedMode(activity, false);
+                assertFalse(MainActivityRuntimeAccess.isAnimatedMode(activity));
+                assertEquals("Фото-черновик", packName(activity));
             });
         }
     }
@@ -90,28 +78,20 @@ public class LauncherActivityStateUiTest {
         try (ActivityScenario<LauncherTestHostActivity> scenario =
                      ActivityScenario.launch(LauncherTestHostActivity.class)) {
             scenario.onActivity(activity -> {
-                try {
-                    seedCurrentEditor(activity, photos, photos.get(1), "Фото-порядок");
-                    invoke(activity, "setAnimatedMode", new Class<?>[]{boolean.class}, true);
-                    seedCurrentEditor(activity, animated, animated.get(2), "Анимация-порядок");
-                } catch (Exception error) {
-                    throw new RuntimeException(error);
-                }
+                seedCurrentEditor(activity, photos, photos.get(1), "Фото-порядок");
+                MainActivityRuntimeAccess.setAnimatedMode(activity, true);
+                seedCurrentEditor(activity, animated, animated.get(2), "Анимация-порядок");
             });
 
             scenario.recreate();
             scenario.onActivity(activity -> {
-                try {
-                    assertEquals(animated, selectionSnapshot(activity));
-                    assertEquals(animated.get(2), getField(activity, "coverUri"));
-                    assertEquals("Анимация-порядок", packName(activity));
-                    invoke(activity, "setAnimatedMode", new Class<?>[]{boolean.class}, false);
-                    assertEquals(photos, selectionSnapshot(activity));
-                    assertEquals(photos.get(1), getField(activity, "coverUri"));
-                    assertEquals("Фото-порядок", packName(activity));
-                } catch (Exception error) {
-                    throw new RuntimeException(error);
-                }
+                assertEquals(animated, selectionSnapshot(activity));
+                assertEquals(animated.get(2), MainActivityRuntimeAccess.coverUri(activity));
+                assertEquals("Анимация-порядок", packName(activity));
+                MainActivityRuntimeAccess.setAnimatedMode(activity, false);
+                assertEquals(photos, selectionSnapshot(activity));
+                assertEquals(photos.get(1), MainActivityRuntimeAccess.coverUri(activity));
+                assertEquals("Фото-порядок", packName(activity));
             });
         }
     }
@@ -145,61 +125,52 @@ public class LauncherActivityStateUiTest {
         ActivityScenario<LauncherTestHostActivity> first =
                 ActivityScenario.launch(LauncherTestHostActivity.class);
         first.onActivity(activity -> {
-            try {
-                seedCurrentEditor(activity, photos, photos.get(1), "Фото после рестарта");
-                invoke(activity, "setAnimatedMode", new Class<?>[]{boolean.class}, true);
-                seedCurrentEditor(activity, animated, video, "Анимация после рестарта");
-                VideoTrimStore.replaceEntries(Arrays.asList(new VideoTrimStore.Entry(
-                        video.toString(), video, "long-video.mp4", 30_000L, 7_000L)));
-            } catch (Exception error) {
-                throw new RuntimeException(error);
-            }
+            seedCurrentEditor(activity, photos, photos.get(1), "Фото после рестарта");
+            MainActivityRuntimeAccess.setAnimatedMode(activity, true);
+            seedCurrentEditor(activity, animated, video, "Анимация после рестарта");
+            VideoTrimStore.replaceEntries(Arrays.asList(new VideoTrimStore.Entry(
+                    video.toString(), video, "long-video.mp4", 30_000L, 7_000L)));
         });
         first.close();
 
         try (ActivityScenario<LauncherTestHostActivity> second =
                      ActivityScenario.launch(LauncherTestHostActivity.class)) {
             second.onActivity(activity -> {
-                try {
-                    assertTrue((Boolean) getField(activity, "animatedMode"));
-                    assertEquals(animated, selectionSnapshot(activity));
-                    assertEquals(video, getField(activity, "coverUri"));
-                    assertEquals("Анимация после рестарта", packName(activity));
-                    assertEquals(7_000L, VideoTrimStore.getStartOffsetMs(video));
-                    invoke(activity, "setAnimatedMode", new Class<?>[]{boolean.class}, false);
-                    assertEquals(photos, selectionSnapshot(activity));
-                    assertEquals(photos.get(1), getField(activity, "coverUri"));
-                    assertEquals("Фото после рестарта", packName(activity));
-                } catch (Exception error) {
-                    throw new RuntimeException(error);
-                }
+                assertTrue(MainActivityRuntimeAccess.isAnimatedMode(activity));
+                assertEquals(animated, selectionSnapshot(activity));
+                assertEquals(video, MainActivityRuntimeAccess.coverUri(activity));
+                assertEquals("Анимация после рестарта", packName(activity));
+                assertEquals(7_000L, VideoTrimStore.getStartOffsetMs(video));
+                MainActivityRuntimeAccess.setAnimatedMode(activity, false);
+                assertEquals(photos, selectionSnapshot(activity));
+                assertEquals(photos.get(1), MainActivityRuntimeAccess.coverUri(activity));
+                assertEquals("Фото после рестарта", packName(activity));
             });
         }
     }
 
-    @SuppressWarnings("unchecked")
     private static void seedCurrentEditor(
             MainActivity activity,
             List<Uri> items,
             Uri cover,
             String name
-    ) throws Exception {
-        List<Uri> selected = (List<Uri>) getField(activity, "selectedUris");
-        selected.clear();
-        selected.addAll(items);
-        setField(activity, "coverUri", cover);
-        ((EditText) getField(activity, "packName")).setText(name);
-        invoke(activity, "renderPreviews", new Class<?>[0]);
-        invoke(activity, "updateUiState", new Class<?>[0]);
+    ) {
+        MainActivityRuntimeAccess.restoreEditorState(
+                activity,
+                MainActivityRuntimeAccess.isAnimatedMode(activity),
+                items,
+                cover,
+                name,
+                MainActivityRuntimeAccess.currentPack(activity)
+        );
     }
 
-    @SuppressWarnings("unchecked")
-    private static List<Uri> selectionSnapshot(MainActivity activity) throws Exception {
-        return new ArrayList<>((List<Uri>) getField(activity, "selectedUris"));
+    private static List<Uri> selectionSnapshot(MainActivity activity) {
+        return MainActivityRuntimeAccess.selectedUrisSnapshot(activity);
     }
 
-    private static String packName(MainActivity activity) throws Exception {
-        return ((EditText) getField(activity, "packName")).getText().toString();
+    private static String packName(MainActivity activity) {
+        return MainActivityRuntimeAccess.packName(activity).getText().toString();
     }
 
     private Uri testFileUri(String suffix) throws Exception {
@@ -208,29 +179,6 @@ public class LauncherActivityStateUiTest {
             throw new IllegalStateException("Could not create " + file);
         }
         return Uri.fromFile(file);
-    }
-
-    private static Object getField(MainActivity activity, String name) throws Exception {
-        Field field = MainActivity.class.getDeclaredField(name);
-        field.setAccessible(true);
-        return field.get(activity);
-    }
-
-    private static void setField(MainActivity activity, String name, Object value) throws Exception {
-        Field field = MainActivity.class.getDeclaredField(name);
-        field.setAccessible(true);
-        field.set(activity, value);
-    }
-
-    private static Object invoke(
-            MainActivity activity,
-            String name,
-            Class<?>[] parameterTypes,
-            Object... args
-    ) throws Exception {
-        Method method = MainActivity.class.getDeclaredMethod(name, parameterTypes);
-        method.setAccessible(true);
-        return method.invoke(activity, args);
     }
 
     private void clearTestFiles() {
