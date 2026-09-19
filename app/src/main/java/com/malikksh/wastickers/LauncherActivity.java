@@ -2,8 +2,17 @@ package com.malikksh.wastickers;
 
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
+import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
+import android.view.View;
+import android.view.WindowManager;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.FrameLayout;
+import android.widget.LinearLayout;
+import android.widget.ProgressBar;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import java.lang.reflect.Field;
@@ -30,6 +39,7 @@ public abstract class LauncherActivity extends MainActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         VideoTrimStore.clear();
+        getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
         super.onCreate(savedInstanceState);
         if (savedInstanceState != null) {
             VideoTrimStore.restoreFromBundle(savedInstanceState, TRIM_STATE_PREFIX);
@@ -39,6 +49,90 @@ public abstract class LauncherActivity extends MainActivity {
             EditorInstanceStateBridge.restorePersistent(this);
         }
         EditorInstanceStateBridge.setGalleryClickListener(this, v -> openMediaPicker());
+    }
+
+    /**
+     * MainActivity still owns the conversion/editor state for the migration period, but production
+     * shells no longer need its historical long-scroll screen. MainActivity calls this virtual
+     * factory from onCreate; the debug-only LegacyMainTestHostActivity continues to use the full
+     * legacy implementation because it extends MainActivity directly.
+     */
+    @Override
+    protected View buildUi() {
+        installRuntimeControls();
+        FrameLayout host = new FrameLayout(this);
+        host.setBackgroundColor(getColor(R.color.app_background));
+        host.setFocusableInTouchMode(true);
+        host.requestFocus();
+        return host;
+    }
+
+    private void installRuntimeControls() {
+        EditText packName = new EditText(this);
+        packName.setSingleLine(true);
+        packName.setHint("Мои стикеры");
+        packName.setTextSize(16);
+        packName.setTextColor(getColor(R.color.app_text_primary));
+        packName.setHintTextColor(getColor(R.color.app_disabled_text));
+        packName.setPadding(runtimeDp(14), 0, runtimeDp(14), 0);
+        GradientDrawable input = new GradientDrawable();
+        input.setColor(getColor(R.color.app_surface));
+        input.setCornerRadius(runtimeDp(14));
+        input.setStroke(runtimeDp(1), getColor(R.color.app_border));
+        packName.setBackground(input);
+
+        Button photoModeButton = new Button(this);
+        photoModeButton.setText("Фото");
+        photoModeButton.setAllCaps(false);
+        Button animatedModeButton = new Button(this);
+        animatedModeButton.setText("Анимация");
+        animatedModeButton.setAllCaps(false);
+        Button galleryButton = new Button(this);
+        Button createButton = new Button(this);
+        Button addButton = new Button(this);
+        Button bugLogButton = new Button(this);
+
+        TextView countText = new TextView(this);
+        TextView statusText = new TextView(this);
+        TextView mediaTitle = new TextView(this);
+        TextView mediaHint = new TextView(this);
+        TextView actionHint = new TextView(this);
+        TextView progressText = new TextView(this);
+        ProgressBar progressBar = new ProgressBar(
+                this, null, android.R.attr.progressBarStyleHorizontal);
+        LinearLayout fileProgressContainer = new LinearLayout(this);
+        fileProgressContainer.setOrientation(LinearLayout.VERTICAL);
+
+        writeRuntimeField("packName", packName);
+        writeRuntimeField("countText", countText);
+        writeRuntimeField("statusText", statusText);
+        writeRuntimeField("mediaTitle", mediaTitle);
+        writeRuntimeField("mediaHint", mediaHint);
+        writeRuntimeField("actionHint", actionHint);
+        writeRuntimeField("progressText", progressText);
+        writeRuntimeField("progressBar", progressBar);
+        writeRuntimeField("previewContainer", null);
+        writeRuntimeField("fileProgressContainer", fileProgressContainer);
+        writeRuntimeField("photoModeButton", photoModeButton);
+        writeRuntimeField("animatedModeButton", animatedModeButton);
+        writeRuntimeField("galleryButton", galleryButton);
+        writeRuntimeField("createButton", createButton);
+        writeRuntimeField("addButton", addButton);
+        writeRuntimeField("bugLogButton", bugLogButton);
+    }
+
+    private void writeRuntimeField(String name, Object value) {
+        try {
+            Field field = MainActivity.class.getDeclaredField(name);
+            field.setAccessible(true);
+            field.set(this, value);
+        } catch (ReflectiveOperationException error) {
+            throw new IllegalStateException("Could not initialize runtime field " + name, error);
+        }
+    }
+
+    private int runtimeDp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
     @Override
