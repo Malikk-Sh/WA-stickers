@@ -367,6 +367,7 @@ public class AppShellActivity extends LauncherActivity {
     private void addRouteHook(FrameLayout hooks, int id, Runnable route) {
         View hook = new View(this);
         hook.setId(id);
+        hook.setVisibility(View.GONE);
         hook.setClickable(true);
         hook.setOnClickListener(v -> route.run());
         hooks.addView(hook, new FrameLayout.LayoutParams(0, 0));
