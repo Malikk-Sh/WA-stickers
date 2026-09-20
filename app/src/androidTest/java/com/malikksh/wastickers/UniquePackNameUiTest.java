@@ -1,6 +1,7 @@
 package com.malikksh.wastickers;
 
 import static androidx.test.espresso.Espresso.onView;
+import static androidx.test.espresso.Espresso.pressBack;
 import static androidx.test.espresso.action.ViewActions.closeSoftKeyboard;
 import static androidx.test.espresso.action.ViewActions.replaceText;
 import static androidx.test.espresso.assertion.ViewAssertions.matches;
@@ -53,6 +54,7 @@ public class UniquePackNameUiTest {
 
             onView(withText(PackNameService.DUPLICATE_ERROR)).check(matches(isDisplayed()));
             onView(withId(R.id.pack_name_dialog_confirm)).check(matches(not(isEnabled())));
+            pressBack();
         }
     }
 
@@ -77,6 +79,7 @@ public class UniquePackNameUiTest {
                     .perform(replaceText(" второй "), closeSoftKeyboard());
             onView(withText(PackNameService.DUPLICATE_ERROR)).check(matches(isDisplayed()));
             onView(withId(R.id.pack_name_dialog_confirm)).check(matches(not(isEnabled())));
+            pressBack();
         }
     }
 
