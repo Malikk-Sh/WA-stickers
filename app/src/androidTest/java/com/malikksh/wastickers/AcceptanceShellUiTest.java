@@ -2,9 +2,11 @@ package com.malikksh.wastickers;
 
 import static androidx.test.espresso.Espresso.onView;
 import static androidx.test.espresso.action.ViewActions.click;
+import static androidx.test.espresso.assertion.ViewAssertions.doesNotExist;
 import static androidx.test.espresso.assertion.ViewAssertions.matches;
 import static androidx.test.espresso.matcher.ViewMatchers.isDisplayed;
 import static androidx.test.espresso.matcher.ViewMatchers.withContentDescription;
+import static androidx.test.espresso.matcher.ViewMatchers.withId;
 import static androidx.test.espresso.matcher.ViewMatchers.withText;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
@@ -66,18 +68,27 @@ public class AcceptanceShellUiTest {
     @Test
     public void savedPackActionsOpenAsBottomActionSheet() {
         try (ActivityScenario<SettingsShellActivity> scenario = ActivityScenario.launch(SettingsShellActivity.class)) {
-            scenario.onActivity(activity -> {
-                View packs = activity.findViewById(R.id.nav_packs);
-                assertNotNull(packs);
-                packs.performClick();
-                activity.refreshPacksPanelForTest();
-            });
+            openPacks(scenario);
 
             onView(withContentDescription("Действия с набором Acceptance pack")).perform(click());
             onView(withText("Переименовать")).check(matches(isDisplayed()));
             onView(withText("Дублировать")).check(matches(isDisplayed()));
             onView(withText("Детали")).check(matches(isDisplayed()));
             onView(withText("Удалить")).check(matches(isDisplayed()));
+        }
+    }
+
+    @Test
+    public void packDetailsOpenAsSecondaryScreenWithoutBottomNavigation() {
+        try (ActivityScenario<SettingsShellActivity> scenario = ActivityScenario.launch(SettingsShellActivity.class)) {
+            openPacks(scenario);
+
+            onView(withContentDescription("Действия с набором Acceptance pack")).perform(click());
+            onView(withText("Детали")).perform(click());
+            onView(withText("Acceptance pack")).check(matches(isDisplayed()));
+            onView(withText("Тип: Фото\nСтикеров: 3\nХранение: локально на устройстве"))
+                    .check(matches(isDisplayed()));
+            onView(withId(R.id.nav_create)).check(doesNotExist());
         }
     }
 
@@ -89,7 +100,17 @@ public class AcceptanceShellUiTest {
             onView(withText("Помощь")).check(matches(isDisplayed()));
             onView(withText("Создать → настроить медиа → собрать → сохранить. Ошибки можно повторить отдельно. Фото и анимированные черновики сохраняются независимо."))
                     .check(matches(isDisplayed()));
+            onView(withId(R.id.nav_create)).check(doesNotExist());
         }
+    }
+
+    private void openPacks(ActivityScenario<SettingsShellActivity> scenario) {
+        scenario.onActivity(activity -> {
+            View packs = activity.findViewById(R.id.nav_packs);
+            assertNotNull(packs);
+            packs.performClick();
+            activity.refreshPacksPanelForTest();
+        });
     }
 
     private void createPack(String id, String name) throws Exception {
