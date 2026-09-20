@@ -68,7 +68,7 @@ public class HandoffComplianceUiTest {
     }
 
     @Test
-    public void restoredDraftIsVisibleAndContinueIsReadyAfterFreshLaunch() throws Exception {
+    public void restoredDraftSurvivesLibraryFirstFreshLaunch() throws Exception {
         List<Uri> photos = Arrays.asList(
                 writeImage(context, "draft_one.png", 0xFF225544),
                 writeImage(context, "draft_two.png", 0xFF337755),
@@ -85,8 +85,15 @@ public class HandoffComplianceUiTest {
         });
         first.close();
 
-        try (ActivityScenario<SettingsShellActivity> ignored =
+        try (ActivityScenario<SettingsShellActivity> scenario =
                      ActivityScenario.launch(SettingsShellActivity.class)) {
+            onView(withId(R.id.packs_panel)).check(matches(isDisplayed()));
+            scenario.onActivity(activity -> {
+                View create = activity.findViewById(R.id.nav_create);
+                assertNotNull(create);
+                create.performClick();
+                activity.refreshShellState();
+            });
             onView(withId(R.id.create_draft_chip)).check(matches(isDisplayed()));
             onView(withId(R.id.create_draft_chip)).check(matches(withText("Черновик")));
             onView(withId(R.id.create_media_counter)).check(matches(withText("3 / 30")));
