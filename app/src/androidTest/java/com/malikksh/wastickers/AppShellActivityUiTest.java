@@ -6,7 +6,7 @@ import static androidx.test.espresso.assertion.ViewAssertions.matches;
 import static androidx.test.espresso.matcher.ViewMatchers.isDisplayed;
 import static androidx.test.espresso.matcher.ViewMatchers.withId;
 import static androidx.test.espresso.matcher.ViewMatchers.withText;
-import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
 import android.content.Context;
@@ -62,7 +62,8 @@ public class AppShellActivityUiTest {
                 for (int id : routeIds) {
                     View route = activity.findViewById(id);
                     assertNotNull(route);
-                    assertFalse(route.isShown());
+                    assertEquals("Compatibility route must not render width", 0, route.getWidth());
+                    assertEquals("Compatibility route must not render height", 0, route.getHeight());
                 }
             });
         }
