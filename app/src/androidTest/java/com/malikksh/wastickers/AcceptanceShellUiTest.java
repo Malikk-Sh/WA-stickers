@@ -97,7 +97,8 @@ public class AcceptanceShellUiTest {
 
     @Test
     public void createHelpOpensSecondaryScreen() {
-        try (ActivityScenario<SettingsShellActivity> ignored = ActivityScenario.launch(SettingsShellActivity.class)) {
+        try (ActivityScenario<SettingsShellActivity> scenario = ActivityScenario.launch(SettingsShellActivity.class)) {
+            openCreate(scenario);
             onView(withContentDescription("Ещё")).perform(click());
             onView(withText("Помощь")).perform(click());
             onView(withText("Помощь")).check(matches(isDisplayed()));
@@ -106,6 +107,15 @@ public class AcceptanceShellUiTest {
             onView(withId(R.id.nav_create)).check(doesNotExist());
             pressBack();
         }
+    }
+
+    private void openCreate(ActivityScenario<SettingsShellActivity> scenario) {
+        scenario.onActivity(activity -> {
+            View create = activity.findViewById(R.id.nav_create);
+            assertNotNull(create);
+            create.performClick();
+            activity.refreshShellState();
+        });
     }
 
     private void openPacks(ActivityScenario<SettingsShellActivity> scenario) {
