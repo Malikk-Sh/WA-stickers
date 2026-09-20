@@ -22,9 +22,12 @@ import android.widget.Toast;
 
 /** Final shell phase: Settings entry points and task-specific overflow menus. */
 public class SettingsShellActivity extends PacksShellActivity {
+    private static final String STATE_DRAFT_RESTORED = "settings_shell.draft_restored";
+
     private String appliedAppearance;
     private boolean appliedCompact;
     private boolean firstResume = true;
+    private boolean draftRestoredThisSession;
     private FrameLayout topActions;
     private TextView draftChip;
 
@@ -36,6 +39,9 @@ public class SettingsShellActivity extends PacksShellActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        draftRestoredThisSession = savedInstanceState != null
+                ? savedInstanceState.getBoolean(STATE_DRAFT_RESTORED, false)
+                : restoredPersistentDraftOnLaunch();
         AppSettings.configureRuntime(this);
         AppSettings.applySystemBars(this);
         appliedAppearance = AppSettings.appearance(this);
@@ -43,6 +49,12 @@ public class SettingsShellActivity extends PacksShellActivity {
         configureCreatePresentation();
         installTopActions();
         if (appliedCompact) applyCompactMode(findViewById(android.R.id.content));
+    }
+
+    @Override
+    protected void onSaveInstanceState(Bundle outState) {
+        outState.putBoolean(STATE_DRAFT_RESTORED, draftRestoredThisSession);
+        super.onSaveInstanceState(outState);
     }
 
     @Override
@@ -113,7 +125,8 @@ public class SettingsShellActivity extends PacksShellActivity {
 
     private void updateDraftChip() {
         if (draftChip == null) return;
-        boolean visible = EditorInstanceStateBridge.hasPersistent(this)
+        boolean visible = draftRestoredThisSession
+                && EditorInstanceStateBridge.hasPersistent(this)
                 && !this.runtimeSelectedUrisSnapshot().isEmpty();
         draftChip.setVisibility(visible ? View.VISIBLE : View.GONE);
     }
@@ -342,7 +355,7 @@ public class SettingsShellActivity extends PacksShellActivity {
         startActivity(InfoActivity.intent(
                 this,
                 "Медиа",
-                "3–30 файлов · удерживайте для сортировки · ★ обложка. Для длинного видео откройте карточку и измените фрагмент. Удаление отдельного файла можно отменить через действие «Отменить»."
+                "Добавьте от 3 до 30 файлов и удерживайте карточку для сортировки. Кнопка обложки отмечает единственную обложку набора. Для длинного видео откройте карточку и измените фрагмент. Удаление отдельного файла можно отменить."
         ));
     }
 
@@ -438,6 +451,7 @@ public class SettingsShellActivity extends PacksShellActivity {
             return;
         }
 
+        draftRestoredThisSession = false;
         EditorInstanceStateBridge.clearPersistent(this);
         VideoTrimStore.clear();
         VideoTrimStore.clearPersistent(this, AppSettings.TRIM_PERSISTENT_KEY);
@@ -452,6 +466,7 @@ public class SettingsShellActivity extends PacksShellActivity {
         }
         boolean restored = EditorInstanceStateBridge.restorePersistent(this);
         VideoTrimStore.restorePersistent(this, AppSettings.TRIM_PERSISTENT_KEY);
+        if (restored) draftRestoredThisSession = true;
         refreshShellPresentation();
         if (restored) {
             TransientFeedback.show(this, "Черновик восстановлен");
@@ -464,7 +479,7 @@ public class SettingsShellActivity extends PacksShellActivity {
         startActivity(InfoActivity.intent(
                 this,
                 "Помощь",
-                "Создать → настроить медиа → собрать → сохранить. Ошибки можно повторить отдельно. Фото и анимированные черновики сохраняются независимо."
+                "Создайте набор, добавьте медиа, соберите и сохраните его. Ошибки можно повторить отдельно. Черновик сохраняется локально на устройстве."
         ));
     }
 

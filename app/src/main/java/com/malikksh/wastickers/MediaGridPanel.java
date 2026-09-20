@@ -5,6 +5,7 @@ import android.content.ClipData;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Typeface;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
@@ -116,7 +117,7 @@ final class MediaGridPanel extends LinearLayout {
 
         addMore = new Button(context);
         addMore.setId(R.id.media_add_more);
-        addMore.setText("＋ Добавить ещё");
+        addMore.setText("Добавить ещё");
         addMore.setAllCaps(false);
         addMore.setOnClickListener(v -> host.onAddMedia());
         styleTertiaryButton(addMore);
@@ -179,7 +180,7 @@ final class MediaGridPanel extends LinearLayout {
 
         continueButton = new Button(context);
         continueButton.setId(R.id.media_continue);
-        continueButton.setText("Далее к сборке  →");
+        continueButton.setText("Далее к сборке");
         continueButton.setAllCaps(false);
         continueButton.setOnClickListener(v -> host.onContinue());
         LinearLayout.LayoutParams continueParams = new LinearLayout.LayoutParams(0, dp(50), 2f);
@@ -297,7 +298,7 @@ final class MediaGridPanel extends LinearLayout {
             tile.addView(image, imageParams);
             loadPreview(uri, image);
 
-            TextView handle = overlay("⋮⋮", 16,
+            TextView handle = iconOverlay(R.drawable.ic_drag_handle,
                     color(R.color.app_text_primary), color(R.color.app_overlay_light));
             handle.setContentDescription("Перетащить файл " + (i + 1));
             handle.setOnLongClickListener(v -> startTileDrag(tile, index));
@@ -306,7 +307,7 @@ final class MediaGridPanel extends LinearLayout {
             handleParams.setMargins(dp(2), dp(2), 0, 0);
             tile.addView(handle, handleParams);
 
-            TextView remove = overlay("×", 20,
+            TextView remove = iconOverlay(R.drawable.ic_close,
                     color(R.color.app_on_primary), color(R.color.app_overlay_dark));
             remove.setContentDescription("Удалить файл " + (i + 1));
             remove.setOnClickListener(v -> removeWithUndo(index));
@@ -315,7 +316,7 @@ final class MediaGridPanel extends LinearLayout {
             removeParams.setMargins(0, dp(2), dp(2), 0);
             tile.addView(remove, removeParams);
 
-            TextView cover = overlay(isCover ? "★" : "☆", 19,
+            TextView cover = iconOverlay(R.drawable.ic_cover_star,
                     isCover ? color(R.color.app_primary) : color(R.color.app_text_primary),
                     color(R.color.app_overlay_light));
             cover.setContentDescription(isCover ? "Выбрано как обложка" : "Выбрать как обложку");
@@ -325,7 +326,7 @@ final class MediaGridPanel extends LinearLayout {
             coverParams.setMargins(0, 0, dp(2), dp(2));
             tile.addView(cover, coverParams);
 
-            TextView duration = overlay(animated ? "▶" : "", 11,
+            TextView duration = overlay("", 11,
                     color(R.color.app_on_primary), color(R.color.app_overlay_badge));
             duration.setClickable(false);
             duration.setFocusable(false);
@@ -527,7 +528,7 @@ final class MediaGridPanel extends LinearLayout {
         detailName.setText("Файл");
         detailMeta.setText(animated ? "Анимация · загрузка данных…" : "Фото · загрузка данных…");
         detailStatus.setTextColor(color(R.color.app_primary));
-        detailStatus.setText(uri.equals(coverUri) ? "★ Выбрана как обложка" : "Готово к сборке");
+        detailStatus.setText(uri.equals(coverUri) ? "Выбрана как обложка" : "Готово к сборке");
 
         metadataExecutor.execute(() -> {
             List<MediaPreflightAnalyzer.Result> results = analyzer.analyze(Collections.singletonList(uri));
@@ -551,10 +552,10 @@ final class MediaGridPanel extends LinearLayout {
                 detailMeta.setText(meta.toString());
                 if (uri.equals(coverUri)) {
                     detailStatus.setTextColor(color(R.color.app_primary));
-                    detailStatus.setText("★ Выбрана как обложка");
+                    detailStatus.setText("Выбрана как обложка");
                 } else if (result.assessment.severity == MediaPreflightPolicy.Severity.ERROR) {
                     detailStatus.setTextColor(color(R.color.app_error));
-                    detailStatus.setText("! " + result.assessment.message);
+                    detailStatus.setText(result.assessment.message);
                 } else {
                     detailStatus.setTextColor(color(R.color.app_primary));
                     detailStatus.setText("Готово к сборке");
@@ -601,7 +602,7 @@ final class MediaGridPanel extends LinearLayout {
             post(() -> {
                 if (generation != renderGeneration || !uri.toString().equals(badge.getTag())) return;
                 if (result.video && result.durationMs >= 0) {
-                    badge.setText("▶ " + MediaPreflightPolicy.formatDuration(result.durationMs));
+                    badge.setText(MediaPreflightPolicy.formatDuration(result.durationMs));
                 } else {
                     badge.setText(result.kindLabel());
                 }
@@ -628,6 +629,18 @@ final class MediaGridPanel extends LinearLayout {
         view.setBackground(rounded(backgroundColor, 12));
         view.setClickable(true);
         view.setFocusable(true);
+        return view;
+    }
+
+    private TextView iconOverlay(int drawableRes, int tintColor, int backgroundColor) {
+        TextView view = overlay("", 12, tintColor, backgroundColor);
+        Drawable icon = getContext().getDrawable(drawableRes);
+        if (icon != null) {
+            icon = icon.mutate();
+            icon.setTint(tintColor);
+            view.setCompoundDrawablesWithIntrinsicBounds(icon, null, null, null);
+        }
+        view.setPadding(0, 0, 0, 0);
         return view;
     }
 
