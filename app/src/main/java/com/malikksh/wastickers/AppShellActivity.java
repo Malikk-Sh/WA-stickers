@@ -413,11 +413,12 @@ public class AppShellActivity extends LauncherActivity {
         Uri coverSnapshot = coverUriSnapshot();
         String nameSnapshot = runtimeEnteredPackName();
         plannerExecutor.execute(() -> {
-            List<PackCompatibilityPlanner.Source<Uri>> sources = new ArrayList<>();
+            List<PackCompatibilityPlanner.Item<Uri>> sources = new ArrayList<>();
             for (Uri uri : snapshot) {
-                sources.add(new PackCompatibilityPlanner.Source<>(uri, sourceDetector.classify(uri)));
+                sources.add(new PackCompatibilityPlanner.Item<>(uri, sourceDetector.classify(uri)));
             }
-            PackCompatibilityPlanner.ExportPlan<Uri> plan = PackCompatibilityPlanner.plan(sources);
+            PackCompatibilityPlanner<Uri> planner = new PackCompatibilityPlanner<>();
+            PackCompatibilityPlanner.ExportPlan<Uri> plan = planner.plan(sources, coverSnapshot);
             runOnUiThread(() -> applyExportPlan(snapshot, coverSnapshot, nameSnapshot, plan));
         });
     }
@@ -436,7 +437,7 @@ public class AppShellActivity extends LauncherActivity {
             TransientFeedback.show(this, message);
             return;
         }
-        if (plan.requiresStaticWrapper()) {
+        if (requiresStaticWrapper(plan)) {
             EditorInstanceStateBridge.savePersistent(this);
             TransientFeedback.show(
                     this,
@@ -455,6 +456,15 @@ public class AppShellActivity extends LauncherActivity {
         }
         EditorInstanceStateBridge.savePersistent(this);
         showBuildScreenUnchecked();
+    }
+
+    private boolean requiresStaticWrapper(PackCompatibilityPlanner.ExportPlan<Uri> plan) {
+        for (PackCompatibilityPlanner.Job<Uri> job : plan.jobs) {
+            if (job.strategy == PackCompatibilityPlanner.OutputStrategy.STATIC_TO_ANIMATED_WRAPPER) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void showRoute(Route route) {
@@ -524,8 +534,9 @@ public class AppShellActivity extends LauncherActivity {
     }
 
     private void removeMediaFromShell(int index) {
+        Uri removed = uriAt(index);
         if (this.runtimeRemoveMediaAt(index)) {
-            if (sourceDetector != null && uriAt(index) != null) sourceDetector.invalidate(uriAt(index));
+            if (sourceDetector != null) sourceDetector.invalidate(removed);
             persistAndRefreshShell();
         }
     }
