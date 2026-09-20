@@ -5,10 +5,14 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Typeface;
 import android.os.Build;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -22,7 +26,7 @@ import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/** Task-focused local pack manager used by the Packs tab. */
+/** Compact Library/Home presentation backed only by the existing PackStore. */
 final class PacksPanel extends LinearLayout {
     enum Filter {
         ALL,
@@ -32,20 +36,24 @@ final class PacksPanel extends LinearLayout {
 
     interface Host {
         void onAddToWhatsApp(PackStore.Pack pack);
+        void onOpenPack(PackStore.Pack pack);
         void onShowPackActions(PackStore.Pack pack);
-        void onCreateFirstPack();
-        void onSearchRequested();
+        void onCreatePack();
+        void onSettingsRequested();
         void onOverflowRequested(View anchor);
     }
 
     private final Host host;
     private final ExecutorService previewExecutor = Executors.newSingleThreadExecutor();
 
+    private final LinearLayout normalHeader;
+    private final LinearLayout searchHeader;
+    private final EditText searchInput;
+    private final LinearLayout filters;
     private final Button allFilter;
     private final Button photoFilter;
     private final Button animatedFilter;
-    private final TextView packsStat;
-    private final TextView stickersStat;
+    private final TextView statsText;
     private final LinearLayout list;
 
     private Filter filter = Filter.ALL;
@@ -58,54 +66,60 @@ final class PacksPanel extends LinearLayout {
         this.host = host;
         setId(R.id.packs_panel);
         setOrientation(VERTICAL);
-        setPadding(dp(20), dp(18), dp(20), dp(22));
+        setPadding(dp(20), dp(18), dp(20), dp(24));
         setBackgroundColor(color(R.color.app_background));
 
-        addView(buildHeader(), matchWrap());
+        normalHeader = buildHeader();
+        addView(normalHeader, matchWrap());
 
-        LinearLayout filters = new LinearLayout(context);
+        searchInput = new EditText(context);
+        configureSearchInput();
+        searchHeader = buildSearchHeader();
+        searchHeader.setVisibility(GONE);
+        addView(searchHeader, matchWrap());
+
+        filters = new LinearLayout(context);
         filters.setOrientation(HORIZONTAL);
         filters.setPadding(dp(4), dp(4), dp(4), dp(4));
         filters.setBackground(UiComponents.rounded(
-                context, R.color.app_surface_variant, R.dimen.radius_pill));
+                context, R.color.app_surface_variant, R.dimen.radius_control));
         LinearLayout.LayoutParams filtersParams = matchWrap();
-        filtersParams.topMargin = dp(16);
+        filtersParams.topMargin = dp(14);
         addView(filters, filtersParams);
 
         allFilter = filterButton("Все", R.id.packs_filter_all, Filter.ALL);
         filters.addView(allFilter, new LinearLayout.LayoutParams(0, dp(48), 1f));
-        photoFilter = filterButton("Фото", R.id.packs_filter_photo, Filter.PHOTO);
+        photoFilter = filterButton("Статичные", R.id.packs_filter_photo, Filter.PHOTO);
         LinearLayout.LayoutParams photoParams = new LinearLayout.LayoutParams(0, dp(48), 1f);
         photoParams.leftMargin = dp(4);
         filters.addView(photoFilter, photoParams);
-        animatedFilter = filterButton("Анимация", R.id.packs_filter_animated, Filter.ANIMATED);
+        animatedFilter = filterButton("С анимацией", R.id.packs_filter_animated, Filter.ANIMATED);
         LinearLayout.LayoutParams animatedParams = new LinearLayout.LayoutParams(0, dp(48), 1f);
         animatedParams.leftMargin = dp(4);
         filters.addView(animatedFilter, animatedParams);
 
-        LinearLayout stats = UiComponents.card(context);
-        stats.setId(R.id.packs_stats);
-        stats.setOrientation(HORIZONTAL);
-        stats.setGravity(Gravity.CENTER_VERTICAL);
+        statsText = UiComponents.metadata(context, "");
+        statsText.setId(R.id.packs_stats);
         LinearLayout.LayoutParams statsParams = matchWrap();
-        statsParams.topMargin = dp(14);
-        addView(stats, statsParams);
+        statsParams.topMargin = dp(12);
+        addView(statsText, statsParams);
 
-        LinearLayout packsBlock = statBlock("Сохранено");
-        packsStat = (TextView) packsBlock.getChildAt(0);
-        stats.addView(packsBlock, new LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-
-        LinearLayout stickersBlock = statBlock("Всего");
-        stickersStat = (TextView) stickersBlock.getChildAt(0);
-        stats.addView(stickersBlock, new LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        Button create = new Button(context);
+        create.setId(R.id.packs_create_first);
+        create.setText("+  Создать набор");
+        create.setContentDescription("Создать новый набор");
+        UiComponents.stylePrimaryButton(create, true);
+        create.setOnClickListener(v -> host.onCreatePack());
+        LinearLayout.LayoutParams createParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(54));
+        createParams.topMargin = dp(14);
+        addView(create, createParams);
 
         list = new LinearLayout(context);
         list.setId(R.id.packs_list);
         list.setOrientation(VERTICAL);
         LinearLayout.LayoutParams listParams = matchWrap();
-        listParams.topMargin = dp(14);
+        listParams.topMargin = dp(16);
         addView(list, listParams);
 
         updateFilterStyles();
@@ -140,12 +154,32 @@ final class PacksPanel extends LinearLayout {
         renderList();
     }
 
+    void openSearch() {
+        if (searchHeader.getVisibility() == VISIBLE) return;
+        normalHeader.setVisibility(GONE);
+        searchHeader.setVisibility(VISIBLE);
+        searchInput.setText(query);
+        searchInput.setSelection(searchInput.length());
+        searchInput.post(() -> {
+            searchInput.requestFocus();
+            InputMethodManager imm = (InputMethodManager)
+                    getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (imm != null) imm.showSoftInput(searchInput, InputMethodManager.SHOW_IMPLICIT);
+        });
+    }
+
+    boolean closeSearchIfActive() {
+        if (searchHeader.getVisibility() != VISIBLE) return false;
+        closeSearch();
+        return true;
+    }
+
     void close() {
         renderGeneration++;
         previewExecutor.shutdownNow();
     }
 
-    private View buildHeader() {
+    private LinearLayout buildHeader() {
         LinearLayout row = new LinearLayout(getContext());
         row.setOrientation(HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
@@ -155,33 +189,99 @@ final class PacksPanel extends LinearLayout {
         logo.setPadding(dp(7), dp(7), dp(7), dp(7));
         logo.setBackground(UiComponents.rounded(
                 getContext(), R.color.app_primary, R.dimen.radius_card));
-        row.addView(logo, new LinearLayout.LayoutParams(dp(62), dp(62)));
+        row.addView(logo, new LinearLayout.LayoutParams(dp(56), dp(56)));
 
         LinearLayout labels = new LinearLayout(getContext());
         labels.setOrientation(VERTICAL);
         LinearLayout.LayoutParams labelsParams = new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        labelsParams.leftMargin = dp(14);
+        labelsParams.leftMargin = dp(12);
         row.addView(labels, labelsParams);
 
         labels.addView(UiComponents.screenTitle(getContext(), "Мои наборы"), matchWrap());
         TextView subtitle = UiComponents.metadata(getContext(), "Сохранённые наборы");
         LinearLayout.LayoutParams subtitleParams = matchWrap();
-        subtitleParams.topMargin = dp(2);
+        subtitleParams.topMargin = dp(1);
         labels.addView(subtitle, subtitleParams);
 
         ImageButton search = headerAction(R.drawable.ic_search, "Поиск наборов");
         search.setId(R.id.packs_search);
-        search.setOnClickListener(v -> host.onSearchRequested());
+        search.setOnClickListener(v -> openSearch());
         LinearLayout.LayoutParams searchParams = new LinearLayout.LayoutParams(dp(48), dp(48));
-        searchParams.rightMargin = dp(6);
+        searchParams.rightMargin = dp(4);
         row.addView(search, searchParams);
+
+        ImageButton settings = headerAction(R.drawable.ic_settings, "Открыть настройки");
+        settings.setId(R.id.packs_settings);
+        settings.setOnClickListener(v -> host.onSettingsRequested());
+        LinearLayout.LayoutParams settingsParams = new LinearLayout.LayoutParams(dp(48), dp(48));
+        settingsParams.rightMargin = dp(4);
+        row.addView(settings, settingsParams);
 
         ImageButton overflow = headerAction(R.drawable.ic_more_vertical, "Меню наборов");
         overflow.setId(R.id.packs_overflow);
         overflow.setOnClickListener(v -> host.onOverflowRequested(v));
         row.addView(overflow, new LinearLayout.LayoutParams(dp(48), dp(48)));
         return row;
+    }
+
+    private void configureSearchInput() {
+        searchInput.setId(R.id.packs_search_field);
+        searchInput.setSingleLine(true);
+        searchInput.setHint("Поиск наборов…");
+        searchInput.setTextSize(16);
+        searchInput.setTextColor(color(R.color.app_text_primary));
+        searchInput.setHintTextColor(color(R.color.app_text_tertiary));
+        searchInput.setPadding(dp(14), 0, dp(14), 0);
+        android.graphics.drawable.GradientDrawable background = UiComponents.rounded(
+                getContext(), R.color.app_surface_variant, R.dimen.radius_control);
+        background.setStroke(dp(1), color(R.color.app_border));
+        searchInput.setBackground(background);
+        searchInput.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {}
+            @Override public void afterTextChanged(Editable s) {
+                setQuery(s == null ? "" : s.toString());
+            }
+        });
+    }
+
+    private LinearLayout buildSearchHeader() {
+        LinearLayout row = new LinearLayout(getContext());
+        row.setOrientation(HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setMinimumHeight(dp(56));
+
+        ImageButton back = headerAction(R.drawable.ic_back, "Закрыть поиск");
+        back.setId(R.id.packs_search_back);
+        back.setOnClickListener(v -> closeSearch());
+        LinearLayout.LayoutParams backParams = new LinearLayout.LayoutParams(dp(48), dp(48));
+        backParams.rightMargin = dp(8);
+        row.addView(back, backParams);
+
+        row.addView(searchInput, new LinearLayout.LayoutParams(
+                0, dp(48), 1f));
+
+        ImageButton close = headerAction(R.drawable.ic_close, "Очистить и закрыть поиск");
+        close.setId(R.id.packs_search_close);
+        close.setOnClickListener(v -> closeSearch());
+        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(dp(48), dp(48));
+        closeParams.leftMargin = dp(8);
+        row.addView(close, closeParams);
+        return row;
+    }
+
+    private void closeSearch() {
+        setQuery("");
+        searchInput.setText("");
+        searchInput.clearFocus();
+        searchHeader.setVisibility(GONE);
+        normalHeader.setVisibility(VISIBLE);
+        InputMethodManager imm = (InputMethodManager)
+                getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
+        if (imm != null && getWindowToken() != null) {
+            imm.hideSoftInputFromWindow(getWindowToken(), 0);
+        }
     }
 
     private ImageButton headerAction(int drawable, String description) {
@@ -203,26 +303,15 @@ final class PacksPanel extends LinearLayout {
         return button;
     }
 
-    private LinearLayout statBlock(String label) {
-        LinearLayout block = new LinearLayout(getContext());
-        block.setOrientation(VERTICAL);
-        block.setGravity(Gravity.CENTER);
-        TextView number = text("0", 17, color(R.color.app_text_primary), Typeface.BOLD);
-        number.setGravity(Gravity.CENTER);
-        block.addView(number, matchWrap());
-        TextView caption = UiComponents.metadata(getContext(), label);
-        caption.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams captionParams = matchWrap();
-        captionParams.topMargin = dp(2);
-        block.addView(caption, captionParams);
-        return block;
-    }
-
     private void renderStats() {
         int stickers = 0;
         for (PackStore.Pack pack : packs) stickers += Math.max(0, pack.stickerCount);
-        packsStat.setText(packCountLabel(packs.size()));
-        stickersStat.setText(stickerCountLabel(stickers));
+        boolean useful = packs.size() > 1;
+        filters.setVisibility(useful ? VISIBLE : GONE);
+        statsText.setVisibility(useful ? VISIBLE : GONE);
+        if (useful) {
+            statsText.setText(packCountLabel(packs.size()) + "  ·  " + stickerCountLabel(stickers));
+        }
     }
 
     private void renderList() {
@@ -253,7 +342,7 @@ final class PacksPanel extends LinearLayout {
     }
 
     private View buildEmptyState() {
-        LinearLayout card = UiComponents.card(getContext());
+        LinearLayout card = tonalCard();
         card.setId(R.id.packs_empty);
         card.setGravity(Gravity.CENTER_HORIZONTAL);
         boolean searching = !query.isEmpty();
@@ -269,35 +358,25 @@ final class PacksPanel extends LinearLayout {
         TextView body = UiComponents.metadata(
                 getContext(),
                 searching
-                        ? "Измените запрос или сбросьте поиск"
+                        ? "Попробуйте другой запрос"
                         : (filter == Filter.ALL
-                                ? "Созданные наборы появятся здесь"
-                                : "Выберите другой фильтр или создайте новый набор")
+                                ? "Создайте первый набор и добавьте в него фото, GIF или видео."
+                                : "Выберите другой фильтр")
         );
         body.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams bodyParams = matchWrap();
         bodyParams.topMargin = dp(5);
         card.addView(body, bodyParams);
-
-        if (!searching && filter == Filter.ALL) {
-            Button create = new Button(getContext());
-            create.setId(R.id.packs_create_first);
-            create.setText("Создать первый набор");
-            create.setAllCaps(false);
-            UiComponents.stylePrimaryButton(create, true);
-            create.setOnClickListener(v -> host.onCreateFirstPack());
-            LinearLayout.LayoutParams createParams = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, dp(52));
-            createParams.topMargin = dp(14);
-            card.addView(create, createParams);
-        }
         return card;
     }
 
     private View buildPackCard(PackStore.Pack pack) {
         boolean available = isAvailable(pack);
-        LinearLayout card = UiComponents.card(getContext());
-        card.setContentDescription("Набор " + pack.name);
+        LinearLayout card = tonalCard();
+        card.setClickable(true);
+        card.setFocusable(true);
+        card.setContentDescription("Открыть набор " + pack.name);
+        card.setOnClickListener(v -> host.onOpenPack(pack));
 
         LinearLayout row = new LinearLayout(getContext());
         row.setOrientation(HORIZONTAL);
@@ -310,7 +389,7 @@ final class PacksPanel extends LinearLayout {
                 getContext(), R.color.app_surface_variant, R.dimen.radius_card));
         tray.setContentDescription("Иконка набора " + pack.name);
         if (Build.VERSION.SDK_INT >= 21) tray.setClipToOutline(true);
-        row.addView(tray, new LinearLayout.LayoutParams(dp(76), dp(76)));
+        row.addView(tray, new LinearLayout.LayoutParams(dp(72), dp(72)));
         loadTray(pack, tray, renderGeneration);
 
         LinearLayout info = new LinearLayout(getContext());
@@ -321,31 +400,25 @@ final class PacksPanel extends LinearLayout {
         row.addView(info, infoParams);
 
         TextView name = UiComponents.cardTitle(getContext(), pack.name);
-        name.setMaxLines(2);
+        name.setMaxLines(1);
+        name.setEllipsize(android.text.TextUtils.TruncateAt.END);
         info.addView(name, matchWrap());
 
-        TextView count = UiComponents.metadata(getContext(), stickerCountLabel(pack.stickerCount));
+        String summary = stickerCountLabel(pack.stickerCount)
+                + " · " + (pack.animated ? "анимированный экспорт" : "статичный экспорт");
+        TextView count = UiComponents.metadata(getContext(), summary);
+        count.setMaxLines(1);
+        count.setEllipsize(android.text.TextUtils.TruncateAt.END);
         LinearLayout.LayoutParams countParams = matchWrap();
         countParams.topMargin = dp(4);
         info.addView(count, countParams);
-
-        LinearLayout chips = new LinearLayout(getContext());
-        chips.setOrientation(HORIZONTAL);
-        chips.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams chipsParams = matchWrap();
-        chipsParams.topMargin = dp(7);
-        info.addView(chips, chipsParams);
-
-        TextView type = chip(pack.animated ? "Анимация" : "Фото", true);
-        chips.addView(type, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, dp(28)));
 
         if (!available) {
             TextView unavailable = chip("Недоступен", false);
             LinearLayout.LayoutParams unavailableParams = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT, dp(28));
-            unavailableParams.leftMargin = dp(6);
-            chips.addView(unavailable, unavailableParams);
+            unavailableParams.topMargin = dp(7);
+            info.addView(unavailable, unavailableParams);
         }
 
         ImageButton overflow = headerAction(R.drawable.ic_more_vertical,
@@ -363,13 +436,13 @@ final class PacksPanel extends LinearLayout {
         }
 
         Button whatsapp = new Button(getContext());
-        whatsapp.setText("В WhatsApp");
+        whatsapp.setText("Добавить в WhatsApp");
         whatsapp.setAllCaps(false);
         UiComponents.stylePrimaryButton(whatsapp, available);
         whatsapp.setContentDescription("Добавить набор " + pack.name + " в WhatsApp");
         if (available) whatsapp.setOnClickListener(v -> host.onAddToWhatsApp(pack));
         LinearLayout.LayoutParams whatsappParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(50));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(52));
         whatsappParams.topMargin = dp(12);
         card.addView(whatsapp, whatsappParams);
         return card;
@@ -389,6 +462,16 @@ final class PacksPanel extends LinearLayout {
                 normal ? R.color.app_primary_container : R.color.app_error_container,
                 R.dimen.radius_pill));
         return chip;
+    }
+
+    private LinearLayout tonalCard() {
+        LinearLayout card = new LinearLayout(getContext());
+        card.setOrientation(VERTICAL);
+        int padding = dp(16);
+        card.setPadding(padding, padding, padding, padding);
+        card.setBackground(UiComponents.rounded(
+                getContext(), R.color.app_surface, R.dimen.radius_card));
+        return card;
     }
 
     private boolean isAvailable(PackStore.Pack pack) {
