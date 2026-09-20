@@ -49,6 +49,10 @@
     <item name="build_secondary" type="id" />
     <item name="packs_panel" type="id" />
     <item name="packs_search" type="id" />
+    <item name="packs_search_field" type="id" />
+    <item name="packs_search_back" type="id" />
+    <item name="packs_search_close" type="id" />
+    <item name="packs_settings" type="id" />
     <item name="packs_overflow" type="id" />
     <item name="packs_filter_all" type="id" />
     <item name="packs_filter_photo" type="id" />
@@ -57,6 +61,11 @@
     <item name="packs_list" type="id" />
     <item name="packs_empty" type="id" />
     <item name="packs_create_first" type="id" />
+    <item name="pack_name_dialog" type="id" />
+    <item name="pack_name_dialog_input" type="id" />
+    <item name="pack_name_dialog_counter" type="id" />
+    <item name="pack_name_dialog_cancel" type="id" />
+    <item name="pack_name_dialog_confirm" type="id" />
     <item name="app_settings" type="id" />
     <item name="app_overflow" type="id" />
     <item name="settings_back" type="id" />

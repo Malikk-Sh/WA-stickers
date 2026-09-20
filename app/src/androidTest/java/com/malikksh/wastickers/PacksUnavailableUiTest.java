@@ -61,7 +61,7 @@ public class PacksUnavailableUiTest {
             onView(withText("Недоступный тест")).check(matches(isDisplayed()));
             onView(withText("Недоступен")).check(matches(isDisplayed()));
             onView(withText("Файлы набора не найдены на устройстве")).check(matches(isDisplayed()));
-            onView(withText("В WhatsApp")).check(matches(not(isEnabled())));
+            onView(withText("Добавить в WhatsApp")).check(matches(not(isEnabled())));
         }
     }
 

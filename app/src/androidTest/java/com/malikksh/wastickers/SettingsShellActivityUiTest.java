@@ -84,6 +84,11 @@ public class SettingsShellActivityUiTest {
                     assertTrue(EditorInstanceStateBridge.hasPersistent(activity));
                     invokeShellRefresh(activity);
 
+                    View create = activity.findViewById(R.id.nav_create);
+                    assertNotNull(create);
+                    create.performClick();
+                    activity.refreshShellState();
+
                     View overflow = activity.findViewById(R.id.app_overflow);
                     assertNotNull(overflow);
                     assertTrue(overflow.isShown());

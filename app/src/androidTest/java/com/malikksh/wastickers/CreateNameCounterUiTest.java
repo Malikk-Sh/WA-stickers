@@ -8,6 +8,7 @@ import static androidx.test.espresso.matcher.ViewMatchers.isDisplayed;
 import static androidx.test.espresso.matcher.ViewMatchers.withEffectiveVisibility;
 import static androidx.test.espresso.matcher.ViewMatchers.withHint;
 import static androidx.test.espresso.matcher.ViewMatchers.withId;
+import static org.junit.Assert.assertNotNull;
 
 import android.view.View;
 
@@ -22,6 +23,13 @@ public class CreateNameCounterUiTest {
     @Test
     public void counterIsHiddenFreshShownOnFocusAndAfterEightyPercent() {
         try (ActivityScenario<SettingsShellActivity> scenario = ActivityScenario.launch(SettingsShellActivity.class)) {
+            scenario.onActivity(activity -> {
+                View create = activity.findViewById(R.id.nav_create);
+                assertNotNull(create);
+                create.performClick();
+                activity.refreshShellState();
+            });
+
             onView(withId(R.id.create_name_counter)).check(matches(withEffectiveVisibility(GONE)));
 
             onView(withHint("Мои стикеры")).perform(click());
