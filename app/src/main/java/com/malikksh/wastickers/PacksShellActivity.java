@@ -7,6 +7,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewParent;
 import android.widget.FrameLayout;
 import android.widget.PopupMenu;
 import android.widget.ScrollView;
@@ -108,6 +109,21 @@ public class PacksShellActivity extends BuildShellActivity {
         if (packs != null) packs.performClick();
     }
 
+    /** Transitional flow route used by Library create and restore paths until tabs are removed. */
+    void enterCreateEditor() {
+        View create = findViewById(R.id.nav_create);
+        if (create != null) create.performClick();
+        refreshShellState();
+        // SettingsShellActivity owns this action container. It is hidden on Home, so make the
+        // workflow actions visible synchronously when the route changes instead of waiting for
+        // a layout callback that may not happen after a simple visibility switch.
+        View overflow = findViewById(R.id.app_overflow);
+        if (overflow != null) {
+            ViewParent parent = overflow.getParent();
+            if (parent instanceof View) ((View) parent).setVisibility(View.VISIBLE);
+        }
+    }
+
     private void refreshPacksPanel() {
         if (packsPanel == null) return;
         List<PackStore.Pack> packs = PackStore.getPacks(this);
@@ -123,9 +139,7 @@ public class PacksShellActivity extends BuildShellActivity {
             if (this.runtimePackName() != null) this.runtimePackName().setText(name);
             this.runtimeInvalidateCurrentPack();
             this.runtimeDiscardPendingBuild();
-            View create = findViewById(R.id.nav_create);
-            if (create != null) create.performClick();
-            refreshShellState();
+            enterCreateEditor();
             EditorInstanceStateBridge.savePersistent(this);
         });
     }
