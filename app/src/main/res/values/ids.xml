@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <item name="app_screen_host" type="id" />
+    <item name="editor_screen" type="id" />
+    <item name="editor_back" type="id" />
+    <item name="editor_title" type="id" />
+    <item name="editor_subtitle" type="id" />
+    <item name="build_screen_host" type="id" />
+    <item name="packs_screen_host" type="id" />
     <item name="nav_create" type="id" />
     <item name="nav_media" type="id" />
     <item name="nav_build" type="id" />
