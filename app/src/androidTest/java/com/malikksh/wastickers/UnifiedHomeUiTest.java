@@ -9,9 +9,12 @@ import static androidx.test.espresso.matcher.ViewMatchers.isDisplayed;
 import static androidx.test.espresso.matcher.ViewMatchers.withEffectiveVisibility;
 import static androidx.test.espresso.matcher.ViewMatchers.withId;
 import static androidx.test.espresso.matcher.ViewMatchers.withText;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 
 import android.content.Context;
 import android.content.Intent;
+import android.view.View;
 
 import androidx.test.core.app.ActivityScenario;
 import androidx.test.core.app.ApplicationProvider;
@@ -70,7 +73,7 @@ public class UnifiedHomeUiTest {
                 .setAction(Intent.ACTION_MAIN)
                 .addCategory(Intent.CATEGORY_LAUNCHER)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        try (ActivityScenario<SettingsShellActivity> ignored = ActivityScenario.launch(intent)) {
+        try (ActivityScenario<SettingsShellActivity> scenario = ActivityScenario.launch(intent)) {
             onView(withId(R.id.packs_create_first)).perform(click());
             onView(withId(R.id.pack_name_dialog)).check(matches(isDisplayed()));
             onView(withId(R.id.pack_name_dialog_input)).check(matches(withText("Мои стикеры")));
@@ -79,8 +82,14 @@ public class UnifiedHomeUiTest {
             onView(withText("Название набора")).check(matches(isDisplayed()));
             onView(withId(R.id.media_grid)).check(matches(isDisplayed()));
             onView(withId(R.id.media_continue)).check(matches(isDisplayed()));
-            onView(withId(R.id.nav_create)).check(matches(withEffectiveVisibility(GONE)));
-            onView(withId(R.id.nav_media)).check(matches(withEffectiveVisibility(GONE)));
+            scenario.onActivity(activity -> {
+                View create = activity.findViewById(R.id.nav_create);
+                View media = activity.findViewById(R.id.nav_media);
+                assertNotNull(create);
+                assertNotNull(media);
+                assertFalse(create.isShown());
+                assertFalse(media.isShown());
+            });
         }
     }
 }
