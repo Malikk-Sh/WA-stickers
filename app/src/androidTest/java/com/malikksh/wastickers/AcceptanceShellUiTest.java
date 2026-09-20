@@ -102,7 +102,7 @@ public class AcceptanceShellUiTest {
             onView(withContentDescription("Ещё")).perform(click());
             onView(withText("Помощь")).perform(click());
             onView(withText("Помощь")).check(matches(isDisplayed()));
-            onView(withText("Создать → настроить медиа → собрать → сохранить. Ошибки можно повторить отдельно. Фото и анимированные черновики сохраняются независимо."))
+            onView(withText("Создайте набор, добавьте медиа, соберите и сохраните его. Ошибки можно повторить отдельно. Черновик сохраняется локально на устройстве."))
                     .check(matches(isDisplayed()));
             onView(withId(R.id.nav_create)).check(doesNotExist());
             pressBack();
