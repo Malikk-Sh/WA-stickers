@@ -1,16 +1,15 @@
 package com.malikksh.wastickers;
 
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.content.Context;
 import android.content.pm.PackageInfo;
 import android.graphics.Typeface;
-import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.Switch;
@@ -28,6 +27,7 @@ public class SettingsActivity extends Activity {
     private Switch compactSwitch;
     private Switch draftsSwitch;
     private Switch cleanupSwitch;
+    private TextView cacheValue;
 
     @Override
     protected void attachBaseContext(Context newBase) {
@@ -38,14 +38,21 @@ public class SettingsActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         AppSettings.configureRuntime(this);
-        AppSettings.applySystemBars(this);
         setContentView(buildUi());
+        AppSettings.applySystemBars(this);
+        renderSettings();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
         renderSettings();
     }
 
     private View buildUi() {
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
+        scroll.setClipToPadding(false);
         scroll.setBackgroundColor(color(R.color.app_background));
 
         LinearLayout root = new LinearLayout(this);
@@ -68,16 +75,15 @@ public class SettingsActivity extends Activity {
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
 
-        Button back = new Button(this);
+        ImageButton back = new ImageButton(this);
         back.setId(R.id.settings_back);
-        back.setText("‹");
+        back.setImageResource(R.drawable.ic_back);
         back.setContentDescription("Назад");
-        back.setTextSize(27);
-        back.setAllCaps(false);
-        back.setTextColor(color(R.color.app_primary));
-        back.setBackground(rounded(color(R.color.app_primary_container), 17));
+        back.setPadding(dp(12), dp(12), dp(12), dp(12));
+        back.setBackground(UiComponents.rounded(
+                this, R.color.app_primary_container, R.dimen.radius_card));
         back.setOnClickListener(v -> finish());
-        row.addView(back, new LinearLayout.LayoutParams(dp(52), dp(52)));
+        row.addView(back, new LinearLayout.LayoutParams(dp(48), dp(48)));
 
         LinearLayout labels = new LinearLayout(this);
         labels.setOrientation(LinearLayout.VERTICAL);
@@ -86,11 +92,10 @@ public class SettingsActivity extends Activity {
         labelsParams.leftMargin = dp(14);
         row.addView(labels, labelsParams);
 
-        TextView title = text("Настройки", 27, color(R.color.app_text_primary), Typeface.BOLD);
+        TextView title = UiComponents.screenTitle(this, "Настройки");
         title.setId(R.id.settings_title);
         labels.addView(title, matchWrap());
-        TextView subtitle = text("Персонализация и обработка", 14,
-                color(R.color.app_text_secondary), Typeface.NORMAL);
+        TextView subtitle = UiComponents.metadata(this, "Персонализация и обработка");
         LinearLayout.LayoutParams subParams = matchWrap();
         subParams.topMargin = dp(2);
         labels.addView(subtitle, subParams);
@@ -98,8 +103,8 @@ public class SettingsActivity extends Activity {
     }
 
     private View sectionAppearance() {
-        LinearLayout card = card();
-        card.addView(sectionTitle("Внешний вид"), matchWrap());
+        LinearLayout card = UiComponents.card(this);
+        card.addView(UiComponents.sectionTitle(this, "Внешний вид"), matchWrap());
         card.addView(label("Тема"), topMargin(14));
 
         LinearLayout theme = segmentedRow();
@@ -124,12 +129,10 @@ public class SettingsActivity extends Activity {
     }
 
     private View sectionProcessing() {
-        LinearLayout card = card();
-        card.addView(sectionTitle("Обработка"), matchWrap());
+        LinearLayout card = UiComponents.card(this);
+        card.addView(UiComponents.sectionTitle(this, "Обработка"), matchWrap());
         card.addView(label("Качество анимации"), topMargin(14));
-        TextView qualityHint = text("Баланс между размером и плавностью", 12,
-                color(R.color.app_text_secondary), Typeface.NORMAL);
-        card.addView(qualityHint, topMargin(3));
+        card.addView(UiComponents.metadata(this, "Баланс между размером и плавностью"), topMargin(3));
 
         LinearLayout quality = segmentedRow();
         qualitySmoother = segment("Плавнее", R.id.settings_quality_smoother,
@@ -155,21 +158,19 @@ public class SettingsActivity extends Activity {
     }
 
     private View sectionStorage() {
-        LinearLayout card = card();
-        card.addView(sectionTitle("Хранилище"), matchWrap());
+        LinearLayout card = UiComponents.card(this);
+        card.addView(UiComponents.sectionTitle(this, "Хранилище"), matchWrap());
+
+        cacheValue = valueRow("Кэш конвертации", "0 B");
+        card.addView(cacheValue, topMargin(12));
 
         Button clear = new Button(this);
         clear.setId(R.id.settings_clear_cache);
-        clear.setAllCaps(false);
         clear.setText("Очистить кэш");
-        clear.setTextSize(15);
-        clear.setTypeface(Typeface.create("sans", Typeface.BOLD));
-        clear.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
-        clear.setPadding(dp(14), 0, dp(14), 0);
-        clear.setTextColor(color(R.color.app_primary));
-        clear.setBackground(rounded(color(R.color.app_surface_variant), 16));
+        clear.setAllCaps(false);
+        UiComponents.styleOutlineButton(clear, true);
         clear.setOnClickListener(v -> clearCache());
-        card.addView(clear, heightTop(52, 14));
+        card.addView(clear, heightTop(50, 8));
 
         cleanupSwitch = switchRow(
                 "Автоочистка временных файлов",
@@ -181,27 +182,41 @@ public class SettingsActivity extends Activity {
     }
 
     private View sectionAbout() {
-        LinearLayout card = card();
-        card.addView(sectionTitle("О приложении"), matchWrap());
+        LinearLayout card = UiComponents.card(this);
+        card.addView(UiComponents.sectionTitle(this, "О приложении"), matchWrap());
 
         TextView version = valueRow("Версия", versionName());
         version.setId(R.id.settings_version);
-        card.addView(version, topMargin(14));
+        card.addView(version, topMargin(12));
 
-        TextView privacy = text("Все файлы обрабатываются локально", 14,
-                color(R.color.app_text_primary), Typeface.NORMAL);
+        Button privacy = secondaryButton("Все файлы обрабатываются локально");
         privacy.setId(R.id.settings_privacy);
-        privacy.setPadding(0, dp(12), 0, dp(12));
-        card.addView(privacy, topMargin(4));
+        privacy.setOnClickListener(v -> startActivity(InfoActivity.intent(
+                this,
+                "Конфиденциальность",
+                "WA Stickers обрабатывает выбранные фото, GIF, WebP и видео локально на устройстве. "
+                        + "Для основной работы приложению не нужен доступ в интернет; готовые наборы передаются WhatsApp через локальный content provider."
+        )));
+        card.addView(privacy, heightTop(50, 8));
 
         Button help = secondaryButton("Помощь");
         help.setId(R.id.settings_help);
-        help.setOnClickListener(v -> showHelp());
+        help.setOnClickListener(v -> startActivity(InfoActivity.intent(
+                this,
+                "Помощь",
+                "Создайте набор, добавьте 3–30 файлов, настройте порядок и обложку во вкладке «Медиа», "
+                        + "при необходимости выберите 10-секундный фрагмент видео, затем соберите набор. "
+                        + "Ошибки отдельных файлов можно повторять или пропускать."
+        )));
         card.addView(help, heightTop(50, 8));
 
         Button about = secondaryButton("О приложении");
         about.setId(R.id.settings_about);
-        about.setOnClickListener(v -> showAbout());
+        about.setOnClickListener(v -> startActivity(InfoActivity.intent(
+                this,
+                "WA Stickers",
+                "Версия " + versionName() + "\n\nЛокальный offline-first инструмент для подготовки фото и анимированных наборов WhatsApp."
+        )));
         card.addView(about, heightTop(50, 8));
         return card;
     }
@@ -233,47 +248,39 @@ public class SettingsActivity extends Activity {
     }
 
     private void renderSettings() {
+        if (themeSystem == null) return;
         String appearance = AppSettings.appearance(this);
-        styleSegment(themeSystem, AppSettings.APPEARANCE_SYSTEM.equals(appearance));
-        styleSegment(themeLight, AppSettings.APPEARANCE_LIGHT.equals(appearance));
-        styleSegment(themeDark, AppSettings.APPEARANCE_DARK.equals(appearance));
+        UiComponents.styleSegment(themeSystem, AppSettings.APPEARANCE_SYSTEM.equals(appearance));
+        UiComponents.styleSegment(themeLight, AppSettings.APPEARANCE_LIGHT.equals(appearance));
+        UiComponents.styleSegment(themeDark, AppSettings.APPEARANCE_DARK.equals(appearance));
 
         String quality = AppSettings.qualityPreset(this);
-        styleSegment(qualitySmoother, AppSettings.QUALITY_SMOOTHER.equals(quality));
-        styleSegment(qualityBalance, AppSettings.QUALITY_BALANCE.equals(quality));
-        styleSegment(qualitySharper, AppSettings.QUALITY_SHARPER.equals(quality));
+        UiComponents.styleSegment(qualitySmoother, AppSettings.QUALITY_SMOOTHER.equals(quality));
+        UiComponents.styleSegment(qualityBalance, AppSettings.QUALITY_BALANCE.equals(quality));
+        UiComponents.styleSegment(qualitySharper, AppSettings.QUALITY_SHARPER.equals(quality));
 
-        if (compactSwitch != null) compactSwitch.setChecked(AppSettings.compactMode(this));
-        if (draftsSwitch != null) draftsSwitch.setChecked(AppSettings.keepDrafts(this));
-        if (cleanupSwitch != null) cleanupSwitch.setChecked(AppSettings.autoCleanup(this));
+        compactSwitch.setChecked(AppSettings.compactMode(this));
+        draftsSwitch.setChecked(AppSettings.keepDrafts(this));
+        cleanupSwitch.setChecked(AppSettings.autoCleanup(this));
+        if (cacheValue != null) {
+            cacheValue.setText("Кэш конвертации\n" + formatBytes(StorageStats.conversionCacheBytes(this)));
+        }
     }
 
     private void clearCache() {
         long freed = AppSettings.clearConversionCache(this);
         AppSettings.cleanupTemporaryFiles(this);
+        renderSettings();
         TransientFeedback.show(this, "Освобождено " + formatBytes(freed));
-    }
-
-    private void showHelp() {
-        new AlertDialog.Builder(this)
-                .setTitle("Помощь")
-                .setMessage("Создайте набор, настройте медиа, соберите файлы и добавьте готовый набор в WhatsApp. Ошибки можно повторять отдельно.")
-                .setPositiveButton("Понятно", null)
-                .show();
-    }
-
-    private void showAbout() {
-        new AlertDialog.Builder(this)
-                .setTitle("WA Stickers")
-                .setMessage("Версия " + versionName() + "\n\nВсе файлы обрабатываются локально.")
-                .setPositiveButton("Закрыть", null)
-                .show();
     }
 
     private LinearLayout segmentedRow() {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(4), dp(4), dp(4), dp(4));
+        row.setBackground(UiComponents.rounded(
+                this, R.color.app_surface_variant, R.dimen.radius_pill));
         return row;
     }
 
@@ -282,8 +289,6 @@ public class SettingsActivity extends Activity {
         button.setId(id);
         button.setText(value);
         button.setAllCaps(false);
-        button.setTextSize(13);
-        button.setTypeface(Typeface.create("sans", Typeface.BOLD));
         button.setPadding(dp(6), 0, dp(6), 0);
         button.setOnClickListener(v -> action.run());
         return button;
@@ -291,33 +296,19 @@ public class SettingsActivity extends Activity {
 
     private void addSegment(LinearLayout row, Button button, boolean withMargin) {
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(48), 1f);
-        if (withMargin) params.leftMargin = dp(7);
+        if (withMargin) params.leftMargin = dp(4);
         row.addView(button, params);
-    }
-
-    private void styleSegment(Button button, boolean selected) {
-        if (button == null) return;
-        button.setTextColor(selected
-                ? color(R.color.app_on_primary)
-                : color(R.color.app_primary));
-        button.setBackground(rounded(
-                selected ? color(R.color.app_primary) : color(R.color.app_surface_variant),
-                15));
     }
 
     private Button secondaryButton(String value) {
         Button button = new Button(this);
         button.setText(value);
         button.setAllCaps(false);
-        button.setTextSize(14);
-        button.setTypeface(Typeface.create("sans", Typeface.BOLD));
-        button.setTextColor(color(R.color.app_primary));
-        button.setBackground(rounded(color(R.color.app_primary_container), 16));
+        button.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
+        button.setPadding(dp(14), 0, dp(14), 0);
+        UiComponents.styleOutlineButton(button, true);
+        button.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
         return button;
-    }
-
-    private TextView sectionTitle(String value) {
-        return text(value, 18, color(R.color.app_text_primary), Typeface.BOLD);
     }
 
     private TextView label(String value) {
@@ -332,15 +323,6 @@ public class SettingsActivity extends Activity {
         return row;
     }
 
-    private LinearLayout card() {
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(18), dp(18), dp(18), dp(18));
-        card.setBackground(rounded(color(R.color.app_surface), 24));
-        if (android.os.Build.VERSION.SDK_INT >= 21) card.setElevation(dp(2));
-        return card;
-    }
-
     private TextView text(String value, int size, int textColor, int style) {
         TextView view = new TextView(this);
         view.setText(value);
@@ -348,18 +330,6 @@ public class SettingsActivity extends Activity {
         view.setTextColor(textColor);
         view.setTypeface(Typeface.create("sans", style));
         return view;
-    }
-
-    private GradientDrawable rounded(int fillColor, int radiusDp) {
-        GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(fillColor);
-        drawable.setCornerRadius(dp(radiusDp));
-        return drawable;
-    }
-
-    @SuppressWarnings("deprecation")
-    private int color(int resource) {
-        return getResources().getColor(resource);
     }
 
     private String versionName() {
@@ -378,9 +348,7 @@ public class SettingsActivity extends Activity {
     }
 
     private LinearLayout.LayoutParams matchWrap() {
-        return new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT);
+        return UiComponents.matchWrap();
     }
 
     private LinearLayout.LayoutParams topMargin(int value) {
@@ -396,8 +364,12 @@ public class SettingsActivity extends Activity {
         return params;
     }
 
+    private int color(int resource) {
+        return UiComponents.color(this, resource);
+    }
+
     private int dp(int value) {
-        return Math.round(value * getResources().getDisplayMetrics().density);
+        return UiComponents.dp(this, value);
     }
 
     private interface ToggleListener {
