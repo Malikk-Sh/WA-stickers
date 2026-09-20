@@ -3,13 +3,14 @@ package com.malikksh.wastickers;
 import static androidx.test.espresso.Espresso.onView;
 import static androidx.test.espresso.action.ViewActions.click;
 import static androidx.test.espresso.assertion.ViewAssertions.matches;
-import static androidx.test.espresso.matcher.ViewMatchers.Visibility.GONE;
 import static androidx.test.espresso.matcher.ViewMatchers.isDisplayed;
-import static androidx.test.espresso.matcher.ViewMatchers.withEffectiveVisibility;
 import static androidx.test.espresso.matcher.ViewMatchers.withId;
 import static androidx.test.espresso.matcher.ViewMatchers.withText;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 
 import android.content.Context;
+import android.view.View;
 
 import androidx.test.core.app.ActivityScenario;
 import androidx.test.core.app.ApplicationProvider;
@@ -44,17 +45,26 @@ public class AppShellActivityUiTest {
 
     @Test
     public void editorCombinesNameAndMediaWithoutVisibleWorkflowTabs() {
-        try (ActivityScenario<AppShellActivity> ignored = ActivityScenario.launch(AppShellActivity.class)) {
+        try (ActivityScenario<AppShellActivity> scenario = ActivityScenario.launch(AppShellActivity.class)) {
             onView(withText("Название набора")).check(matches(isDisplayed()));
             onView(withId(R.id.create_media_counter)).check(matches(withText("0 / 30")));
             onView(withId(R.id.media_summary)).check(matches(isDisplayed()));
             onView(withId(R.id.media_grid)).check(matches(isDisplayed()));
             onView(withId(R.id.media_continue)).check(matches(isDisplayed()));
 
-            onView(withId(R.id.nav_create)).check(matches(withEffectiveVisibility(GONE)));
-            onView(withId(R.id.nav_media)).check(matches(withEffectiveVisibility(GONE)));
-            onView(withId(R.id.nav_build)).check(matches(withEffectiveVisibility(GONE)));
-            onView(withId(R.id.nav_packs)).check(matches(withEffectiveVisibility(GONE)));
+            scenario.onActivity(activity -> {
+                int[] routeIds = new int[]{
+                        R.id.nav_create,
+                        R.id.nav_media,
+                        R.id.nav_build,
+                        R.id.nav_packs
+                };
+                for (int id : routeIds) {
+                    View route = activity.findViewById(id);
+                    assertNotNull(route);
+                    assertFalse(route.isShown());
+                }
+            });
         }
     }
 
