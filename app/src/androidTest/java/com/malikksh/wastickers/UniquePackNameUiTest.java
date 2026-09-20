@@ -66,6 +66,8 @@ public class UniquePackNameUiTest {
                 "two", "Второй", 3, "1", false));
 
         try (ActivityScenario<SettingsShellActivity> scenario = ActivityScenario.launch(launcherIntent())) {
+            // Let Espresso observe a focused application window before we attach the modal.
+            onView(withId(R.id.packs_panel)).check(matches(isDisplayed()));
             scenario.onActivity(activity -> PackNameDialog.show(
                     activity,
                     "Переименовать набор",
