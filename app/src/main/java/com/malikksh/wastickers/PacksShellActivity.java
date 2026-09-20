@@ -3,14 +3,11 @@ package com.malikksh.wastickers;
 import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
-import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.EditText;
 import android.widget.FrameLayout;
-import android.widget.LinearLayout;
 import android.widget.PopupMenu;
 import android.widget.ScrollView;
 import android.widget.Toast;
@@ -18,7 +15,7 @@ import android.widget.Toast;
 import java.io.File;
 import java.util.List;
 
-/** Packs-phase migration layer that moves SavedPacksActivity functionality into the main tab. */
+/** Library/Home layer backed by the existing PackStore and WhatsApp integration. */
 public class PacksShellActivity extends BuildShellActivity {
     private static final int REQUEST_ADD_TO_WHATSAPP = 200;
 
@@ -31,6 +28,7 @@ public class PacksShellActivity extends BuildShellActivity {
         try {
             installPacksPanel();
             refreshPacksPanel();
+            if (savedInstanceState == null) openLibraryHome();
         } catch (Throwable error) {
             BugLogStore.appendApp("Could not install redesigned Packs panel: " + error);
         }
@@ -46,6 +44,12 @@ public class PacksShellActivity extends BuildShellActivity {
     protected void onDestroy() {
         if (packsPanel != null) packsPanel.close();
         super.onDestroy();
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (packsPanel != null && packsPanel.closeSearchIfActive()) return;
+        super.onBackPressed();
     }
 
     private void installPacksPanel() {
@@ -65,19 +69,23 @@ public class PacksShellActivity extends BuildShellActivity {
             }
 
             @Override
+            public void onOpenPack(PackStore.Pack pack) {
+                showPackDetails(pack);
+            }
+
+            @Override
             public void onShowPackActions(PackStore.Pack pack) {
                 showPackActions(pack);
             }
 
             @Override
-            public void onCreateFirstPack() {
-                View create = findViewById(R.id.nav_create);
-                if (create != null) create.performClick();
+            public void onCreatePack() {
+                showCreatePackDialog();
             }
 
             @Override
-            public void onSearchRequested() {
-                showSearchDialog();
+            public void onSettingsRequested() {
+                startActivity(new Intent(PacksShellActivity.this, SettingsActivity.class));
             }
 
             @Override
@@ -89,9 +97,15 @@ public class PacksShellActivity extends BuildShellActivity {
         ScrollView scroll = (ScrollView) packsScreen;
         scroll.removeAllViews();
         scroll.setFillViewport(true);
+        scroll.setVerticalScrollBarEnabled(false);
         scroll.addView(packsPanel, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT));
+    }
+
+    private void openLibraryHome() {
+        View packs = findViewById(R.id.nav_packs);
+        if (packs != null) packs.performClick();
     }
 
     private void refreshPacksPanel() {
@@ -100,33 +114,20 @@ public class PacksShellActivity extends BuildShellActivity {
         packsPanel.render(packs);
     }
 
-    private void showSearchDialog() {
-        if (packsPanel == null) return;
-        EditText input = new EditText(this);
-        input.setSingleLine(true);
-        input.setHint("Название набора");
-        input.setText(packsPanel.query());
-        input.setSelectAllOnFocus(true);
-        input.setPadding(dp(14), 0, dp(14), 0);
-        GradientDrawable background = rounded(color(R.color.app_surface), 14);
-        background.setStroke(dp(1), color(R.color.app_border));
-        input.setBackground(background);
-
-        LinearLayout wrapper = new LinearLayout(this);
-        wrapper.setPadding(dp(20), dp(8), dp(20), 0);
-        wrapper.addView(input, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(54)));
-
-        AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle("Поиск наборов")
-                .setView(wrapper)
-                .setPositiveButton("Найти", (d, which) -> packsPanel.setQuery(
-                        input.getText().toString()))
-                .setNeutralButton("Сбросить", (d, which) -> packsPanel.setQuery(""))
-                .setNegativeButton("Отмена", null)
-                .create();
-        dialog.setOnShowListener(ignored -> input.requestFocus());
-        dialog.show();
+    private void showCreatePackDialog() {
+        String currentName = this.runtimePackName() == null
+                ? ""
+                : this.runtimePackName().getText().toString().trim();
+        String initial = currentName.isEmpty() ? "Мои стикеры" : currentName;
+        PackNameDialog.show(this, "Новый набор", initial, "Создать", name -> {
+            if (this.runtimePackName() != null) this.runtimePackName().setText(name);
+            this.runtimeInvalidateCurrentPack();
+            this.runtimeDiscardPendingBuild();
+            View create = findViewById(R.id.nav_create);
+            if (create != null) create.performClick();
+            refreshShellState();
+            EditorInstanceStateBridge.savePersistent(this);
+        });
     }
 
     private void showPacksOverflow(View anchor) {
@@ -162,7 +163,7 @@ public class PacksShellActivity extends BuildShellActivity {
         startActivity(InfoActivity.intent(
                 this,
                 "Импортировать",
-                "Формат импорта сохранённых наборов ещё не определён. Создавайте наборы через вкладку «Создать», чтобы не потерять метаданные и совместимость с WhatsApp."
+                "Формат импорта сохранённых наборов ещё не определён. Создавайте наборы через кнопку «Создать набор», чтобы не потерять метаданные и совместимость с WhatsApp."
         ));
     }
 
@@ -217,38 +218,15 @@ public class PacksShellActivity extends BuildShellActivity {
     }
 
     private void showRenameDialog(PackStore.Pack pack) {
-        EditText input = new EditText(this);
-        input.setSingleLine(true);
-        input.setText(pack.name);
-        input.setSelectAllOnFocus(true);
-        input.setPadding(dp(14), 0, dp(14), 0);
-        GradientDrawable background = rounded(color(R.color.app_surface), 14);
-        background.setStroke(dp(1), color(R.color.app_border));
-        input.setBackground(background);
-
-        LinearLayout wrapper = new LinearLayout(this);
-        wrapper.setPadding(dp(20), dp(8), dp(20), 0);
-        wrapper.addView(input, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(54)));
-
-        new AlertDialog.Builder(this)
-                .setTitle("Переименовать набор")
-                .setView(wrapper)
-                .setPositiveButton("Сохранить", (dialog, which) -> {
-                    String name = input.getText().toString().trim();
-                    if (name.isEmpty()) {
-                        TransientFeedback.show(this, "Название не может быть пустым");
-                        return;
-                    }
-                    PackStore.Pack renamed = PackStore.renamePack(this, pack.id, name);
-                    if (renamed != null) {
-                        this.runtimeReplaceCurrentPackIfId(pack.id, renamed);
-                        notifyMetadataChanged();
-                        refreshPacksPanel();
-                    }
-                })
-                .setNegativeButton("Отмена", null)
-                .show();
+        PackNameDialog.show(this, "Переименовать набор", pack.name, "Сохранить", name -> {
+            PackStore.Pack renamed = PackStore.renamePack(this, pack.id, name);
+            if (renamed != null) {
+                this.runtimeReplaceCurrentPackIfId(pack.id, renamed);
+                notifyMetadataChanged();
+                refreshPacksPanel();
+                TransientFeedback.show(this, "Набор переименован");
+            }
+        });
     }
 
     private void duplicatePack(PackStore.Pack pack) {
@@ -312,22 +290,6 @@ public class PacksShellActivity extends BuildShellActivity {
     private void notifyMetadataChanged() {
         String authority = getPackageName() + ".stickercontentprovider";
         getContentResolver().notifyChange(Uri.parse("content://" + authority + "/metadata"), null);
-    }
-
-    private GradientDrawable rounded(int fillColor, int radiusDp) {
-        GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(fillColor);
-        drawable.setCornerRadius(dp(radiusDp));
-        return drawable;
-    }
-
-    @SuppressWarnings("deprecation")
-    private int color(int resourceId) {
-        return getResources().getColor(resourceId);
-    }
-
-    private int dp(int value) {
-        return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
     // Instrumentation hook: presentation only.
