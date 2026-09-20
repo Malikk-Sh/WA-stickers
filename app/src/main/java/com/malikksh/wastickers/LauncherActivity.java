@@ -29,6 +29,7 @@ import java.util.concurrent.Executors;
 public abstract class LauncherActivity extends MainActivity {
     private static final int REQUEST_SHELL_PICK_PHOTOS = 4101;
     private static final int REQUEST_SHELL_PICK_ANIMATED = 4102;
+    private static final int REQUEST_SHELL_PICK_UNIFIED = 4103;
     private static final String TRIM_STATE_PREFIX = "home.video_trim.";
 
     private final ExecutorService shellSelectionExecutor = Executors.newSingleThreadExecutor();
@@ -62,6 +63,7 @@ public abstract class LauncherActivity extends MainActivity {
         applyInitialShellFocusOnce();
         if (!restoredPersistentDraftOnLaunch || restoredDraftFeedbackShown) return;
         View createAction = findViewById(R.id.create_continue);
+        if (createAction == null) createAction = findViewById(R.id.media_continue);
         if (createAction == null) return;
         restoredDraftFeedbackShown = true;
         createAction.post(() -> TransientFeedback.show(this, "Черновик восстановлен"));
@@ -179,52 +181,70 @@ public abstract class LauncherActivity extends MainActivity {
         super.onPause();
     }
 
-    /** Opens the redesigned shell picker without routing through a hidden legacy button. */
+    /** Opens the current legacy-mode picker for compatibility paths that still delegate here. */
     protected final void openMediaPicker() {
-        boolean animated = runtimeIsAnimatedMode();
-        int requestCode = animated ? REQUEST_SHELL_PICK_ANIMATED : REQUEST_SHELL_PICK_PHOTOS;
-        Intent intent = MediaPickerIntentFactory.createOpenDocumentIntent(animated);
-        String title = animated ? "Выберите GIF, WebP или видео" : "Выберите фото";
+        openModePicker(runtimeIsAnimatedMode());
+    }
 
+    /** Opens images from the gallery without changing the project's current runtime mode. */
+    protected final void openGallerySourcePicker() {
+        startShellPicker(
+                MediaPickerIntentFactory.createOpenDocumentIntent(false),
+                MediaPickerIntentFactory.createGetContentFallback(false),
+                REQUEST_SHELL_PICK_PHOTOS,
+                "Выберите изображения"
+        );
+    }
+
+    /** Opens all source types supported by the existing static/animated pipelines. */
+    protected final void openFileSourcePicker() {
+        startShellPicker(
+                MediaPickerIntentFactory.createUnifiedOpenDocumentIntent(),
+                MediaPickerIntentFactory.createUnifiedGetContentFallback(),
+                REQUEST_SHELL_PICK_UNIFIED,
+                "Выберите файлы"
+        );
+    }
+
+    private void openModePicker(boolean animated) {
+        int requestCode = animated ? REQUEST_SHELL_PICK_ANIMATED : REQUEST_SHELL_PICK_PHOTOS;
+        String title = animated ? "Выберите GIF, WebP или видео" : "Выберите фото";
+        startShellPicker(
+                MediaPickerIntentFactory.createOpenDocumentIntent(animated),
+                MediaPickerIntentFactory.createGetContentFallback(animated),
+                requestCode,
+                title
+        );
+    }
+
+    private void startShellPicker(Intent intent, Intent fallback, int requestCode, String title) {
         try {
-            if (animated) {
-                Toast.makeText(
-                        this,
-                        "Можно выбрать несколько файлов: удерживайте первый, затем отметьте остальные",
-                        Toast.LENGTH_LONG
-                ).show();
-                startActivityForResult(intent, requestCode);
-            } else {
-                startActivityForResult(Intent.createChooser(intent, title), requestCode);
-            }
+            startActivityForResult(Intent.createChooser(intent, title), requestCode);
         } catch (ActivityNotFoundException first) {
-            Intent fallback = MediaPickerIntentFactory.createGetContentFallback(animated);
             try {
                 startActivityForResult(Intent.createChooser(fallback, title), requestCode);
             } catch (ActivityNotFoundException second) {
-                Toast.makeText(
-                        this,
-                        animated ? "Не найдено приложение для выбора файлов" : "Галерея не найдена",
-                        Toast.LENGTH_LONG
-                ).show();
+                Toast.makeText(this, "Не найдено приложение для выбора файлов", Toast.LENGTH_LONG).show();
             }
         }
     }
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        if ((requestCode == REQUEST_SHELL_PICK_PHOTOS || requestCode == REQUEST_SHELL_PICK_ANIMATED)
+        if ((requestCode == REQUEST_SHELL_PICK_PHOTOS
+                || requestCode == REQUEST_SHELL_PICK_ANIMATED
+                || requestCode == REQUEST_SHELL_PICK_UNIFIED)
                 && resultCode == RESULT_OK && data != null) {
-            receiveShellPickerResult(data, requestCode == REQUEST_SHELL_PICK_ANIMATED);
+            receiveShellPickerResult(data, requestCode != REQUEST_SHELL_PICK_PHOTOS);
             return;
         }
         super.onActivityResult(requestCode, resultCode, data);
     }
 
-    private void receiveShellPickerResult(Intent data, boolean animated) {
+    private void receiveShellPickerResult(Intent data, boolean prepareAnimatedMetadata) {
         try {
-            // Shell pickers use ACTION_OPEN_DOCUMENT when available, so keep URI access for both
-            // photo and animated drafts. GET_CONTENT fallback persistence failures are tolerated.
+            // ACTION_OPEN_DOCUMENT keeps URI access for both image and animation sources.
+            // GET_CONTENT fallback persistence failures are tolerated by MainActivity.
             runtimeReceivePickerResult(data, true);
             EditorInstanceStateBridge.savePersistent(this);
         } catch (Throwable error) {
@@ -232,7 +252,7 @@ public abstract class LauncherActivity extends MainActivity {
             return;
         }
 
-        if (!animated) return;
+        if (!prepareAnimatedMetadata) return;
         List<Uri> selected = runtimeSelectedUrisSnapshot();
         shellSelectionExecutor.execute(() -> {
             try {
