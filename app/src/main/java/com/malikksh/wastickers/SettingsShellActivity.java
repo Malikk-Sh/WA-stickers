@@ -196,7 +196,7 @@ public class SettingsShellActivity extends PacksShellActivity {
 
     private void showMainOverflow(View anchor) {
         if (isShown(R.id.media_grid)) {
-            showMediaOverflow(anchor);
+            showEditorOverflow(anchor);
         } else if (isShown(R.id.build_panel)) {
             showBuildOverflow(anchor);
         } else {
@@ -207,6 +207,50 @@ public class SettingsShellActivity extends PacksShellActivity {
     private boolean isShown(int id) {
         View view = findViewById(id);
         return view != null && view.isShown();
+    }
+
+    private void showEditorOverflow(View anchor) {
+        PopupMenu menu = new PopupMenu(this, anchor);
+        menu.getMenu().add("Переименовать");
+        menu.getMenu().add("Очистить проект");
+        menu.getMenu().add("Сбросить порядок");
+        menu.getMenu().add("Помощь");
+        menu.setOnMenuItemClickListener(item -> {
+            String title = String.valueOf(item.getTitle());
+            if ("Переименовать".equals(title)) {
+                renameEditorProject();
+                return true;
+            }
+            if ("Очистить проект".equals(title)) {
+                requestClearDraft();
+                return true;
+            }
+            if ("Сбросить порядок".equals(title)) {
+                MediaGridPanel panel = mediaPanel();
+                if (panel == null || !panel.resetOrder()) {
+                    TransientFeedback.show(this, "Порядок уже исходный");
+                }
+                return true;
+            }
+            if ("Помощь".equals(title)) {
+                showHelp();
+                return true;
+            }
+            return false;
+        });
+        menu.show();
+    }
+
+    private void renameEditorProject() {
+        EditText nameField = this.runtimePackName();
+        String current = nameField == null ? "" : nameField.getText().toString();
+        PackNameDialog.show(this, "Переименовать набор", current, "Сохранить", name -> {
+            EditText field = this.runtimePackName();
+            if (field != null) field.setText(name);
+            EditorInstanceStateBridge.savePersistent(this);
+            refreshShellPresentation();
+            TransientFeedback.show(this, "Набор переименован");
+        });
     }
 
     private void showCreateOverflow(View anchor) {
