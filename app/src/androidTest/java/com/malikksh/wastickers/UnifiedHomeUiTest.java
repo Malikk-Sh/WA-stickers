@@ -65,7 +65,7 @@ public class UnifiedHomeUiTest {
     }
 
     @Test
-    public void createPackUsesCompactNameDialogThenOpensEditor() {
+    public void createPackUsesCompactNameDialogThenOpensUnifiedEditor() {
         Intent intent = new Intent(context, SettingsShellActivity.class)
                 .setAction(Intent.ACTION_MAIN)
                 .addCategory(Intent.CATEGORY_LAUNCHER)
@@ -75,7 +75,12 @@ public class UnifiedHomeUiTest {
             onView(withId(R.id.pack_name_dialog)).check(matches(isDisplayed()));
             onView(withId(R.id.pack_name_dialog_input)).check(matches(withText("Мои стикеры")));
             onView(withId(R.id.pack_name_dialog_confirm)).perform(click());
-            onView(withId(R.id.create_continue)).check(matches(isDisplayed()));
+
+            onView(withText("Название набора")).check(matches(isDisplayed()));
+            onView(withId(R.id.media_grid)).check(matches(isDisplayed()));
+            onView(withId(R.id.media_continue)).check(matches(isDisplayed()));
+            onView(withId(R.id.nav_create)).check(matches(withEffectiveVisibility(GONE)));
+            onView(withId(R.id.nav_media)).check(matches(withEffectiveVisibility(GONE)));
         }
     }
 }
