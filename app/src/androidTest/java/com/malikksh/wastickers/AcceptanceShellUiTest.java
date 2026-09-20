@@ -1,6 +1,7 @@
 package com.malikksh.wastickers;
 
 import static androidx.test.espresso.Espresso.onView;
+import static androidx.test.espresso.Espresso.pressBack;
 import static androidx.test.espresso.action.ViewActions.click;
 import static androidx.test.espresso.assertion.ViewAssertions.doesNotExist;
 import static androidx.test.espresso.assertion.ViewAssertions.matches;
@@ -75,6 +76,7 @@ public class AcceptanceShellUiTest {
             onView(withText("Дублировать")).check(matches(isDisplayed()));
             onView(withText("Детали")).check(matches(isDisplayed()));
             onView(withText("Удалить")).check(matches(isDisplayed()));
+            pressBack();
         }
     }
 
@@ -89,6 +91,7 @@ public class AcceptanceShellUiTest {
             onView(withText("Тип: Фото\nСтикеров: 3\nХранение: локально на устройстве"))
                     .check(matches(isDisplayed()));
             onView(withId(R.id.nav_create)).check(doesNotExist());
+            pressBack();
         }
     }
 
@@ -101,6 +104,7 @@ public class AcceptanceShellUiTest {
             onView(withText("Создать → настроить медиа → собрать → сохранить. Ошибки можно повторить отдельно. Фото и анимированные черновики сохраняются независимо."))
                     .check(matches(isDisplayed()));
             onView(withId(R.id.nav_create)).check(doesNotExist());
+            pressBack();
         }
     }
 
