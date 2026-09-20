@@ -122,6 +122,7 @@ final class MediaAnimationInspector {
 
         int offset = 12;
         boolean hasVp8x = false;
+        boolean hasStaticImageChunk = false;
         boolean animationFlag = false;
         boolean hasAnim = false;
 
@@ -137,6 +138,8 @@ final class MediaAnimationInspector {
             if ("VP8X".equals(chunk) && size >= 10) {
                 hasVp8x = true;
                 animationFlag = (data[payload] & 0x02) != 0;
+            } else if ("VP8 ".equals(chunk) || "VP8L".equals(chunk)) {
+                hasStaticImageChunk = true;
             } else if ("ANIM".equals(chunk) && size >= 6) {
                 hasAnim = true;
             } else if ("ANMF".equals(chunk) && size >= 16) {
@@ -148,7 +151,7 @@ final class MediaAnimationInspector {
             offset = (int) next;
         }
 
-        result.valid = hasVp8x;
+        result.valid = hasVp8x || hasStaticImageChunk;
         result.animationContainer = hasVp8x && animationFlag && hasAnim && result.frameCount > 0;
         return result;
     }
