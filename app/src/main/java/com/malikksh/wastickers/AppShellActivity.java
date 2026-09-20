@@ -437,14 +437,6 @@ public class AppShellActivity extends LauncherActivity {
             TransientFeedback.show(this, message);
             return;
         }
-        if (requiresStaticWrapper(plan)) {
-            EditorInstanceStateBridge.savePersistent(this);
-            TransientFeedback.show(
-                    this,
-                    "Фото и анимации сохранены вместе. Смешанный набор пока нельзя собрать."
-            );
-            return;
-        }
 
         boolean animated = plan.targetPackType == PackCompatibilityPlanner.TargetPackType.ANIMATED_PACK;
         Uri cover = plannedCover != null && plannedItems.contains(plannedCover)
@@ -456,15 +448,6 @@ public class AppShellActivity extends LauncherActivity {
         }
         EditorInstanceStateBridge.savePersistent(this);
         showBuildScreenUnchecked();
-    }
-
-    private boolean requiresStaticWrapper(PackCompatibilityPlanner.ExportPlan<Uri> plan) {
-        for (PackCompatibilityPlanner.Job<Uri> job : plan.jobs) {
-            if (job.strategy == PackCompatibilityPlanner.OutputStrategy.STATIC_TO_ANIMATED_WRAPPER) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private void showRoute(Route route) {
