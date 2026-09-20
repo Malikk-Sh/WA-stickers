@@ -3,12 +3,11 @@ package com.malikksh.wastickers;
 import static androidx.test.espresso.Espresso.onView;
 import static androidx.test.espresso.action.ViewActions.click;
 import static androidx.test.espresso.assertion.ViewAssertions.matches;
+import static androidx.test.espresso.matcher.ViewMatchers.Visibility.GONE;
 import static androidx.test.espresso.matcher.ViewMatchers.isDisplayed;
-import static androidx.test.espresso.matcher.ViewMatchers.isEnabled;
+import static androidx.test.espresso.matcher.ViewMatchers.withEffectiveVisibility;
 import static androidx.test.espresso.matcher.ViewMatchers.withId;
 import static androidx.test.espresso.matcher.ViewMatchers.withText;
-import static org.hamcrest.Matchers.allOf;
-import static org.hamcrest.Matchers.not;
 
 import android.content.Context;
 
@@ -44,32 +43,29 @@ public class AppShellActivityUiTest {
     }
 
     @Test
-    public void redesignedShellStartsOnCreate() {
+    public void editorCombinesNameAndMediaWithoutVisibleWorkflowTabs() {
         try (ActivityScenario<AppShellActivity> ignored = ActivityScenario.launch(AppShellActivity.class)) {
-            onView(withText("WA Stickers")).check(matches(isDisplayed()));
-            onView(withText("Ваши идеи в стикерах")).check(matches(isDisplayed()));
             onView(withText("Название набора")).check(matches(isDisplayed()));
-            onView(withText("Добавьте фотографии")).check(matches(isDisplayed()));
             onView(withId(R.id.create_media_counter)).check(matches(withText("0 / 30")));
-            onView(withId(R.id.create_continue)).check(matches(not(isEnabled())));
-            onView(withId(R.id.nav_create)).check(matches(isDisplayed()));
-            onView(withId(R.id.nav_media)).check(matches(isDisplayed()));
-            onView(withId(R.id.nav_build)).check(matches(isDisplayed()));
-            onView(withId(R.id.nav_packs)).check(matches(isDisplayed()));
+            onView(withId(R.id.media_summary)).check(matches(isDisplayed()));
+            onView(withId(R.id.media_grid)).check(matches(isDisplayed()));
+            onView(withId(R.id.media_continue)).check(matches(isDisplayed()));
+
+            onView(withId(R.id.nav_create)).check(matches(withEffectiveVisibility(GONE)));
+            onView(withId(R.id.nav_media)).check(matches(withEffectiveVisibility(GONE)));
+            onView(withId(R.id.nav_build)).check(matches(withEffectiveVisibility(GONE)));
+            onView(withId(R.id.nav_packs)).check(matches(withEffectiveVisibility(GONE)));
         }
     }
 
     @Test
-    public void createModeSwitchUpdatesCompactSelectionCard() {
+    public void editorModeSwitchUpdatesSingleMediaPanel() {
         try (ActivityScenario<AppShellActivity> ignored = ActivityScenario.launch(AppShellActivity.class)) {
-            onView(allOf(withText("Анимация"), not(withId(R.id.media_mode_animated)))).perform(click());
-            onView(withText("Добавьте анимации")).check(matches(isDisplayed()));
-            onView(withText("GIF, WebP и видео · до 10 секунд")).check(matches(isDisplayed()));
-            onView(withId(R.id.create_pick_media)).check(matches(withText("＋  Выбрать файлы")));
+            onView(withId(R.id.media_mode_animated)).perform(click());
+            onView(withId(R.id.media_summary)).check(matches(withText("Выбрано анимаций: 0")));
 
-            onView(allOf(withText("Фото"), not(withId(R.id.media_mode_photo)))).perform(click());
-            onView(withText("Добавьте фотографии")).check(matches(isDisplayed()));
-            onView(withId(R.id.create_pick_media)).check(matches(withText("＋  Выбрать фото")));
+            onView(withId(R.id.media_mode_photo)).perform(click());
+            onView(withId(R.id.media_summary)).check(matches(withText("Выбрано фото: 0")));
         }
     }
 
