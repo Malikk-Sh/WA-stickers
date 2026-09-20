@@ -1,6 +1,7 @@
 package com.malikksh.wastickers;
 
 import static androidx.test.espresso.Espresso.onView;
+import static androidx.test.espresso.Espresso.pressBack;
 import static androidx.test.espresso.action.ViewActions.click;
 import static androidx.test.espresso.assertion.ViewAssertions.doesNotExist;
 import static androidx.test.espresso.assertion.ViewAssertions.matches;
@@ -87,6 +88,7 @@ public class AppShellActivityUiTest {
             onView(withText("Галерея")).check(matches(isDisplayed()));
             onView(withText("Файл")).check(matches(isDisplayed()));
             onView(withText("Камера")).check(doesNotExist());
+            pressBack();
         }
     }
 
