@@ -38,7 +38,7 @@ public class PacksShellActivityUiTest {
     }
 
     @Test
-    public void packsTabShowsStatsCardsAndTypeFilters() {
+    public void libraryShowsCompactStatsCardsAndTypeFilters() {
         PackStore.addPack(context, new PackStore.Pack("packs_photo", "Photo pack", 3, "1", false));
         PackStore.addPack(context, new PackStore.Pack("packs_anim", "Anim pack", 5, "1", true));
 
@@ -50,8 +50,7 @@ public class PacksShellActivityUiTest {
             });
 
             onView(withId(R.id.packs_panel)).check(matches(isDisplayed()));
-            onView(withText("2 набора")).check(matches(isDisplayed()));
-            onView(withText("8 стикеров")).check(matches(isDisplayed()));
+            onView(withText("2 набора  ·  8 стикеров")).check(matches(isDisplayed()));
             onView(withText("Photo pack")).check(matches(isDisplayed()));
             onView(withText("Anim pack")).check(matches(isDisplayed()));
             onView(withContentDescription("Добавить набор Photo pack в WhatsApp"))
@@ -68,7 +67,7 @@ public class PacksShellActivityUiTest {
     }
 
     @Test
-    public void packStoreMutationsRefreshRedesignedPacksTab() {
+    public void packStoreMutationsRefreshLibrary() {
         PackStore.addPack(context, new PackStore.Pack("packs_edit", "Editable pack", 4, "1", false));
 
         try (ActivityScenario<PacksShellActivity> scenario = ActivityScenario.launch(PacksShellActivity.class)) {
@@ -90,7 +89,8 @@ public class PacksShellActivityUiTest {
             });
 
             onView(withText("Пока нет наборов")).check(matches(isDisplayed()));
-            onView(withText("Созданные наборы появятся здесь")).check(matches(isDisplayed()));
+            onView(withText("Создайте первый набор и добавьте в него фото, GIF или видео."))
+                    .check(matches(isDisplayed()));
             onView(withId(R.id.packs_create_first)).check(matches(isDisplayed()));
         }
     }
