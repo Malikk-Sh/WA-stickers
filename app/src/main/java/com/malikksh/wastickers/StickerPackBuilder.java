@@ -52,22 +52,45 @@ final class StickerPackBuilder {
 
     private final Context context;
     private final boolean animated;
+    private final SourceAnimationDetector sourceDetector;
 
     StickerPackBuilder(Context context, boolean animated) {
         this.context = context.getApplicationContext();
         this.animated = animated;
+        this.sourceDetector = animated ? new SourceAnimationDetector(this.context) : null;
     }
 
     ItemResult convert(Uri sourceUri, File target, ProgressListener listener) throws IOException {
         if (animated) {
-            AnimatedStickerConverter.Result result = AnimatedStickerConverter.convert(
-                    context,
-                    sourceUri,
-                    target,
-                    progress -> {
-                        if (listener != null) listener.onAnimatedProgress(progress);
-                    }
-            );
+            MediaAnimationInspector.AnimationKind sourceKind = sourceDetector == null
+                    ? MediaAnimationInspector.AnimationKind.UNKNOWN
+                    : sourceDetector.classify(sourceUri);
+            AnimatedStickerConverter.Result result;
+            if (sourceKind == MediaAnimationInspector.AnimationKind.STATIC) {
+                BugLogStore.appendApp("Animated pack item strategy: STATIC_TO_ANIMATED_WRAPPER");
+                result = StaticAnimatedWebpWrapper.convert(
+                        context,
+                        sourceUri,
+                        target,
+                        progress -> {
+                            if (listener != null) listener.onAnimatedProgress(progress);
+                        }
+                );
+            } else {
+                if (sourceKind == MediaAnimationInspector.AnimationKind.UNKNOWN) {
+                    // Preserve the historical animated path for legacy callers. The unified planner
+                    // rejects unknown media before Build, so this is only a compatibility fallback.
+                    BugLogStore.appendApp("Animated pack item type unknown; using existing animated converter");
+                }
+                result = AnimatedStickerConverter.convert(
+                        context,
+                        sourceUri,
+                        target,
+                        progress -> {
+                            if (listener != null) listener.onAnimatedProgress(progress);
+                        }
+                );
+            }
             return new ItemResult(result.bytes, result.fps, result.quality);
         }
 
