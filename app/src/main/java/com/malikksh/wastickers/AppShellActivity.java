@@ -4,7 +4,6 @@ import android.content.Intent;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
-import android.os.Build;
 import android.os.Bundle;
 import android.text.Editable;
 import android.text.InputFilter;
@@ -21,13 +20,16 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Sequential application shell for Library -> Editor -> Build.
  *
- * MainActivity remains the only owner of conversion/editor state. This class only re-parents the
- * existing live name field and delegates media mutations to the existing runtime methods.
+ * MainActivity remains the owner of conversion/editor state. The shell presents one editor and uses
+ * PackCompatibilityPlanner only to choose the existing build type safely before entering Build.
  */
 public class AppShellActivity extends LauncherActivity {
     private static final int MIN_STICKERS = 3;
@@ -40,6 +42,8 @@ public class AppShellActivity extends LauncherActivity {
         PACKS
     }
 
+    private final ExecutorService plannerExecutor = Executors.newSingleThreadExecutor();
+    private SourceAnimationDetector sourceDetector;
     private PreviewLoader shellPreviewLoader;
     private FrameLayout screenHost;
     private View editorScreen;
@@ -62,6 +66,7 @@ public class AppShellActivity extends LauncherActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        sourceDetector = new SourceAnimationDetector(this);
         shellPreviewLoader = new PreviewLoader(this);
         try {
             installShell();
@@ -85,6 +90,8 @@ public class AppShellActivity extends LauncherActivity {
 
     @Override
     protected void onDestroy() {
+        plannerExecutor.shutdownNow();
+        if (sourceDetector != null) sourceDetector.clear();
         if (shellPreviewLoader != null) shellPreviewLoader.close();
         super.onDestroy();
     }
@@ -111,12 +118,13 @@ public class AppShellActivity extends LauncherActivity {
         }
 
         // MainActivity still owns these exact controls because the real pipeline reads their state.
+        // The mode controls are detached and intentionally not exposed by the unified editor.
         detach(packNameField);
         detach(photoModeButton);
         detach(animatedModeButton);
 
         editorScreen = buildEditorScreen(buildNameCard(packNameField));
-        // Keep the historical child indexes stable while subclasses migrate away from tab indexes.
+        // Keep historical child indexes stable while Build/Packs presentation subclasses migrate.
         legacyMediaScreen = emptyLegacyScreen();
         buildScreen = buildBuildScreen();
         packsScreen = buildPacksScreen();
@@ -134,8 +142,7 @@ public class AppShellActivity extends LauncherActivity {
         shell.addView(screenHost, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
-        // Invisible compatibility hooks keep older instrumentation helpers working while production
-        // navigation uses showEditorScreen/showBuildScreen/showLibraryScreen directly.
+        // Zero-size compatibility hooks keep older instrumentation helpers working. They are not UI.
         shell.addView(buildCompatibilityRoutes(), new LinearLayout.LayoutParams(0, 0));
 
         setContentView(shell);
@@ -153,13 +160,12 @@ public class AppShellActivity extends LauncherActivity {
         mediaPanel = new MediaGridPanel(this, shellPreviewLoader, new MediaGridPanel.Host() {
             @Override
             public void onModeChanged(boolean animated) {
-                invokeSetAnimatedMode(animated);
-                refreshShellState();
+                // Legacy MediaGridPanel callback. Unified Editor has no user-selectable pack mode.
             }
 
             @Override
             public void onAddMedia() {
-                openPickerFromShell();
+                showAddSourceSheet();
             }
 
             @Override
@@ -187,11 +193,23 @@ public class AppShellActivity extends LauncherActivity {
                 showBuildScreen();
             }
         });
+        configureUnifiedMediaPanel();
         LinearLayout.LayoutParams panelParams = matchWrap();
         panelParams.topMargin = dp(12);
         panelParams.bottomMargin = dp(12);
         body.addView(mediaPanel, panelParams);
         return wrap(body);
+    }
+
+    private void configureUnifiedMediaPanel() {
+        View photo = mediaPanel.findViewById(R.id.media_mode_photo);
+        if (photo != null && photo.getParent() instanceof View) {
+            ((View) photo.getParent()).setVisibility(View.GONE);
+        }
+        Button add = mediaPanel.findViewById(R.id.media_add_more);
+        if (add != null) add.setText("+ Добавить");
+        Button next = mediaPanel.findViewById(R.id.media_continue);
+        if (next != null) next.setText("Продолжить");
     }
 
     private View buildEditorHeader() {
@@ -347,19 +365,19 @@ public class AppShellActivity extends LauncherActivity {
         hooks.setVisibility(View.GONE);
         addRouteHook(hooks, R.id.nav_create, this::showEditorScreen);
         addRouteHook(hooks, R.id.nav_media, this::showEditorScreen);
-        addRouteHook(hooks, R.id.nav_build, this::showBuildScreen);
+        addRouteHook(hooks, R.id.nav_build, this::showBuildScreenUnchecked);
         addRouteHook(hooks, R.id.nav_packs, this::showLibraryScreen);
 
         createPickCompat = new Button(this);
         createPickCompat.setId(R.id.create_pick_media);
         createPickCompat.setVisibility(View.GONE);
-        createPickCompat.setOnClickListener(v -> openPickerFromShell());
+        createPickCompat.setOnClickListener(v -> showAddSourceSheet());
         hooks.addView(createPickCompat, new FrameLayout.LayoutParams(0, 0));
 
         createContinueCompat = new Button(this);
         createContinueCompat.setId(R.id.create_continue);
         createContinueCompat.setVisibility(View.GONE);
-        createContinueCompat.setOnClickListener(v -> showBuildScreen());
+        createContinueCompat.setOnClickListener(v -> showBuildScreenUnchecked());
         hooks.addView(createContinueCompat, new FrameLayout.LayoutParams(0, 0));
         return hooks;
     }
@@ -378,11 +396,75 @@ public class AppShellActivity extends LauncherActivity {
     }
 
     protected final void showBuildScreen() {
+        prepareAndShowBuild();
+    }
+
+    private void showBuildScreenUnchecked() {
         showRoute(Route.BUILD);
     }
 
     protected final void showLibraryScreen() {
         showRoute(Route.PACKS);
+    }
+
+    private void prepareAndShowBuild() {
+        if (isProcessing() || sourceDetector == null) return;
+        List<Uri> snapshot = selectedUrisSnapshot();
+        Uri coverSnapshot = coverUriSnapshot();
+        String nameSnapshot = runtimeEnteredPackName();
+        plannerExecutor.execute(() -> {
+            List<PackCompatibilityPlanner.Item<Uri>> sources = new ArrayList<>();
+            for (Uri uri : snapshot) {
+                sources.add(new PackCompatibilityPlanner.Item<>(uri, sourceDetector.classify(uri)));
+            }
+            PackCompatibilityPlanner<Uri> planner = new PackCompatibilityPlanner<>();
+            PackCompatibilityPlanner.ExportPlan<Uri> plan = planner.plan(sources, coverSnapshot);
+            runOnUiThread(() -> applyExportPlan(snapshot, coverSnapshot, nameSnapshot, plan));
+        });
+    }
+
+    private void applyExportPlan(
+            List<Uri> plannedItems,
+            Uri plannedCover,
+            String plannedName,
+            PackCompatibilityPlanner.ExportPlan<Uri> plan
+    ) {
+        if (isFinishing() || !plannedItems.equals(selectedUrisSnapshot())) return;
+        if (!plan.isValid()) {
+            String message = plan.validationWarnings.isEmpty()
+                    ? "Проект пока нельзя собрать"
+                    : plan.validationWarnings.get(0);
+            TransientFeedback.show(this, message);
+            return;
+        }
+        if (requiresStaticWrapper(plan)) {
+            EditorInstanceStateBridge.savePersistent(this);
+            TransientFeedback.show(
+                    this,
+                    "Фото и анимации сохранены вместе. Смешанный набор пока нельзя собрать."
+            );
+            return;
+        }
+
+        boolean animated = plan.targetPackType == PackCompatibilityPlanner.TargetPackType.ANIMATED_PACK;
+        Uri cover = plannedCover != null && plannedItems.contains(plannedCover)
+                ? plannedCover
+                : (plannedItems.isEmpty() ? null : plannedItems.get(0));
+        if (!runtimeRestoreEditorState(animated, plannedItems, cover, plannedName, null)) {
+            TransientFeedback.show(this, "Не удалось подготовить проект к сборке");
+            return;
+        }
+        EditorInstanceStateBridge.savePersistent(this);
+        showBuildScreenUnchecked();
+    }
+
+    private boolean requiresStaticWrapper(PackCompatibilityPlanner.ExportPlan<Uri> plan) {
+        for (PackCompatibilityPlanner.Job<Uri> job : plan.jobs) {
+            if (job.strategy == PackCompatibilityPlanner.OutputStrategy.STATIC_TO_ANIMATED_WRAPPER) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void showRoute(Route route) {
@@ -402,15 +484,17 @@ public class AppShellActivity extends LauncherActivity {
         int count = items.size();
         editorCount.setText(count + " / " + MAX_STICKERS);
         editorSubtitle.setText(count == 1 ? "1 элемент" : count + " элементов");
-        if (createPickCompat != null) {
-            createPickCompat.setText(animated ? "＋  Выбрать файлы" : "＋  Выбрать фото");
-        }
+        if (createPickCompat != null) createPickCompat.setText("Выбрать файлы");
         if (createContinueCompat != null) {
             boolean ready = count >= MIN_STICKERS && count <= MAX_STICKERS;
             createContinueCompat.setEnabled(ready);
         }
         updateNamePresentation();
-        if (mediaPanel != null) mediaPanel.render(items, coverUriSnapshot(), animated);
+        if (mediaPanel != null) {
+            mediaPanel.render(items, coverUriSnapshot(), animated);
+            TextView summary = mediaPanel.findViewById(R.id.media_summary);
+            if (summary != null) summary.setText("Стикеры: " + count);
+        }
     }
 
     private void updateNamePresentation() {
@@ -424,8 +508,19 @@ public class AppShellActivity extends LauncherActivity {
         }
     }
 
-    private void openPickerFromShell() {
-        openMediaPicker();
+    private void showAddSourceSheet() {
+        if (isProcessing()) return;
+        AddSourceSheet.show(this, new AddSourceSheet.Host() {
+            @Override
+            public void onGallery() {
+                openGallerySourcePicker();
+            }
+
+            @Override
+            public void onFile() {
+                openFileSourcePicker();
+            }
+        });
     }
 
     private void moveMediaFromShell(int fromIndex, int toIndex) {
@@ -439,11 +534,23 @@ public class AppShellActivity extends LauncherActivity {
     }
 
     private void removeMediaFromShell(int index) {
-        if (this.runtimeRemoveMediaAt(index)) persistAndRefreshShell();
+        Uri removed = uriAt(index);
+        if (this.runtimeRemoveMediaAt(index)) {
+            if (sourceDetector != null) sourceDetector.invalidate(removed);
+            persistAndRefreshShell();
+        }
+    }
+
+    private Uri uriAt(int index) {
+        List<Uri> current = selectedUrisSnapshot();
+        return index >= 0 && index < current.size() ? current.get(index) : null;
     }
 
     private void clearMediaFromShell() {
-        if (this.runtimeClearMedia()) persistAndRefreshShell();
+        if (this.runtimeClearMedia()) {
+            if (sourceDetector != null) sourceDetector.clear();
+            persistAndRefreshShell();
+        }
     }
 
     private void persistAndRefreshShell() {
@@ -461,10 +568,6 @@ public class AppShellActivity extends LauncherActivity {
 
     private Uri coverUriSnapshot() {
         return this.runtimeCoverUri();
-    }
-
-    private void invokeSetAnimatedMode(boolean animated) {
-        this.runtimeSetAnimatedMode(animated);
     }
 
     private List<Uri> selectedUrisSnapshot() {

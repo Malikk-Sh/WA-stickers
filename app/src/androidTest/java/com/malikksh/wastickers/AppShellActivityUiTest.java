@@ -1,7 +1,9 @@
 package com.malikksh.wastickers;
 
 import static androidx.test.espresso.Espresso.onView;
+import static androidx.test.espresso.Espresso.pressBack;
 import static androidx.test.espresso.action.ViewActions.click;
+import static androidx.test.espresso.assertion.ViewAssertions.doesNotExist;
 import static androidx.test.espresso.assertion.ViewAssertions.matches;
 import static androidx.test.espresso.matcher.ViewMatchers.isDisplayed;
 import static androidx.test.espresso.matcher.ViewMatchers.withId;
@@ -48,7 +50,7 @@ public class AppShellActivityUiTest {
         try (ActivityScenario<AppShellActivity> scenario = ActivityScenario.launch(AppShellActivity.class)) {
             onView(withText("Название набора")).check(matches(isDisplayed()));
             onView(withId(R.id.create_media_counter)).check(matches(withText("0 / 30")));
-            onView(withId(R.id.media_summary)).check(matches(isDisplayed()));
+            onView(withId(R.id.media_summary)).check(matches(withText("Стикеры: 0")));
             onView(withId(R.id.media_grid)).check(matches(isDisplayed()));
             onView(withId(R.id.media_continue)).check(matches(isDisplayed()));
 
@@ -70,13 +72,23 @@ public class AppShellActivityUiTest {
     }
 
     @Test
-    public void editorModeSwitchUpdatesSingleMediaPanel() {
-        try (ActivityScenario<AppShellActivity> ignored = ActivityScenario.launch(AppShellActivity.class)) {
-            onView(withId(R.id.media_mode_animated)).perform(click());
-            onView(withId(R.id.media_summary)).check(matches(withText("Выбрано анимаций: 0")));
+    public void unifiedEditorHidesModeSwitchAndOffersOnlyImplementedSources() {
+        try (ActivityScenario<AppShellActivity> scenario = ActivityScenario.launch(AppShellActivity.class)) {
+            scenario.onActivity(activity -> {
+                View photo = activity.findViewById(R.id.media_mode_photo);
+                View animated = activity.findViewById(R.id.media_mode_animated);
+                assertNotNull(photo);
+                assertNotNull(animated);
+                assertNotNull(photo.getParent());
+                assertEquals(View.GONE, ((View) photo.getParent()).getVisibility());
+            });
 
-            onView(withId(R.id.media_mode_photo)).perform(click());
-            onView(withId(R.id.media_summary)).check(matches(withText("Выбрано фото: 0")));
+            onView(withId(R.id.media_add_more)).perform(click());
+            onView(withText("Добавить стикер")).check(matches(isDisplayed()));
+            onView(withText("Галерея")).check(matches(isDisplayed()));
+            onView(withText("Файл")).check(matches(isDisplayed()));
+            onView(withText("Камера")).check(doesNotExist());
+            pressBack();
         }
     }
 
