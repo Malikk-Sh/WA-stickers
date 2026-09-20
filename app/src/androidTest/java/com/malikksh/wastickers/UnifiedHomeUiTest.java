@@ -9,7 +9,7 @@ import static androidx.test.espresso.matcher.ViewMatchers.isDisplayed;
 import static androidx.test.espresso.matcher.ViewMatchers.withEffectiveVisibility;
 import static androidx.test.espresso.matcher.ViewMatchers.withId;
 import static androidx.test.espresso.matcher.ViewMatchers.withText;
-import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
 import android.content.Context;
@@ -87,8 +87,10 @@ public class UnifiedHomeUiTest {
                 View media = activity.findViewById(R.id.nav_media);
                 assertNotNull(create);
                 assertNotNull(media);
-                assertFalse(create.isShown());
-                assertFalse(media.isShown());
+                assertEquals(0, create.getWidth());
+                assertEquals(0, create.getHeight());
+                assertEquals(0, media.getWidth());
+                assertEquals(0, media.getHeight());
             });
         }
     }
