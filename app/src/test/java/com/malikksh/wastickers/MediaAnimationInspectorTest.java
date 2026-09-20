@@ -31,7 +31,9 @@ public class MediaAnimationInspectorTest {
     }
 
     @Test
-    public void webpUsesAnimationContainerAndFrameChunks() throws Exception {
+    public void webpUsesContainerStructureNotExtension() throws Exception {
+        assertEquals(MediaAnimationInspector.AnimationKind.STATIC,
+                MediaAnimationInspector.inspect("image/webp", simpleStaticWebp()));
         assertEquals(MediaAnimationInspector.AnimationKind.STATIC,
                 MediaAnimationInspector.inspect("image/webp", webp(false, 0)));
         assertEquals(MediaAnimationInspector.AnimationKind.STATIC,
@@ -72,6 +74,12 @@ public class MediaAnimationInspectorTest {
         return out.toByteArray();
     }
 
+    private static byte[] simpleStaticWebp() throws IOException {
+        ByteArrayOutputStream body = new ByteArrayOutputStream();
+        writeChunk(body, "VP8 ", new byte[]{1, 2, 3, 4});
+        return riffWebp(body.toByteArray());
+    }
+
     private static byte[] webp(boolean animationContainer, int frames) throws IOException {
         ByteArrayOutputStream body = new ByteArrayOutputStream();
         writeChunk(body, "VP8X", vp8x(animationContainer));
@@ -79,8 +87,10 @@ public class MediaAnimationInspectorTest {
             writeChunk(body, "ANIM", new byte[6]);
             for (int i = 0; i < frames; i++) writeChunk(body, "ANMF", new byte[16]);
         }
+        return riffWebp(body.toByteArray());
+    }
 
-        byte[] chunks = body.toByteArray();
+    private static byte[] riffWebp(byte[] chunks) throws IOException {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         out.write("RIFF".getBytes(StandardCharsets.US_ASCII));
         writeUInt32Le(out, 4 + chunks.length);
