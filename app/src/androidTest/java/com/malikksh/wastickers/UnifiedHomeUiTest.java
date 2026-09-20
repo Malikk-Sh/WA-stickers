@@ -2,6 +2,7 @@ package com.malikksh.wastickers;
 
 import static androidx.test.espresso.Espresso.onView;
 import static androidx.test.espresso.action.ViewActions.click;
+import static androidx.test.espresso.assertion.ViewAssertions.doesNotExist;
 import static androidx.test.espresso.assertion.ViewAssertions.matches;
 import static androidx.test.espresso.matcher.ViewMatchers.Visibility.GONE;
 import static androidx.test.espresso.matcher.ViewMatchers.isDisplayed;
@@ -55,7 +56,8 @@ public class UnifiedHomeUiTest {
 
             onView(withId(R.id.packs_search)).perform(click());
             onView(withId(R.id.packs_search_field)).check(matches(isDisplayed()));
-            onView(withText("СБРОСИТЬ")).check(matches(withEffectiveVisibility(GONE)));
+            onView(withText("СБРОСИТЬ")).check(doesNotExist());
+            onView(withText("НАЙТИ")).check(doesNotExist());
 
             onView(withId(R.id.packs_search_close)).perform(click());
             onView(withId(R.id.packs_search_field)).check(matches(withEffectiveVisibility(GONE)));
