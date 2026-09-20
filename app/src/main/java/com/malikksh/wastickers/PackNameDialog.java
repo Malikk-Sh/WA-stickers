@@ -10,6 +10,7 @@ import android.text.Editable;
 import android.text.InputFilter;
 import android.text.TextWatcher;
 import android.view.Gravity;
+import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
@@ -37,6 +38,14 @@ final class PackNameDialog {
                      String confirmLabel,
                      Callback callback) {
         if (context == null || callback == null) return;
+
+        boolean creatingNewPack = "Новый набор".equals(title);
+        String effectiveInitial = creatingNewPack
+                ? PackNameService.nextAvailableDefault(context)
+                : PackNameService.normalizeDisplayName(initialValue);
+        String excludedPackId = creatingNewPack
+                ? null
+                : PackNameService.uniquePackIdForExistingName(context, effectiveInitial);
 
         Dialog dialog = new Dialog(context);
         FrameLayout outer = new FrameLayout(context);
@@ -70,12 +79,12 @@ final class PackNameDialog {
         input.setId(R.id.pack_name_dialog_input);
         input.setSingleLine(true);
         input.setFilters(new InputFilter[]{new InputFilter.LengthFilter(MAX_NAME)});
-        input.setText(initialValue == null ? "" : initialValue);
+        input.setText(effectiveInitial);
         input.setSelectAllOnFocus(true);
         input.setTextSize(16);
         input.setTextColor(UiComponents.color(context, R.color.app_text_primary));
         input.setHintTextColor(UiComponents.color(context, R.color.app_text_tertiary));
-        input.setHint("Мои стикеры");
+        input.setHint(PackNameService.DEFAULT_NAME);
         input.setImeOptions(EditorInfo.IME_ACTION_DONE);
         input.setPadding(dp(context, 14), 0, dp(context, 14), 0);
         GradientDrawable inputBackground = UiComponents.rounded(
@@ -87,6 +96,13 @@ final class PackNameDialog {
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(context, 54));
         inputParams.topMargin = dp(context, 8);
         card.addView(input, inputParams);
+
+        TextView validation = UiComponents.metadata(context, "");
+        validation.setTextColor(UiComponents.color(context, R.color.app_error));
+        validation.setVisibility(View.GONE);
+        LinearLayout.LayoutParams validationParams = UiComponents.matchWrap();
+        validationParams.topMargin = dp(context, 5);
+        card.addView(validation, validationParams);
 
         TextView counter = UiComponents.metadata(context, "0 / " + MAX_NAME);
         counter.setId(R.id.pack_name_dialog_counter);
@@ -118,8 +134,14 @@ final class PackNameDialog {
 
         Runnable updateState = () -> {
             String raw = input.getText() == null ? "" : input.getText().toString();
+            String normalized = PackNameService.normalizeDisplayName(raw);
+            String error = normalized.isEmpty()
+                    ? null
+                    : PackNameService.validationError(context, normalized, excludedPackId);
             counter.setText(raw.length() + " / " + MAX_NAME);
-            UiComponents.stylePrimaryButton(confirm, !raw.trim().isEmpty());
+            validation.setText(error == null ? "" : error);
+            validation.setVisibility(error == null ? View.GONE : View.VISIBLE);
+            UiComponents.stylePrimaryButton(confirm, !normalized.isEmpty() && error == null);
         };
         input.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
@@ -130,8 +152,15 @@ final class PackNameDialog {
 
         cancel.setOnClickListener(v -> dialog.dismiss());
         Runnable confirmAction = () -> {
-            String name = input.getText() == null ? "" : input.getText().toString().trim();
-            if (name.isEmpty()) return;
+            String raw = input.getText() == null ? "" : input.getText().toString();
+            String name = PackNameService.normalizeDisplayName(raw);
+            String error = name.isEmpty()
+                    ? null
+                    : PackNameService.validationError(context, name, excludedPackId);
+            if (name.isEmpty() || error != null) {
+                updateState.run();
+                return;
+            }
             dialog.dismiss();
             callback.onConfirmed(name);
         };
