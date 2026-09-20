@@ -62,6 +62,13 @@ public class SettingsShellActivity extends PacksShellActivity {
         }
     }
 
+    @Override
+    void refreshShellState() {
+        super.refreshShellState();
+        updateTopActionsVisibility();
+        updateDraftChip();
+    }
+
     private void configureCreatePresentation() {
         EditText packName = this.runtimePackName();
         if (packName != null) {
