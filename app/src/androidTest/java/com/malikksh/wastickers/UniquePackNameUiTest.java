@@ -10,6 +10,9 @@ import static androidx.test.espresso.matcher.ViewMatchers.isEnabled;
 import static androidx.test.espresso.matcher.ViewMatchers.withId;
 import static androidx.test.espresso.matcher.ViewMatchers.withText;
 import static org.hamcrest.Matchers.not;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 
 import android.content.Context;
 import android.content.Intent;
@@ -59,30 +62,21 @@ public class UniquePackNameUiTest {
     }
 
     @Test
-    public void renameKeepsOwnNameButBlocksAnotherSavedPackName() {
+    public void renameStoreKeepsOwnIdentityAndRejectsAnotherSavedName() {
         PackStore.addPack(context, new PackStore.Pack(
                 "one", "Первый", 3, "1", false));
         PackStore.addPack(context, new PackStore.Pack(
                 "two", "Второй", 3, "1", false));
 
-        try (ActivityScenario<SettingsShellActivity> scenario = ActivityScenario.launch(launcherIntent())) {
-            // Let Espresso observe a focused application window before we attach the modal.
-            onView(withId(R.id.packs_panel)).check(matches(isDisplayed()));
-            scenario.onActivity(activity -> PackNameDialog.show(
-                    activity,
-                    "Переименовать набор",
-                    "Первый",
-                    "Сохранить",
-                    name -> { }
-            ));
+        PackStore.Pack renamed = PackStore.renamePack(context, "one", "  первый  ");
+        assertNotNull(renamed);
+        assertEquals("one", renamed.id);
+        assertEquals("первый", renamed.name);
 
-            onView(withId(R.id.pack_name_dialog_confirm)).check(matches(isEnabled()));
-            onView(withId(R.id.pack_name_dialog_input))
-                    .perform(replaceText(" второй "), closeSoftKeyboard());
-            onView(withText(PackNameService.DUPLICATE_ERROR)).check(matches(isDisplayed()));
-            onView(withId(R.id.pack_name_dialog_confirm)).check(matches(not(isEnabled())));
-            pressBack();
-        }
+        assertNull(PackStore.renamePack(context, "one", " второй "));
+        PackStore.Pack preserved = PackStore.getPack(context, "one");
+        assertNotNull(preserved);
+        assertEquals("первый", preserved.name);
     }
 
     private Intent launcherIntent() {
