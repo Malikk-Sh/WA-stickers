@@ -76,8 +76,25 @@ final class PackStore {
     }
 
     static synchronized void addPack(Context context, Pack pack) {
+        if (pack == null) return;
         List<Pack> packs = getPacks(context);
-        packs.add(pack);
+        String normalizedName = PackNameService.normalizeDisplayName(pack.name);
+        if (normalizedName.isEmpty()) {
+            throw new IllegalArgumentException("Pack name must not be empty");
+        }
+        if (!PackNameService.isAvailable(packs, normalizedName, pack.id)) {
+            throw new IllegalArgumentException(PackNameService.DUPLICATE_ERROR);
+        }
+        Pack stored = normalizedName.equals(pack.name)
+                ? pack
+                : new Pack(
+                        pack.id,
+                        normalizedName,
+                        pack.stickerCount,
+                        pack.imageDataVersion,
+                        pack.animated
+                );
+        packs.add(stored);
 
         while (packs.size() > 10) {
             Pack removed = packs.remove(0);
@@ -88,17 +105,19 @@ final class PackStore {
     }
 
     static synchronized Pack renamePack(Context context, String id, String newName) {
-        String trimmed = newName == null ? "" : newName.trim();
-        if (trimmed.isEmpty()) return null;
+        String normalized = PackNameService.normalizeDisplayName(newName);
+        if (normalized.isEmpty()) return null;
 
         List<Pack> packs = getPacks(context);
+        if (!PackNameService.isAvailable(packs, normalized, id)) return null;
+
         Pack renamed = null;
         for (int i = 0; i < packs.size(); i++) {
             Pack item = packs.get(i);
             if (!item.id.equals(id)) continue;
             renamed = new Pack(
                     item.id,
-                    trimmed,
+                    normalized,
                     item.stickerCount,
                     item.imageDataVersion,
                     item.animated
@@ -116,6 +135,8 @@ final class PackStore {
         File sourceDir = getPackDir(context, source.id);
         if (!sourceDir.isDirectory()) return null;
 
+        List<Pack> packs = getPacks(context);
+        String copyName = PackNameService.nextAvailableName(packs, source.name + " — копия");
         String copyId = (source.animated ? "animated_copy_" : "pack_copy_")
                 + System.currentTimeMillis();
         File destination = getPackDir(context, copyId);
@@ -128,7 +149,7 @@ final class PackStore {
 
         Pack copy = new Pack(
                 copyId,
-                source.name + " — копия",
+                copyName,
                 source.stickerCount,
                 source.imageDataVersion,
                 source.animated
