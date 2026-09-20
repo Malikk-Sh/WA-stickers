@@ -44,7 +44,7 @@ public class StaticAnimatedWebpWrapperInstrumentationTest {
     }
 
     @Test
-    public void staticPngBecomesValidAnimatedWebp() throws Exception {
+    public void animatedPackBuilderWrapsStaticPngAsValidAnimatedWebp() throws Exception {
         File source = new File(workDir, "source.png");
         Bitmap bitmap = Bitmap.createBitmap(180, 120, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(bitmap);
@@ -59,8 +59,8 @@ public class StaticAnimatedWebpWrapperInstrumentationTest {
         }
 
         File output = new File(workDir, "wrapped.webp");
-        AnimatedStickerConverter.Result result = StaticAnimatedWebpWrapper.convert(
-                context,
+        StickerPackBuilder builder = new StickerPackBuilder(context, true);
+        StickerPackBuilder.ItemResult result = builder.convert(
                 Uri.fromFile(source),
                 output,
                 null
@@ -70,6 +70,7 @@ public class StaticAnimatedWebpWrapperInstrumentationTest {
         assertTrue(output.length() > 0);
         assertTrue(output.length() <= AnimatedStickerConverter.MAX_ANIMATED_BYTES);
         assertEquals(2, result.fps);
+        assertTrue(result.animated());
         assertTrue(StaticAnimatedWebpWrapper.isValidWrappedWebp(context, output));
     }
 
