@@ -13,6 +13,18 @@ final class MediaPickerIntentFactory {
             "video/*"
     };
 
+    private static final String[] UNIFIED_MIME_TYPES = new String[]{
+            "image/png",
+            "image/jpeg",
+            "image/webp",
+            "image/gif",
+            "video/mp4",
+            "video/webm",
+            "video/quicktime",
+            "video/x-matroska",
+            "video/*"
+    };
+
     private MediaPickerIntentFactory() {}
 
     static Intent createOpenDocumentIntent(boolean animated) {
@@ -36,6 +48,27 @@ final class MediaPickerIntentFactory {
         if (animated) {
             intent.putExtra(Intent.EXTRA_MIME_TYPES, ANIMATED_MIME_TYPES.clone());
         }
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        return intent;
+    }
+
+    static Intent createUnifiedOpenDocumentIntent() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+        intent.putExtra(Intent.EXTRA_MIME_TYPES, UNIFIED_MIME_TYPES.clone());
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        return intent;
+    }
+
+    static Intent createUnifiedGetContentFallback() {
+        Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+        intent.putExtra(Intent.EXTRA_MIME_TYPES, UNIFIED_MIME_TYPES.clone());
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         return intent;
     }
