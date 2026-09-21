@@ -4,7 +4,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
-import android.view.KeyEvent;
+import android.view.accessibility.AccessibilityNodeInfo;
 import androidx.test.core.app.ActivityScenario;
 import androidx.test.core.app.ApplicationProvider;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
@@ -52,10 +52,11 @@ public class VideoTrimRangeTest {
             // Use the accessible slider alternative to dragging a timeline handle.
             scenario.onActivity(activity -> {
                 android.widget.SeekBar end = activity.findViewById(R.id.trim_end_seek);
-                end.setKeyProgressIncrement(1);
-                end.requestFocus();
+                Bundle arguments = new Bundle();
+                arguments.putFloat(AccessibilityNodeInfo.ACTION_ARGUMENT_PROGRESS_VALUE, 39f);
+                assertTrue(end.performAccessibilityAction(
+                        AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS.getId(), arguments));
             });
-            onView(withId(R.id.trim_end_seek)).perform(scrollTo(), pressKey(KeyEvent.KEYCODE_DPAD_LEFT));
             assertEquals(3900L, VideoTrimStore.getEndOffsetMs(uri));
             scenario.recreate();
             assertEquals(2000L, VideoTrimStore.getStartOffsetMs(uri));
