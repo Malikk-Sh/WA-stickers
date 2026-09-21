@@ -164,7 +164,7 @@ final class PackStore {
                     int index = originals.items.indexOf(trim.uri);
                     if (index >= 0) {
                         android.net.Uri uri = items.get(index);
-                        trims.add(new VideoTrimStore.Entry(uri.toString(), uri, trim.displayName, trim.durationMs, trim.startOffsetMs));
+                        trims.add(new VideoTrimStore.Entry(uri.toString(), uri, trim.displayName, trim.durationMs, trim.startOffsetMs, trim.endOffsetMs));
                     }
                 }
                 ProjectSources.write(copyGeneration, items, items.get(Math.max(0, originals.items.indexOf(originals.cover))), trims);

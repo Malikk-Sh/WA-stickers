@@ -35,6 +35,7 @@ final class ProjectSources {
                 trim.put("uri", entry.uri.toString());
                 trim.put("duration", entry.durationMs);
                 trim.put("start", entry.startOffsetMs);
+                trim.put("end", entry.endOffsetMs);
                 trimValues.put(trim);
             }
             object.put("trims", trimValues);
@@ -70,7 +71,8 @@ final class ProjectSources {
                 JSONObject trim = trimValues.getJSONObject(i);
                 Uri uri = Uri.parse(trim.getString("uri"));
                 if (items.contains(uri)) trims.add(new VideoTrimStore.Entry(uri.toString(), uri, "Видео",
-                        trim.getLong("duration"), trim.getLong("start")));
+                        trim.getLong("duration"), trim.getLong("start"),
+                        trim.optLong("end", trim.getLong("start") + VideoTrimPolicy.CLIP_DURATION_MS)));
             }
             return new Snapshot(items, items.contains(cover) ? cover : items.get(0), trims);
         } catch (Exception error) { return null; }

@@ -138,7 +138,7 @@ final class AnimatedStickerConverter {
 
         long sourceDurationMs = estimateSourceDurationMs(context, sourceUri);
         long startOffsetMs = resolveStartOffsetMs(sourceUri, sourceDurationMs);
-        long expectedDurationMs = VideoTrimPolicy.clipDurationMs(sourceDurationMs, startOffsetMs);
+        long expectedDurationMs = VideoTrimStore.getClipDurationMs(sourceUri, sourceDurationMs);
         if (startOffsetMs > 0) {
             BugLogStore.appendApp("Video trim selected: startMs=" + startOffsetMs
                     + ", sourceDurationMs=" + sourceDurationMs
@@ -176,7 +176,7 @@ final class AnimatedStickerConverter {
             if (webp.valid && webp.animated && webp.totalDurationMs > 0) {
                 sourceDurationMs = webp.totalDurationMs;
                 startOffsetMs = resolveStartOffsetMs(sourceUri, sourceDurationMs);
-                expectedDurationMs = VideoTrimPolicy.clipDurationMs(sourceDurationMs, startOffsetMs);
+                expectedDurationMs = VideoTrimStore.getClipDurationMs(sourceUri, sourceDurationMs);
             }
             report(progressListener, ProgressStage.INSPECTING, 100, 0, 0, 0, 0, input.length());
 
@@ -188,7 +188,7 @@ final class AnimatedStickerConverter {
                         ? "unknown" : webp.minFrameDurationMs)
                         + ", bytes=" + input.length());
 
-                if (startOffsetMs == 0 && isDirectlyWhatsAppCompatible(webp, input.length())) {
+                if (startOffsetMs == 0 && expectedDurationMs >= webp.totalDurationMs && isDirectlyWhatsAppCompatible(webp, input.length())) {
                     report(progressListener, ProgressStage.PASSTHROUGH, 40, 0, 0,
                             webp.approximateFps(), 100, input.length());
                     copyFile(input, output);
@@ -199,7 +199,7 @@ final class AnimatedStickerConverter {
                             new Result(webp.approximateFps(), 100, output.length()));
                 }
 
-                if (startOffsetMs == 0 && isAnimationStructureCompatible(webp)) {
+                if (startOffsetMs == 0 && expectedDurationMs >= webp.totalDurationMs && isAnimationStructureCompatible(webp)) {
                     try {
                         report(progressListener, ProgressStage.RESIZING, 10, 0, 0,
                                 webp.approximateFps(), 100, input.length());
@@ -562,7 +562,7 @@ final class AnimatedStickerConverter {
     private static long resolveStartOffsetMs(Uri uri, long sourceDurationMs) {
         long requested = VideoTrimStore.getStartOffsetMs(uri);
         if (sourceDurationMs > 0) {
-            return VideoTrimPolicy.clampStartMs(sourceDurationMs, requested);
+            return VideoTrimPolicy.clampRangeStartMs(sourceDurationMs, requested);
         }
         return Math.max(0L, requested);
     }

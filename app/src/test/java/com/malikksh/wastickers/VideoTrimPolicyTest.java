@@ -33,6 +33,15 @@ public class VideoTrimPolicyTest {
     }
 
     @Test
+    public void independentRangeCanSelectTheTailAndNeverExceedsTenSeconds() {
+        assertEquals(29_500L, VideoTrimPolicy.clampRangeStartMs(30_000L, 40_000L));
+        assertEquals(30_000L, VideoTrimPolicy.clampRangeEndMs(30_000L, 29_500L, 29_000L));
+        assertEquals(14_000L, VideoTrimPolicy.clampRangeEndMs(30_000L, 4_000L, 29_000L));
+        assertEquals(7_000L, VideoTrimPolicy.clampRangeEndMs(30_000L, 4_000L, 7_000L));
+        assertEquals(4_500L, VideoTrimPolicy.clampRangeEndMs(30_000L, 4_000L, 4_000L));
+    }
+
+    @Test
     public void formatsTimeWithTenths() {
         assertEquals("1:05.4", VideoTrimPolicy.formatTime(65_400L));
     }

@@ -8,6 +8,7 @@ Implemented changes:
 - Stable project IDs, independent persistent drafts, empty new projects and explicit route restoration.
 - GET_CONTENT media chooser versus OPEN_DOCUMENT file selection; owned source copies survive temporary URI grants.
 - Library observers, editable saved packs, independent duplicates and per-project video trim persistence.
+- Video timeline thumbnails and independently draggable boundaries (0.5–10 seconds), accessible start/end sliders, exact range persistence and cache invalidation.
 - Temporary validated output generations, durable manifest publication, stable WhatsApp identifiers, monotonic data versions, unchanged-output detection and provider notifications.
 - WhatsApp whitelist reconciliation, add/update/retry states and acknowledged versions.
 - Compact Library/editor/Settings, title-based rename, smaller visible thumbnail controls with 48dp targets, themed menus and delete confirmation.

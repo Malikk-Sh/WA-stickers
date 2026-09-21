@@ -2,6 +2,7 @@ package com.malikksh.wastickers;
 
 import static androidx.test.espresso.Espresso.onView;
 import static androidx.test.espresso.action.ViewActions.click;
+import static androidx.test.espresso.action.ViewActions.scrollTo;
 import static androidx.test.espresso.assertion.ViewAssertions.matches;
 import static androidx.test.espresso.matcher.ViewMatchers.isDisplayed;
 import static androidx.test.espresso.matcher.ViewMatchers.isEnabled;
@@ -69,14 +70,14 @@ public class VideoTrimActivityUiTest {
             onView(withId(R.id.trim_previous)).check(matches(not(isEnabled())));
             onView(withId(R.id.trim_next)).check(matches(isEnabled()));
 
-            onView(withId(R.id.trim_next)).perform(click());
+            onView(withId(R.id.trim_next)).perform(scrollTo(), click());
 
             onView(withId(R.id.trim_indicator)).check(matches(withText("2 из 2")));
             onView(withId(R.id.trim_filename)).check(matches(withText("two.mp4")));
             onView(withId(R.id.trim_previous)).check(matches(isEnabled()));
             onView(withId(R.id.trim_next)).check(matches(not(isEnabled())));
-            onView(withId(R.id.trim_cancel)).check(matches(isDisplayed()));
-            onView(withId(R.id.trim_done)).check(matches(isDisplayed()));
+            onView(withId(R.id.trim_cancel)).perform(scrollTo()).check(matches(isDisplayed()));
+            onView(withId(R.id.trim_done)).perform(scrollTo()).check(matches(isDisplayed()));
         }
     }
 
@@ -87,7 +88,7 @@ public class VideoTrimActivityUiTest {
             VideoTrimStore.setStartOffsetMs(firstUri.toString(), 8_000L);
             assertEquals(8_000L, VideoTrimStore.getStartOffsetMs(firstUri));
 
-            onView(withId(R.id.trim_cancel)).perform(click());
+            onView(withId(R.id.trim_cancel)).perform(scrollTo(), click());
 
             assertEquals(2_000L, VideoTrimStore.getStartOffsetMs(firstUri));
         }

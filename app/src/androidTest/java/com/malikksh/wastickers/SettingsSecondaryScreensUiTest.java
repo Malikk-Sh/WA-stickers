@@ -21,7 +21,7 @@ public class SettingsSecondaryScreensUiTest {
         try (ActivityScenario<SettingsActivity> ignored = ActivityScenario.launch(SettingsActivity.class)) {
             onView(withId(R.id.settings_help)).perform(scrollTo(), click());
             onView(withText("Помощь")).check(matches(isDisplayed()));
-            onView(withText("Создайте набор, добавьте 3–30 файлов, настройте порядок и обложку во вкладке «Медиа», при необходимости выберите 10-секундный фрагмент видео, затем соберите набор. Ошибки отдельных файлов можно повторять или пропускать."))
+            onView(withText("Создайте набор, добавьте 3–30 файлов, настройте порядок и обложку в редакторе, при необходимости выберите фрагмент видео до 10 секунд, затем соберите набор. Ошибки отдельных файлов можно повторять или пропускать."))
                     .check(matches(isDisplayed()));
         }
     }

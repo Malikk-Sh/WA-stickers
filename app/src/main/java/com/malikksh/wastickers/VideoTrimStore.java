@@ -23,13 +23,20 @@ final class VideoTrimStore {
         final String displayName;
         final long durationMs;
         final long startOffsetMs;
+        final long endOffsetMs;
 
         Entry(String key, Uri uri, String displayName, long durationMs, long startOffsetMs) {
+            this(key, uri, displayName, durationMs, startOffsetMs,
+                    startOffsetMs + VideoTrimPolicy.CLIP_DURATION_MS);
+        }
+
+        Entry(String key, Uri uri, String displayName, long durationMs, long startOffsetMs, long endOffsetMs) {
             this.key = key;
             this.uri = uri;
             this.displayName = displayName;
             this.durationMs = durationMs;
-            this.startOffsetMs = startOffsetMs;
+            this.startOffsetMs = VideoTrimPolicy.clampRangeStartMs(durationMs, startOffsetMs);
+            this.endOffsetMs = VideoTrimPolicy.clampRangeEndMs(durationMs, this.startOffsetMs, endOffsetMs);
         }
     }
 
@@ -39,17 +46,19 @@ final class VideoTrimStore {
         final String displayName;
         final long durationMs;
         long startOffsetMs;
+        long endOffsetMs;
 
-        MutableEntry(String key, Uri uri, String displayName, long durationMs, long startOffsetMs) {
+        MutableEntry(String key, Uri uri, String displayName, long durationMs, long startOffsetMs, long endOffsetMs) {
             this.key = key;
             this.uri = uri;
             this.displayName = displayName;
             this.durationMs = durationMs;
-            this.startOffsetMs = startOffsetMs;
+            this.startOffsetMs = VideoTrimPolicy.clampRangeStartMs(durationMs, startOffsetMs);
+            this.endOffsetMs = VideoTrimPolicy.clampRangeEndMs(durationMs, this.startOffsetMs, endOffsetMs);
         }
 
         Entry snapshot() {
-            return new Entry(key, uri, displayName, durationMs, startOffsetMs);
+            return new Entry(key, uri, displayName, durationMs, startOffsetMs, endOffsetMs);
         }
     }
 
@@ -81,7 +90,8 @@ final class VideoTrimStore {
                         uri,
                         displayName,
                         durationMs,
-                        VideoTrimPolicy.clampStartMs(durationMs, start)
+                        start,
+                        existing == null ? start + VideoTrimPolicy.CLIP_DURATION_MS : existing.endOffsetMs
                 ));
             }
             adjustable.add(key);
@@ -103,13 +113,34 @@ final class VideoTrimStore {
         if (uri == null) return 0L;
         MutableEntry entry = ENTRIES.get(uri.toString());
         if (entry == null) return 0L;
-        return VideoTrimPolicy.clampStartMs(entry.durationMs, entry.startOffsetMs);
+        return entry.startOffsetMs;
     }
 
     static synchronized void setStartOffsetMs(String key, long startOffsetMs) {
         MutableEntry entry = ENTRIES.get(key);
         if (entry == null) return;
-        entry.startOffsetMs = VideoTrimPolicy.clampStartMs(entry.durationMs, startOffsetMs);
+        long length = entry.endOffsetMs - entry.startOffsetMs;
+        long start = Math.max(0L, Math.min(startOffsetMs, entry.durationMs - length));
+        setRangeMs(key, start, start + length);
+    }
+
+    static synchronized void setRangeMs(String key, long startMs, long endMs) {
+        MutableEntry entry = ENTRIES.get(key);
+        if (entry == null) return;
+        entry.startOffsetMs = VideoTrimPolicy.clampRangeStartMs(entry.durationMs, startMs);
+        entry.endOffsetMs = VideoTrimPolicy.clampRangeEndMs(entry.durationMs, entry.startOffsetMs, endMs);
+    }
+
+    static synchronized long getEndOffsetMs(Uri uri) {
+        MutableEntry entry = uri == null ? null : ENTRIES.get(uri.toString());
+        return entry == null ? -1L : entry.endOffsetMs;
+    }
+
+    static synchronized long getClipDurationMs(Uri uri, long sourceDurationMs) {
+        MutableEntry entry = uri == null ? null : ENTRIES.get(uri.toString());
+        if (entry == null) return VideoTrimPolicy.clipDurationMs(sourceDurationMs, 0L);
+        long available = sourceDurationMs > 0L ? sourceDurationMs - entry.startOffsetMs : VideoTrimPolicy.CLIP_DURATION_MS;
+        return Math.max(1L, Math.min(available, entry.endOffsetMs - entry.startOffsetMs));
     }
 
     static synchronized void replaceEntries(List<Entry> entries) {
@@ -122,7 +153,8 @@ final class VideoTrimStore {
                     entry.uri,
                     entry.displayName == null ? "Видео" : entry.displayName,
                     entry.durationMs,
-                    VideoTrimPolicy.clampStartMs(entry.durationMs, entry.startOffsetMs)
+                    entry.startOffsetMs,
+                    entry.endOffsetMs
             ));
         }
     }
@@ -135,6 +167,7 @@ final class VideoTrimStore {
         ArrayList<String> names = new ArrayList<>();
         long[] durations = new long[ENTRIES.size()];
         long[] starts = new long[ENTRIES.size()];
+        long[] ends = new long[ENTRIES.size()];
 
         int index = 0;
         for (MutableEntry entry : ENTRIES.values()) {
@@ -142,7 +175,8 @@ final class VideoTrimStore {
             uris.add(entry.uri.toString());
             names.add(entry.displayName);
             durations[index] = entry.durationMs;
-            starts[index] = VideoTrimPolicy.clampStartMs(entry.durationMs, entry.startOffsetMs);
+            starts[index] = entry.startOffsetMs;
+            ends[index] = entry.endOffsetMs;
             index++;
         }
 
@@ -151,6 +185,7 @@ final class VideoTrimStore {
         outState.putStringArrayList(safePrefix + "names", names);
         outState.putLongArray(safePrefix + "durations", durations);
         outState.putLongArray(safePrefix + "starts", starts);
+        outState.putLongArray(safePrefix + "ends", ends);
     }
 
     static synchronized void restoreFromBundle(Bundle savedState, String prefix) {
@@ -161,6 +196,7 @@ final class VideoTrimStore {
         ArrayList<String> names = savedState.getStringArrayList(safePrefix + "names");
         long[] durations = savedState.getLongArray(safePrefix + "durations");
         long[] starts = savedState.getLongArray(safePrefix + "starts");
+        long[] ends = savedState.getLongArray(safePrefix + "ends");
         if (keys == null || uris == null || names == null || durations == null || starts == null) return;
 
         int count = Math.min(
@@ -177,7 +213,8 @@ final class VideoTrimStore {
                     Uri.parse(rawUri),
                     names.get(i),
                     durations[i],
-                    starts[i]
+                    starts[i],
+                    ends != null && i < ends.length ? ends[i] : starts[i] + VideoTrimPolicy.CLIP_DURATION_MS
             ));
         }
         replaceEntries(restored);
@@ -197,10 +234,8 @@ final class VideoTrimStore {
                 item.put("uri", entry.uri.toString());
                 item.put("name", entry.displayName);
                 item.put("durationMs", entry.durationMs);
-                item.put("startOffsetMs", VideoTrimPolicy.clampStartMs(
-                        entry.durationMs,
-                        entry.startOffsetMs
-                ));
+                item.put("startOffsetMs", entry.startOffsetMs);
+                item.put("endOffsetMs", entry.endOffsetMs);
                 array.put(item);
             }
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -233,7 +268,8 @@ final class VideoTrimStore {
                         uri,
                         item.optString("name", "Видео"),
                         item.optLong("durationMs", -1L),
-                        item.optLong("startOffsetMs", 0L)
+                        item.optLong("startOffsetMs", 0L),
+                        item.optLong("endOffsetMs", item.optLong("startOffsetMs", 0L) + VideoTrimPolicy.CLIP_DURATION_MS)
                 ));
             }
             replaceEntries(restored);

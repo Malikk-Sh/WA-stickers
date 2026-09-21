@@ -568,9 +568,11 @@ final class MediaGridPanel extends LinearLayout {
                 if (result.video && result.durationMs >= 0) {
                     meta.insert(0, MediaPreflightPolicy.formatDuration(result.durationMs) + " · ");
                     if (result.durationMs > MediaPreflightPolicy.LONG_VIDEO_MS) {
-                        String trim = MediaPreflightPolicy.formatTrimWindow(
-                                VideoTrimStore.getStartOffsetMs(result.uri), result.durationMs);
-                        if (!trim.isEmpty()) meta.append("\nФрагмент ").append(trim);
+                        long start = VideoTrimStore.getStartOffsetMs(result.uri);
+                        long end = VideoTrimStore.getEndOffsetMs(result.uri);
+                        if (end < 0L) end = Math.min(result.durationMs, start + VideoTrimPolicy.CLIP_DURATION_MS);
+                        meta.append("\nФрагмент ").append(VideoTrimPolicy.formatTime(start))
+                                .append(" — ").append(VideoTrimPolicy.formatTime(end));
                         detailTrimButton.setText("Изменить фрагмент");
                         detailTrimButton.setVisibility(VISIBLE);
                     }

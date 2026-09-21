@@ -95,7 +95,7 @@ public class AppShellActivity extends LauncherActivity {
 
     private String trimSignature() {
         StringBuilder value = new StringBuilder(runtimeProjectId());
-        for (Uri uri : runtimeSelectedUrisSnapshot()) value.append('|').append(uri).append(':').append(VideoTrimStore.getStartOffsetMs(uri));
+        for (Uri uri : runtimeSelectedUrisSnapshot()) value.append('|').append(uri).append(':').append(VideoTrimStore.getStartOffsetMs(uri)).append(':').append(VideoTrimStore.getEndOffsetMs(uri));
         return value.toString();
     }
 
