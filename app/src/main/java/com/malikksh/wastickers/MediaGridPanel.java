@@ -591,6 +591,7 @@ final class MediaGridPanel extends LinearLayout {
     }
 
     private void openTrimForSelected() {
+        if (getContext() instanceof MainActivity && ((MainActivity) getContext()).runtimeIsProcessing()) return;
         Uri uri = selectedUri;
         if (uri == null) return;
         detailTrimButton.setEnabled(false);

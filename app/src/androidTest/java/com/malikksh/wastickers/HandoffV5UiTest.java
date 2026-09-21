@@ -83,6 +83,28 @@ public class HandoffV5UiTest {
         }
     }
 
+    @Test public void changingVideoTrimInvalidatesPreviouslyBuiltOutput() throws Exception {
+        Uri source = Uri.fromFile(image(new File(context.getCacheDir(), "trim-state.png"), 96, Bitmap.CompressFormat.PNG));
+        PackStore.Pack pack = new PackStore.Pack("trim-project", "Trim project", 3, "1", true);
+        PackStore.addPack(context, pack);
+        try (ActivityScenario<SettingsShellActivity> scenario = ActivityScenario.launch(SettingsShellActivity.class)) {
+            scenario.onActivity(activity -> {
+                activity.runtimeSetProjectId(pack.id);
+                activity.runtimeRestoreEditorState(true, Arrays.asList(source), source, pack.name, pack);
+                VideoTrimStore.replaceEntries(Arrays.asList(new VideoTrimStore.Entry(source.toString(), source, "Video", 20000, 0)));
+            });
+            scenario.moveToState(androidx.lifecycle.Lifecycle.State.CREATED);
+            VideoTrimStore.setStartOffsetMs(source.toString(), 2000);
+            scenario.moveToState(androidx.lifecycle.Lifecycle.State.RESUMED);
+            scenario.onActivity(activity -> {
+                assertNull(activity.runtimeCurrentPack());
+                assertEquals(pack.id, activity.runtimeProjectId());
+                assertEquals(2000, VideoTrimStore.getStartOffsetMs(source));
+                assertEquals("1", PackStore.getPack(activity, pack.id).imageDataVersion);
+            });
+        }
+    }
+
     @Test public void libraryReceivesStoreChangesWithoutResume() {
         try (ActivityScenario<SettingsShellActivity> scenario = ActivityScenario.launch(SettingsShellActivity.class)) {
             scenario.onActivity(activity -> PackStore.addPack(context, new PackStore.Pack("live", "Live A", 3, "1")));

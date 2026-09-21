@@ -201,6 +201,7 @@ public class PacksShellActivity extends BuildShellActivity {
                 }
                 runOnUiThread(() -> {
                     if (isDestroyed() || !pack.id.equals(runtimeProjectId())) return;
+                    if (saved != null) VideoTrimStore.replaceEntries(saved.trims);
                     runtimeRestoreEditorState(pack.animated, sources,
                             saved != null ? saved.cover : sources.get(0), pack.name, pack);
                     EditorInstanceStateBridge.savePersistent(this);

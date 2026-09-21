@@ -12,15 +12,32 @@ final class ProjectSources {
     static final class Snapshot {
         final List<Uri> items;
         final Uri cover;
-        Snapshot(List<Uri> items, Uri cover) { this.items = items; this.cover = cover; }
+        final List<VideoTrimStore.Entry> trims;
+        Snapshot(List<Uri> items, Uri cover, List<VideoTrimStore.Entry> trims) {
+            this.items = items; this.cover = cover; this.trims = trims;
+        }
     }
     static void write(File generation, List<Uri> items, Uri cover) throws IOException {
+        List<String> keys = new ArrayList<>();
+        for (Uri uri : items) keys.add(uri.toString());
+        write(generation, items, cover, VideoTrimStore.getEntries(keys));
+    }
+    static void write(File generation, List<Uri> items, Uri cover, List<VideoTrimStore.Entry> trims) throws IOException {
         try {
             JSONObject object = new JSONObject();
             JSONArray sources = new JSONArray();
             for (Uri uri : items) sources.put(uri.toString());
             object.put("items", sources);
             object.put("cover", cover == null ? "" : cover.toString());
+            JSONArray trimValues = new JSONArray();
+            for (VideoTrimStore.Entry entry : trims) {
+                JSONObject trim = new JSONObject();
+                trim.put("uri", entry.uri.toString());
+                trim.put("duration", entry.durationMs);
+                trim.put("start", entry.startOffsetMs);
+                trimValues.put(trim);
+            }
+            object.put("trims", trimValues);
             try (FileOutputStream output = new FileOutputStream(new File(generation, "sources.json"))) {
                 output.write(object.toString().getBytes(StandardCharsets.UTF_8));
                 output.getFD().sync();
@@ -47,7 +64,15 @@ final class ProjectSources {
             }
             Uri cover = Uri.parse(root.optString("cover", ""));
             if (items.size() != pack.stickerCount) return null;
-            return new Snapshot(items, items.contains(cover) ? cover : items.get(0));
+            List<VideoTrimStore.Entry> trims = new ArrayList<>();
+            JSONArray trimValues = root.optJSONArray("trims");
+            if (trimValues != null) for (int i = 0; i < trimValues.length(); i++) {
+                JSONObject trim = trimValues.getJSONObject(i);
+                Uri uri = Uri.parse(trim.getString("uri"));
+                if (items.contains(uri)) trims.add(new VideoTrimStore.Entry(uri.toString(), uri, "Видео",
+                        trim.getLong("duration"), trim.getLong("start")));
+            }
+            return new Snapshot(items, items.contains(cover) ? cover : items.get(0), trims);
         } catch (Exception error) { return null; }
     }
 }

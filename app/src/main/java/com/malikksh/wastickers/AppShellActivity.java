@@ -51,6 +51,7 @@ public class AppShellActivity extends LauncherActivity {
     private View buildScreen;
     private View packsScreen;
     private Route activeRoute = Route.EDITOR;
+    private String pausedTrimSignature;
 
     private EditText packNameField;
     private TextView createNameCounter;
@@ -87,8 +88,25 @@ public class AppShellActivity extends LauncherActivity {
     }
 
     @Override
+    protected void onPause() {
+        pausedTrimSignature = trimSignature();
+        super.onPause();
+    }
+
+    private String trimSignature() {
+        StringBuilder value = new StringBuilder(runtimeProjectId());
+        for (Uri uri : runtimeSelectedUrisSnapshot()) value.append('|').append(uri).append(':').append(VideoTrimStore.getStartOffsetMs(uri));
+        return value.toString();
+    }
+
+    @Override
     protected void onResume() {
         super.onResume();
+        if (pausedTrimSignature != null && !pausedTrimSignature.equals(trimSignature())) {
+            runtimeInvalidateCurrentPack();
+            EditorInstanceStateBridge.savePersistent(this);
+        }
+        pausedTrimSignature = null;
         postShellRefresh();
     }
 
@@ -109,6 +127,10 @@ public class AppShellActivity extends LauncherActivity {
     @Override
     public void onBackPressed() {
         if (activeRoute == Route.BUILD) {
+            if (runtimeIsProcessing()) {
+                TransientFeedback.show(this, "Сначала остановите обработку");
+                return;
+            }
             showEditorScreen();
             return;
         }

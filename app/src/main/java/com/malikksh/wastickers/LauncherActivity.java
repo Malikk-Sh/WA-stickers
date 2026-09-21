@@ -218,6 +218,8 @@ public abstract class LauncherActivity extends MainActivity {
     }
 
     private void startShellPicker(Intent intent, Intent fallback, int requestCode, String title) {
+        if (Intent.ACTION_GET_CONTENT.equals(intent.getAction())
+                && intent.resolveActivity(getPackageManager()) == null) intent = fallback;
         try {
             startActivityForResult(Intent.createChooser(intent, title), requestCode);
         } catch (ActivityNotFoundException first) {

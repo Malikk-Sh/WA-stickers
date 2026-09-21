@@ -159,7 +159,15 @@ final class PackStore {
                 android.content.ClipData imported = SourceImporter.importResult(context, selection, copyId, 30).getClipData();
                 List<android.net.Uri> items = new ArrayList<>();
                 for (int i = 0; i < imported.getItemCount(); i++) items.add(imported.getItemAt(i).getUri());
-                ProjectSources.write(copyGeneration, items, items.get(Math.max(0, originals.items.indexOf(originals.cover))));
+                List<VideoTrimStore.Entry> trims = new ArrayList<>();
+                for (VideoTrimStore.Entry trim : originals.trims) {
+                    int index = originals.items.indexOf(trim.uri);
+                    if (index >= 0) {
+                        android.net.Uri uri = items.get(index);
+                        trims.add(new VideoTrimStore.Entry(uri.toString(), uri, trim.displayName, trim.durationMs, trim.startOffsetMs));
+                    }
+                }
+                ProjectSources.write(copyGeneration, items, items.get(Math.max(0, originals.items.indexOf(originals.cover))), trims);
             } catch (IOException error) {
                 deleteRecursively(destination);
                 deleteRecursively(new File(context.getFilesDir(), "project_sources/" + copyId));
@@ -306,11 +314,14 @@ final class PackStore {
         }
         Pack previous = getPack(context, id);
         if (previous != null && previous.name.equals(PackNames.display(name))
-                && previous.stickerCount == count && previous.animated == animated) {
+                && previous.stickerCount == count && previous.animated == animated && previous.photoCount == photos) {
             boolean unchanged = sameFile(getStickerFile(context, id, "tray.png"), new File(staging, "tray.png"));
             for (int i = 1; i <= count && unchanged; i++)
                 unchanged = sameFile(getStickerFile(context, id, i + ".webp"), new File(staging, i + ".webp"));
-            if (unchanged) { deleteRecursively(staging); return previous; }
+            if (unchanged && sameFile(getStickerFile(context, id, "sources.json"), new File(staging, "sources.json"))) {
+                deleteRecursively(staging);
+                return previous;
+            }
         }
         Pack next = new Pack(id, PackNames.display(name), count,
                 previous == null ? "1" : PackNames.nextVersion(previous.imageDataVersion), animated,
