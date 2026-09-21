@@ -36,6 +36,11 @@ final class PackNameDialog {
                      String initialValue,
                      String confirmLabel,
                      Callback callback) {
+        show(context, title, initialValue, confirmLabel, null, callback);
+    }
+
+    static void show(Context context, String title, String initialValue, String confirmLabel,
+                     String excludeId, Callback callback) {
         if (context == null || callback == null) return;
 
         Dialog dialog = new Dialog(context);
@@ -119,7 +124,9 @@ final class PackNameDialog {
         Runnable updateState = () -> {
             String raw = input.getText() == null ? "" : input.getText().toString();
             counter.setText(raw.length() + " / " + MAX_NAME);
-            UiComponents.stylePrimaryButton(confirm, !raw.trim().isEmpty());
+            boolean duplicate = !PackStore.isNameAvailable(context, raw, excludeId);
+            input.setError(duplicate ? "Набор с таким названием уже существует" : null);
+            UiComponents.stylePrimaryButton(confirm, PackNames.valid(raw) && !duplicate);
         };
         input.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
@@ -131,7 +138,11 @@ final class PackNameDialog {
         cancel.setOnClickListener(v -> dialog.dismiss());
         Runnable confirmAction = () -> {
             String name = input.getText() == null ? "" : input.getText().toString().trim();
-            if (name.isEmpty()) return;
+            name = PackNames.display(name);
+            if (!PackNames.valid(name) || !PackStore.isNameAvailable(context, name, excludeId)) {
+                updateState.run();
+                return;
+            }
             dialog.dismiss();
             callback.onConfirmed(name);
         };
@@ -156,6 +167,7 @@ final class PackNameDialog {
             window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         }
         dialog.show();
+        Motion.enter(card);
         if (window != null) {
             window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         }

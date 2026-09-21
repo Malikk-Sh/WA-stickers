@@ -23,7 +23,7 @@ final class UiComponents {
                 R.color.app_surface,
                 R.dimen.radius_card
         );
-        background.setStroke(dp(context, 1), color(context, R.color.app_border));
+        // Surface and spacing establish the card hierarchy.
         card.setBackground(background);
         return card;
     }

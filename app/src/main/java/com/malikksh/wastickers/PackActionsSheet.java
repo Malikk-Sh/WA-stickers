@@ -20,6 +20,7 @@ final class PackActionsSheet {
         void onDuplicate();
         void onDelete();
         void onDetails();
+        default void onEdit() {}
     }
 
     private PackActionsSheet() {}
@@ -61,6 +62,7 @@ final class PackActionsSheet {
         metaParams.topMargin = dp(context, 3);
         sheet.addView(meta, metaParams);
 
+        addAction(sheet, "Редактировать", false, () -> { dialog.dismiss(); host.onEdit(); });
         addAction(sheet, "Переименовать", false, () -> {
             dialog.dismiss();
             host.onRename();
@@ -91,6 +93,7 @@ final class PackActionsSheet {
             window.setAttributes(params);
         }
         dialog.show();
+        Motion.sheet(sheet);
         if (window != null) {
             window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             window.setGravity(Gravity.BOTTOM);

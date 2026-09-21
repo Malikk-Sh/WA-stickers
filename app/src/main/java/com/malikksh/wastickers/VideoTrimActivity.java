@@ -26,7 +26,11 @@ import java.util.concurrent.Executors;
 public class VideoTrimActivity extends Activity {
     static final String EXTRA_KEYS = "video_trim_keys";
 
-    private static final String TRIM_PERSISTENT_KEY = "home_video_trim";
+    static final String EXTRA_PROJECT_ID = "project_id";
+    private String trimKey() {
+        String id = getIntent().getStringExtra(EXTRA_PROJECT_ID);
+        return id == null ? "home_video_trim" : AppSettings.TRIM_PERSISTENT_KEY + "." + id;
+    }
     private static final String STATE_INDEX = "trim.current_index";
     private static final String STATE_ORIGINAL_STARTS = "trim.original_starts";
     private static final String STATE_WORKING_STARTS = "trim.working_starts";
@@ -65,7 +69,7 @@ public class VideoTrimActivity extends Activity {
         ArrayList<String> keys = getIntent().getStringArrayListExtra(EXTRA_KEYS);
         entries = VideoTrimStore.getEntries(keys);
         if (entries.isEmpty()) {
-            VideoTrimStore.restorePersistent(this, TRIM_PERSISTENT_KEY);
+            VideoTrimStore.restorePersistent(this, trimKey());
             entries = VideoTrimStore.getEntries(keys);
         }
         if (entries.isEmpty()) {
@@ -426,7 +430,7 @@ public class VideoTrimActivity extends Activity {
         for (int i = 0; i < entries.size(); i++) {
             VideoTrimStore.setStartOffsetMs(entries.get(i).key, workingStarts[i]);
         }
-        VideoTrimStore.savePersistent(this, TRIM_PERSISTENT_KEY);
+        VideoTrimStore.savePersistent(this, trimKey());
         setResult(RESULT_OK);
         finish();
     }

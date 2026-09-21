@@ -90,8 +90,9 @@ final class MediaPreflightAnalyzer {
 
     private Result inspect(Uri uri) {
         ContentResolver resolver = appContext.getContentResolver();
-        String displayName = "Файл";
-        long sizeBytes = -1L;
+        String displayName = uri.getLastPathSegment() == null ? "Файл" : uri.getLastPathSegment();
+        long sizeBytes = "file".equals(uri.getScheme()) && uri.getPath() != null
+                ? new java.io.File(uri.getPath()).length() : -1L;
         String mime = null;
         try {
             mime = resolver.getType(uri);
@@ -116,6 +117,11 @@ final class MediaPreflightAnalyzer {
         } catch (Throwable ignored) {
         }
 
+        if (mime == null && displayName != null) {
+            int dot = displayName.lastIndexOf('.');
+            if (dot >= 0) mime = android.webkit.MimeTypeMap.getSingleton()
+                    .getMimeTypeFromExtension(displayName.substring(dot + 1).toLowerCase(Locale.ROOT));
+        }
         boolean video = isVideo(mime, displayName);
         int width = -1;
         int height = -1;

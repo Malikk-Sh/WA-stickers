@@ -676,7 +676,7 @@ final class AnimatedStickerConverter {
     }
 
     private static String guessExtension(Context context, Uri uri) {
-        String name = null;
+        String name = uri.getLastPathSegment();
         try (Cursor cursor = context.getContentResolver().query(
                 uri, new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null)) {
             if (cursor != null && cursor.moveToFirst()) {

@@ -48,7 +48,7 @@ public class AppShellActivityUiTest {
     @Test
     public void editorCombinesNameAndMediaWithoutVisibleWorkflowTabs() {
         try (ActivityScenario<AppShellActivity> scenario = ActivityScenario.launch(AppShellActivity.class)) {
-            onView(withText("Название набора")).check(matches(isDisplayed()));
+            onView(withText("Название набора")).check(matches(org.hamcrest.Matchers.not(isDisplayed())));
             onView(withId(R.id.create_media_counter)).check(matches(withText("0 / 30")));
             onView(withId(R.id.media_summary)).check(matches(withText("Стикеры: 0")));
             onView(withId(R.id.media_grid)).check(matches(isDisplayed()));
@@ -85,8 +85,8 @@ public class AppShellActivityUiTest {
 
             onView(withId(R.id.media_add_more)).perform(click());
             onView(withText("Добавить стикер")).check(matches(isDisplayed()));
-            onView(withText("Галерея")).check(matches(isDisplayed()));
-            onView(withText("Файл")).check(matches(isDisplayed()));
+            onView(withText("Фото и видео\nВыбрать через приложение на устройстве")).check(matches(isDisplayed()));
+            onView(withText("Файл\nВыбрать файл из хранилища")).check(matches(isDisplayed()));
             onView(withText("Камера")).check(doesNotExist());
             pressBack();
         }

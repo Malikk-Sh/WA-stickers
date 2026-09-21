@@ -301,6 +301,6 @@ final class VideoTrimStore {
             }
         } catch (Throwable ignored) {
         }
-        return "Видео";
+        return uri.getLastPathSegment() == null ? "Видео" : uri.getLastPathSegment();
     }
 }

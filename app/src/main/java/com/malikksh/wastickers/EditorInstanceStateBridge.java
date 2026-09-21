@@ -37,6 +37,7 @@ final class EditorInstanceStateBridge {
     static void save(MainActivity activity, Bundle outState) {
         if (activity == null || outState == null) return;
         try {
+            outState.putString(PREFIX + "project_id", activity.runtimeProjectId());
             boolean animated = activity.runtimeIsAnimatedMode();
             List<Uri> selected = activity.runtimeSelectedUrisSnapshot();
             Uri cover = activity.runtimeCoverUri();
@@ -73,8 +74,8 @@ final class EditorInstanceStateBridge {
             return false;
         }
         try {
-            EditorStateController<Uri> controller =
-                    activity.runtimeEditorStateController();
+            activity.runtimeSetProjectId(savedState.getString(PREFIX + "project_id"));
+            EditorStateController<Uri> controller = activity.runtimeEditorStateController();
             if (controller == null) return false;
             restoreSnapshot(savedState, "photo", false, controller);
             restoreSnapshot(savedState, "animated", true, controller);
@@ -117,6 +118,7 @@ final class EditorInstanceStateBridge {
         if (!state.containsKey(KEY_ACTIVE_ANIMATED)) return;
         try {
             JSONObject root = new JSONObject();
+            root.put("projectId", activity.runtimeProjectId());
             root.put("activeAnimated", state.getBoolean(KEY_ACTIVE_ANIMATED, false));
             root.put("wasProcessing", state.getBoolean(KEY_WAS_PROCESSING, false));
             root.put("hadPendingBuild", state.getBoolean(KEY_HAD_PENDING_BUILD, false));
@@ -126,6 +128,7 @@ final class EditorInstanceStateBridge {
             activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                     .edit()
                     .putString(PREF_STATE, root.toString())
+                    .putString("project." + activity.runtimeProjectId(), root.toString())
                     .commit();
         } catch (Throwable error) {
             BugLogStore.appendApp("Could not persist editor draft: " + error);
@@ -134,12 +137,17 @@ final class EditorInstanceStateBridge {
 
     static boolean restorePersistent(MainActivity activity) {
         if (activity == null || !AppSettings.keepDrafts(activity)) return false;
+        return restoreProject(activity, null);
+    }
+
+    static boolean restoreProject(MainActivity activity, String projectId) {
         SharedPreferences preferences = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-        String raw = preferences.getString(PREF_STATE, null);
+        String raw = preferences.getString(projectId == null ? PREF_STATE : "project." + projectId, null);
         if (raw == null || raw.trim().isEmpty()) return false;
         try {
             JSONObject root = new JSONObject(raw);
             Bundle state = new Bundle();
+            state.putString(PREFIX + "project_id", root.optString("projectId", projectId));
             state.putBoolean(KEY_ACTIVE_ANIMATED, root.optBoolean("activeAnimated", false));
             state.putBoolean(KEY_WAS_PROCESSING, root.optBoolean("wasProcessing", false));
             state.putBoolean(KEY_HAD_PENDING_BUILD, root.optBoolean("hadPendingBuild", false));
@@ -157,6 +165,54 @@ final class EditorInstanceStateBridge {
         }
     }
 
+    static void renameProject(Context context, String id, String name) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS, 0);
+        SharedPreferences.Editor edit = prefs.edit();
+        for (String key : new String[]{"project." + id, PREF_STATE}) {
+            try {
+                JSONObject root = new JSONObject(prefs.getString(key, "{}"));
+                if (!id.equals(root.optString("projectId"))) continue;
+                JSONObject snapshot = root.optJSONObject(root.optBoolean("activeAnimated") ? "animated" : "photo");
+                if (snapshot != null) snapshot.put("name", name);
+                edit.putString(key, root.toString());
+            } catch (Exception ignored) { }
+        }
+        edit.commit();
+    }
+
+    static void removeProject(Context context, String id) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        SharedPreferences.Editor edit = prefs.edit().remove("project." + id);
+        try {
+            JSONObject active = new JSONObject(prefs.getString(PREF_STATE, "{}"));
+            if (id.equals(active.optString("projectId"))) edit.remove(PREF_STATE);
+        } catch (Exception ignored) { }
+        edit.commit();
+    }
+
+    static java.util.Map<String, String> draftProjects(Context context) {
+        java.util.Map<String, String> result = new java.util.LinkedHashMap<>();
+        if (!AppSettings.keepDrafts(context)) return result;
+        for (java.util.Map.Entry<String, ?> entry : context.getSharedPreferences(PREFS, 0).getAll().entrySet()) {
+            if (!entry.getKey().startsWith("project.")) continue;
+            try {
+                JSONObject root = new JSONObject(String.valueOf(entry.getValue()));
+                JSONObject snapshot = root.optJSONObject(root.optBoolean("activeAnimated") ? "animated" : "photo");
+                if (snapshot != null) result.put(root.getString("projectId"), snapshot.optString("name", ""));
+            } catch (Exception ignored) { }
+        }
+        return result;
+    }
+    static List<String> draftNames(Context context) {
+        return new ArrayList<>(draftProjects(context).values());
+    }
+    static boolean draftNameAvailable(Context context, String name, String excludeId) {
+        for (java.util.Map.Entry<String, String> entry : draftProjects(context).entrySet()) {
+            if (!entry.getKey().equals(excludeId) && PackNames.key(name).equals(PackNames.key(entry.getValue()))) return false;
+        }
+        return true;
+    }
+
     static boolean hasPersistent(Context context) {
         if (context == null || !AppSettings.keepDrafts(context)) return false;
         String raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -168,7 +224,7 @@ final class EditorInstanceStateBridge {
         if (context == null) return;
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .edit()
-                .remove(PREF_STATE)
+                .clear()
                 .commit();
     }
 

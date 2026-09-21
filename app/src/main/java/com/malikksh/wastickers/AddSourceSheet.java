@@ -51,16 +51,16 @@ final class AddSourceSheet {
         titleParams.topMargin = dp(context, 12);
         sheet.addView(title, titleParams);
 
-        TextView hint = UiComponents.metadata(context, "Выберите источник файлов на устройстве.");
+        TextView hint = UiComponents.metadata(context, "Выберите источник");
         LinearLayout.LayoutParams hintParams = UiComponents.matchWrap();
         hintParams.topMargin = dp(context, 4);
         sheet.addView(hint, hintParams);
 
-        addAction(sheet, "Галерея", () -> {
+        addAction(sheet, "Фото и видео\nВыбрать через приложение на устройстве", () -> {
             dialog.dismiss();
             host.onGallery();
         });
-        addAction(sheet, "Файл", () -> {
+        addAction(sheet, "Файл\nВыбрать файл из хранилища", () -> {
             dialog.dismiss();
             host.onFile();
         });
@@ -78,6 +78,7 @@ final class AddSourceSheet {
             window.setAttributes(params);
         }
         dialog.show();
+        Motion.sheet(sheet);
         if (window != null) {
             window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             window.setGravity(Gravity.BOTTOM);

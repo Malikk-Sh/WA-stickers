@@ -8,6 +8,8 @@ import java.util.Objects;
 
 final class PackBuildSession<T> {
     private final List<T> failures = new ArrayList<>();
+    private final List<T> successfulItems = new ArrayList<>();
+    List<T> successfulItems() { return new ArrayList<>(successfulItems); }
 
     private boolean active;
     private String packId;
@@ -41,6 +43,7 @@ final class PackBuildSession<T> {
         if (traySource == null || Objects.equals(item, preferredTraySource)) {
             traySource = item;
         }
+        successfulItems.add(item);
         successCount++;
         lastFps = fps;
         lastQuality = quality;
@@ -142,6 +145,7 @@ final class PackBuildSession<T> {
         lastFps = 0;
         lastQuality = 0;
         failures.clear();
+        successfulItems.clear();
         cancelRequested = false;
         autoFinalizeAllowed = true;
     }

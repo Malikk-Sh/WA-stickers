@@ -70,10 +70,20 @@ public class AppShellActivity extends LauncherActivity {
         shellPreviewLoader = new PreviewLoader(this);
         try {
             installShell();
+            if (savedInstanceState != null) {
+                try { showRoute(Route.valueOf(savedInstanceState.getString("shell.route", "PACKS"))); }
+                catch (IllegalArgumentException ignored) { showLibraryScreen(); }
+            }
             refreshShellState();
         } catch (Throwable error) {
             BugLogStore.appendApp("Could not install sequential app shell: " + error);
         }
+    }
+
+    @Override
+    protected void onSaveInstanceState(Bundle outState) {
+        outState.putString("shell.route", activeRoute.name());
+        super.onSaveInstanceState(outState);
     }
 
     @Override
@@ -155,6 +165,7 @@ public class AppShellActivity extends LauncherActivity {
 
         LinearLayout.LayoutParams nameParams = matchWrap();
         nameParams.topMargin = dp(12);
+        nameCard.setVisibility(View.GONE);
         body.addView(nameCard, nameParams);
 
         mediaPanel = new MediaGridPanel(this, shellPreviewLoader, new MediaGridPanel.Host() {
@@ -240,6 +251,18 @@ public class AppShellActivity extends LauncherActivity {
                 color(R.color.app_text_primary), Typeface.BOLD);
         editorTitle.setSingleLine(true);
         editorTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        editorTitle.setContentDescription("Переименовать набор");
+        editorTitle.setMinHeight(dp(48));
+        editorTitle.setOnClickListener(v -> {
+            if (runtimeIsProcessing()) return;
+            PackNameDialog.show(this, "Переименовать набор",
+                runtimeEnteredPackName(), "Сохранить", runtimeProjectId(), name -> {
+                    packNameField.setText(name);
+                    runtimeInvalidateCurrentPack();
+                    EditorInstanceStateBridge.savePersistent(this);
+                    refreshShellState();
+                });
+        });
         labels.addView(editorTitle, matchWrap());
 
         editorSubtitle = text("0 элементов", 12,
@@ -404,7 +427,9 @@ public class AppShellActivity extends LauncherActivity {
     }
 
     protected final void showLibraryScreen() {
+        EditorInstanceStateBridge.savePersistent(this);
         showRoute(Route.PACKS);
+        if (this instanceof PacksShellActivity) ((PacksShellActivity) this).refreshPacksPanelForTest();
     }
 
     private void prepareAndShowBuild() {
@@ -442,7 +467,7 @@ public class AppShellActivity extends LauncherActivity {
         Uri cover = plannedCover != null && plannedItems.contains(plannedCover)
                 ? plannedCover
                 : (plannedItems.isEmpty() ? null : plannedItems.get(0));
-        if (!runtimeRestoreEditorState(animated, plannedItems, cover, plannedName, null)) {
+        if (!runtimeRestoreEditorState(animated, plannedItems, cover, plannedName, runtimeCurrentPack())) {
             TransientFeedback.show(this, "Не удалось подготовить проект к сборке");
             return;
         }
@@ -452,11 +477,13 @@ public class AppShellActivity extends LauncherActivity {
 
     private void showRoute(Route route) {
         if (screenHost == null) return;
+        boolean changed = activeRoute != route;
         activeRoute = route;
         editorScreen.setVisibility(route == Route.EDITOR ? View.VISIBLE : View.GONE);
         legacyMediaScreen.setVisibility(View.GONE);
         buildScreen.setVisibility(route == Route.BUILD ? View.VISIBLE : View.GONE);
         packsScreen.setVisibility(route == Route.PACKS ? View.VISIBLE : View.GONE);
+        if (changed) Motion.enter(route == Route.PACKS ? packsScreen : route == Route.BUILD ? buildScreen : editorScreen);
         refreshShellState();
     }
 

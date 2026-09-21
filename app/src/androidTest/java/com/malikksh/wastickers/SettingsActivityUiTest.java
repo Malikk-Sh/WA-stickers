@@ -47,7 +47,7 @@ public class SettingsActivityUiTest {
     public void settingsValuesPersistAcrossRecreate() {
         try (ActivityScenario<SettingsActivity> scenario = ActivityScenario.launch(SettingsActivity.class)) {
             onView(withId(R.id.settings_title)).check(matches(withText("Настройки")));
-            onView(withId(R.id.settings_privacy)).check(matches(withText("Все файлы обрабатываются локально")));
+            onView(withId(R.id.settings_privacy)).check(matches(withText("Конфиденциальность  ›")));
 
             onView(withId(R.id.settings_compact)).perform(click());
             onView(withId(R.id.settings_quality_sharper)).perform(click());

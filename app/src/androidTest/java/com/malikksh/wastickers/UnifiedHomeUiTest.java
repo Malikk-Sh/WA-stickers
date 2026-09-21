@@ -79,7 +79,7 @@ public class UnifiedHomeUiTest {
             onView(withId(R.id.pack_name_dialog_input)).check(matches(withText("Мои стикеры")));
             onView(withId(R.id.pack_name_dialog_confirm)).perform(click());
 
-            onView(withText("Название набора")).check(matches(isDisplayed()));
+            onView(withText("Название набора")).check(matches(org.hamcrest.Matchers.not(isDisplayed())));
             onView(withId(R.id.media_grid)).check(matches(isDisplayed()));
             onView(withId(R.id.media_continue)).check(matches(isDisplayed()));
             scenario.onActivity(activity -> {

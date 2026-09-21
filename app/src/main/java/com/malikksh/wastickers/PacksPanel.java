@@ -39,6 +39,7 @@ final class PacksPanel extends LinearLayout {
         void onOpenPack(PackStore.Pack pack);
         void onShowPackActions(PackStore.Pack pack);
         void onCreatePack();
+        default void onOpenDraft(String id) {}
         void onSettingsRequested();
         void onOverflowRequested(View anchor);
     }
@@ -55,11 +56,14 @@ final class PacksPanel extends LinearLayout {
     private final Button animatedFilter;
     private final TextView statsText;
     private final LinearLayout list;
+    private final LinearLayout drafts;
 
     private Filter filter = Filter.ALL;
     private List<PackStore.Pack> packs = new ArrayList<>();
     private String query = "";
     private long renderGeneration;
+    private final java.util.Map<String, View> cards = new java.util.HashMap<>();
+    private final java.util.Map<String, String> cardKeys = new java.util.HashMap<>();
 
     PacksPanel(Context context, Host host) {
         super(context);
@@ -106,15 +110,18 @@ final class PacksPanel extends LinearLayout {
 
         Button create = new Button(context);
         create.setId(R.id.packs_create_first);
-        create.setText("+  Создать набор");
+        create.setText("+ Новый набор");
         create.setContentDescription("Создать новый набор");
         UiComponents.stylePrimaryButton(create, true);
         create.setOnClickListener(v -> host.onCreatePack());
         LinearLayout.LayoutParams createParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(54));
+                ViewGroup.LayoutParams.WRAP_CONTENT, dp(48));
         createParams.topMargin = dp(14);
         addView(create, createParams);
 
+        drafts = new LinearLayout(context);
+        drafts.setOrientation(VERTICAL);
+        addView(drafts, matchWrap());
         list = new LinearLayout(context);
         list.setId(R.id.packs_list);
         list.setOrientation(VERTICAL);
@@ -130,7 +137,25 @@ final class PacksPanel extends LinearLayout {
         Collections.reverse(packs);
         renderGeneration++;
         renderStats();
+        drafts.removeAllViews();
+        for (java.util.Map.Entry<String, String> draft : EditorInstanceStateBridge.draftProjects(getContext()).entrySet()) {
+            if (PackStore.getPack(getContext(), draft.getKey()) != null || !PackNames.valid(draft.getValue())) continue;
+            Button resume = new Button(getContext());
+            resume.setText("Продолжить: " + draft.getValue());
+            UiComponents.styleOutlineButton(resume, true);
+            resume.setOnClickListener(v -> host.onOpenDraft(draft.getKey()));
+            drafts.addView(resume, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
+        }
         renderList();
+    }
+
+    void showLoadError() {
+        list.removeAllViews();
+        cards.clear();
+        cardKeys.clear();
+        TextView error = UiComponents.metadata(getContext(), "Не удалось загрузить наборы. Попробуйте открыть приложение снова.");
+        error.setTextColor(color(R.color.app_error));
+        list.addView(error, matchWrap());
     }
 
     Filter filter() {
@@ -158,6 +183,8 @@ final class PacksPanel extends LinearLayout {
         if (searchHeader.getVisibility() == VISIBLE) return;
         normalHeader.setVisibility(GONE);
         searchHeader.setVisibility(VISIBLE);
+        findViewById(R.id.packs_create_first).setVisibility(GONE);
+        Motion.enter(searchHeader);
         searchInput.setText(query);
         searchInput.setSelection(searchInput.length());
         searchInput.post(() -> {
@@ -264,7 +291,10 @@ final class PacksPanel extends LinearLayout {
 
         ImageButton close = headerAction(R.drawable.ic_close, "Очистить и закрыть поиск");
         close.setId(R.id.packs_search_close);
-        close.setOnClickListener(v -> closeSearch());
+        close.setOnClickListener(v -> {
+            if (searchInput.length() == 0) closeSearch();
+            else searchInput.setText("");
+        });
         LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(dp(48), dp(48));
         closeParams.leftMargin = dp(8);
         row.addView(close, closeParams);
@@ -272,6 +302,7 @@ final class PacksPanel extends LinearLayout {
     }
 
     private void closeSearch() {
+        findViewById(R.id.packs_create_first).setVisibility(VISIBLE);
         setQuery("");
         searchInput.setText("");
         searchInput.clearFocus();
@@ -315,17 +346,42 @@ final class PacksPanel extends LinearLayout {
     }
 
     private void renderList() {
-        list.removeAllViews();
         List<PackStore.Pack> filtered = filteredPacks();
+        java.util.Set<String> visible = new java.util.HashSet<>();
+        for (PackStore.Pack pack : filtered) visible.add(pack.id);
+        if (Motion.enabled(getContext()) && list.isLaidOut()) {
+            android.transition.TransitionManager.beginDelayedTransition(list,
+                    new android.transition.AutoTransition().setDuration(200));
+        }
+        for (int i = list.getChildCount() - 1; i >= 0; i--) {
+            View child = list.getChildAt(i);
+            if (!(child.getTag() instanceof String) || !visible.contains((String) child.getTag())) list.removeViewAt(i);
+        }
         if (filtered.isEmpty()) {
             list.addView(buildEmptyState(), matchWrap());
             return;
         }
         for (int i = 0; i < filtered.size(); i++) {
-            LinearLayout.LayoutParams params = matchWrap();
-            if (i > 0) params.topMargin = dp(10);
-            list.addView(buildPackCard(filtered.get(i)), params);
+            PackStore.Pack pack = filtered.get(i);
+            String key = pack.name + ":" + pack.imageDataVersion + ":" + isAvailable(pack)
+                    + ":" + WhatsAppSync.state(getContext(), pack);
+            View card = cards.get(pack.id);
+            if (card == null || !key.equals(cardKeys.get(pack.id))) {
+                if (card != null) list.removeView(card);
+                card = buildPackCard(pack);
+                card.setTag(pack.id);
+                cards.put(pack.id, card);
+                cardKeys.put(pack.id, key);
+            }
+            if (list.indexOfChild(card) != i) {
+                list.removeView(card);
+                LinearLayout.LayoutParams params = matchWrap();
+                if (i > 0) params.topMargin = dp(10);
+                list.addView(card, Math.min(i, list.getChildCount()), params);
+            }
         }
+        cards.keySet().retainAll(visible);
+        cardKeys.keySet().retainAll(visible);
     }
 
     private List<PackStore.Pack> filteredPacks() {
@@ -404,14 +460,18 @@ final class PacksPanel extends LinearLayout {
         name.setEllipsize(android.text.TextUtils.TruncateAt.END);
         info.addView(name, matchWrap());
 
-        String summary = stickerCountLabel(pack.stickerCount)
-                + " · " + (pack.animated ? "анимированный экспорт" : "статичный экспорт");
+        String summary = pack.photoCount + " фото · " + (pack.stickerCount - pack.photoCount) + " с анимацией";
         TextView count = UiComponents.metadata(getContext(), summary);
         count.setMaxLines(1);
         count.setEllipsize(android.text.TextUtils.TruncateAt.END);
         LinearLayout.LayoutParams countParams = matchWrap();
         countParams.topMargin = dp(4);
         info.addView(count, countParams);
+        if (pack.updatedAt > 0) {
+            String modified = android.text.format.DateUtils.isToday(pack.updatedAt) ? "Изменён сегодня"
+                    : "Изменён " + android.text.format.DateFormat.getDateFormat(getContext()).format(new java.util.Date(pack.updatedAt));
+            info.addView(UiComponents.metadata(getContext(), modified), matchWrap());
+        }
 
         if (!available) {
             TextView unavailable = chip("Недоступен", false);
@@ -436,9 +496,9 @@ final class PacksPanel extends LinearLayout {
         }
 
         Button whatsapp = new Button(getContext());
-        whatsapp.setText("Добавить в WhatsApp");
+        whatsapp.setText(WhatsAppSync.label(getContext(), pack));
         whatsapp.setAllCaps(false);
-        UiComponents.stylePrimaryButton(whatsapp, available);
+        UiComponents.stylePrimaryButton(whatsapp, available && WhatsAppSync.state(getContext(), pack) != WhatsAppSync.State.SYNCING);
         whatsapp.setContentDescription("Добавить набор " + pack.name + " в WhatsApp");
         if (available) whatsapp.setOnClickListener(v -> host.onAddToWhatsApp(pack));
         LinearLayout.LayoutParams whatsappParams = new LinearLayout.LayoutParams(
