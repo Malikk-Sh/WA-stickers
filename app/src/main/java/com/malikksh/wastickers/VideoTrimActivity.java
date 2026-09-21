@@ -234,8 +234,7 @@ public class VideoTrimActivity extends Activity {
             @Override
             public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
                 if (!fromUser || entries == null || entries.isEmpty()) return;
-                VideoTrimStore.Entry entry = entries.get(currentIndex);
-                changeBoundary(progress * VideoTrimPolicy.SEEK_STEP_MS, true, false);
+                changeBoundary(progress * VideoTrimPolicy.SEEK_STEP_MS, true, !bar.isPressed());
             }
 
             @Override
@@ -244,7 +243,6 @@ public class VideoTrimActivity extends Activity {
 
             @Override
             public void onStopTrackingTouch(SeekBar bar) {
-                VideoTrimStore.Entry entry = entries.get(currentIndex);
                 changeBoundary(bar.getProgress() * VideoTrimPolicy.SEEK_STEP_MS, true, true);
             }
         });
@@ -259,7 +257,7 @@ public class VideoTrimActivity extends Activity {
         editorCard.addView(endSeekBar, matchWrap());
         endSeekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
-                if (fromUser) changeBoundary(progress * VideoTrimPolicy.SEEK_STEP_MS, false, false);
+                if (fromUser) changeBoundary(progress * VideoTrimPolicy.SEEK_STEP_MS, false, !bar.isPressed());
             }
             @Override public void onStartTrackingTouch(SeekBar bar) { }
             @Override public void onStopTrackingTouch(SeekBar bar) {

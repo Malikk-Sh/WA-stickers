@@ -127,6 +127,20 @@ public class HandoffV5UiTest {
         assertNull(media.getPackage());
     }
 
+    @Test public void importingKeepsReadableNamesAndOwnsTheSourceCopy() throws Exception {
+        File source = image(new File(context.getCacheDir(), "Фото для набора.png"), 96, Bitmap.CompressFormat.PNG);
+        File ownedDirectory = new File(context.getFilesDir(), "project_sources/import-test");
+        try {
+            Intent selection = new Intent().setData(Uri.fromFile(source));
+            Intent imported = SourceImporter.importResult(context, selection, "import-test", 30);
+            Uri local = imported.getClipData().getItemAt(0).getUri();
+            assertNotEquals(Uri.fromFile(source), local);
+            assertEquals(source.getName(), local.getLastPathSegment());
+            assertTrue(source.delete());
+            assertTrue(EditorInstanceStateBridge.canReadUri(context, local));
+        } finally { PackStore.deleteRecursively(ownedDirectory); source.delete(); }
+    }
+
     @Test public void generationCommitKeepsIdentityVersionsAndOldContentOnFailure() throws Exception {
         File first = generation("stable", 0xff008800);
         PackStore.Pack a = PackStore.commitGeneration(context, "stable", "Versioned", 3, false, first, 3);

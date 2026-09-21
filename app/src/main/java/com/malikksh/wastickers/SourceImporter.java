@@ -4,6 +4,8 @@ import android.content.ClipData;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
+import android.database.Cursor;
+import android.provider.OpenableColumns;
 import java.io.*;
 import java.util.*;
 
@@ -34,8 +36,11 @@ final class SourceImporter {
                     extension = dot < 0 ? "media" : last.substring(dot + 1).toLowerCase(Locale.ROOT);
                     if (!extension.matches("[a-z0-9]{1,8}")) extension = "media";
                 }
-                File destination = new File(root, UUID.randomUUID() + "." + extension);
-                created.add(destination);
+                // Keep the user-visible source name; uniqueness belongs to its parent directory.
+                File itemDirectory = new File(root, UUID.randomUUID().toString());
+                if (!itemDirectory.mkdir()) throw new IOException("Source directory unavailable");
+                created.add(itemDirectory);
+                File destination = new File(itemDirectory, displayName(context, uri, extension));
                 try (InputStream input = context.getContentResolver().openInputStream(uri);
                      FileOutputStream output = new FileOutputStream(destination)) {
                     if (input == null) throw new IOException("Source unavailable");
@@ -55,11 +60,29 @@ final class SourceImporter {
                 else imported.addItem(new ClipData.Item(local));
             }
         } catch (IOException | RuntimeException error) {
-            for (File file : created) file.delete();
+            for (File file : created) PackStore.deleteRecursively(file);
             throw error;
         }
         Intent intent = new Intent();
         if (imported != null) intent.setClipData(imported);
         return intent;
+    }
+
+    private static String displayName(Context context, Uri uri, String extension) {
+        String name = uri.getLastPathSegment();
+        try (Cursor cursor = context.getContentResolver().query(uri,
+                new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                int index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                if (index >= 0 && !cursor.isNull(index)) name = cursor.getString(index);
+            }
+        } catch (RuntimeException ignored) { }
+        if (name == null) name = "Медиа";
+        name = name.replaceAll("[\\\\/\\p{Cntrl}]", "_").trim();
+        if (name.isEmpty() || name.equals(".") || name.equals("..")) name = "Медиа";
+        // Keep filenames comfortably below Android's byte-length limit, including Unicode names.
+        if (name.codePointCount(0, name.length()) > 48) name = name.substring(0, name.offsetByCodePoints(0, 48));
+        if (!name.toLowerCase(Locale.ROOT).endsWith("." + extension)) name += "." + extension;
+        return name;
     }
 }
