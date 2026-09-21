@@ -21,34 +21,17 @@ import org.junit.runner.RunWith;
 @RunWith(AndroidJUnit4.class)
 public class CreateNameCounterUiTest {
     @Test
-    public void counterIsHiddenFreshShownOnFocusAndAfterEightyPercent() {
+    public void counterLivesInRenameDialogWhileEditorHasNoNameForm() {
         try (ActivityScenario<SettingsShellActivity> scenario = ActivityScenario.launch(SettingsShellActivity.class)) {
             scenario.onActivity(activity -> {
-                View create = activity.findViewById(R.id.nav_create);
-                assertNotNull(create);
-                create.performClick();
-                activity.refreshShellState();
+                activity.runtimeNewProject("Счётчик");
+                activity.enterCreateEditor();
             });
-
             onView(withId(R.id.create_name_counter)).check(matches(withEffectiveVisibility(GONE)));
-
-            onView(withHint("Мои стикеры")).perform(click());
-            onView(withId(R.id.create_name_counter)).check(matches(isDisplayed()));
-
-            scenario.onActivity(activity -> {
-                activity.runtimePackName().setText(repeat('x', 48));
-                activity.runtimePackName().clearFocus();
-                View content = activity.findViewById(android.R.id.content);
-                content.setFocusableInTouchMode(true);
-                content.requestFocus();
-            });
-            onView(withId(R.id.create_name_counter)).check(matches(isDisplayed()));
+            onView(androidx.test.espresso.matcher.ViewMatchers.withContentDescription("Переименовать набор")).perform(click());
+            onView(withId(R.id.pack_name_dialog_counter)).check(matches(isDisplayed()));
+            onView(withId(R.id.pack_name_dialog_input)).perform(androidx.test.espresso.action.ViewActions.replaceText("x".repeat(48)));
+            onView(withId(R.id.pack_name_dialog_counter)).check(matches(androidx.test.espresso.matcher.ViewMatchers.withText("48 / 60")));
         }
-    }
-
-    private String repeat(char value, int count) {
-        StringBuilder builder = new StringBuilder(count);
-        for (int index = 0; index < count; index++) builder.append(value);
-        return builder.toString();
     }
 }

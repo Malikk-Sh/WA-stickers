@@ -223,7 +223,7 @@ public class SettingsShellActivity extends PacksShellActivity {
     }
 
     private void showEditorOverflow(View anchor) {
-        PopupMenu menu = new PopupMenu(this, anchor);
+        PopupMenu menu = new TonalMenu(this, anchor);
         menu.getMenu().add("Переименовать");
         menu.getMenu().add("Очистить проект");
         menu.getMenu().add("Сбросить порядок");
@@ -267,7 +267,7 @@ public class SettingsShellActivity extends PacksShellActivity {
     }
 
     private void showCreateOverflow(View anchor) {
-        PopupMenu menu = new PopupMenu(this, anchor);
+        PopupMenu menu = new TonalMenu(this, anchor);
         menu.getMenu().add("Очистить черновик");
         if (EditorInstanceStateBridge.hasPersistent(this)) {
             menu.getMenu().add("Восстановить последний");
@@ -298,7 +298,7 @@ public class SettingsShellActivity extends PacksShellActivity {
     }
 
     private void showMediaOverflow(View anchor) {
-        PopupMenu menu = new PopupMenu(this, anchor);
+        PopupMenu menu = new TonalMenu(this, anchor);
         menu.getMenu().add("Выбрать всё");
         menu.getMenu().add("Сбросить порядок");
         menu.getMenu().add("Очистить");
@@ -360,7 +360,7 @@ public class SettingsShellActivity extends PacksShellActivity {
     }
 
     private void showBuildOverflow(View anchor) {
-        PopupMenu menu = new PopupMenu(this, anchor);
+        PopupMenu menu = new TonalMenu(this, anchor);
         menu.getMenu().add("Повторить ошибки");
         menu.getMenu().add("Показать диагностику");
         menu.getMenu().add("Очистить сборку");
@@ -437,12 +437,8 @@ public class SettingsShellActivity extends PacksShellActivity {
             clearDraftNow();
             return;
         }
-        new AlertDialog.Builder(this)
-                .setTitle("Очистить черновик?")
-                .setMessage("Выбранные файлы и настройки будут удалены.")
-                .setPositiveButton("Очистить", (dialog, which) -> clearDraftNow())
-                .setNegativeButton("Отмена", null)
-                .show();
+        ThemedDialogs.confirm(this, "Очистить черновик?", "Выбранные файлы и настройки будут удалены.",
+                "Очистить", this::clearDraftNow);
     }
 
     private void clearDraftNow() {
@@ -452,9 +448,9 @@ public class SettingsShellActivity extends PacksShellActivity {
         }
 
         draftRestoredThisSession = false;
-        EditorInstanceStateBridge.clearPersistent(this);
+        EditorInstanceStateBridge.removeProject(this, runtimeProjectId());
         VideoTrimStore.clear();
-        VideoTrimStore.clearPersistent(this, AppSettings.TRIM_PERSISTENT_KEY);
+        VideoTrimStore.clearPersistent(this, AppSettings.TRIM_PERSISTENT_KEY + "." + runtimeProjectId());
         refreshShellPresentation();
         TransientFeedback.show(this, "Черновик очищен");
     }
@@ -465,7 +461,7 @@ public class SettingsShellActivity extends PacksShellActivity {
             return;
         }
         boolean restored = EditorInstanceStateBridge.restorePersistent(this);
-        VideoTrimStore.restorePersistent(this, AppSettings.TRIM_PERSISTENT_KEY);
+        VideoTrimStore.restorePersistent(this, AppSettings.TRIM_PERSISTENT_KEY + "." + runtimeProjectId());
         if (restored) draftRestoredThisSession = true;
         refreshShellPresentation();
         if (restored) {

@@ -127,10 +127,12 @@ public class StickerContentProvider extends ContentProvider {
             throw new FileNotFoundException("Sticker not found");
         }
 
-        File file = PackStore.getStickerFile(getContext(), packId, fileName);
-        if (!file.isFile()) throw new FileNotFoundException(file.getAbsolutePath());
-        ParcelFileDescriptor descriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY);
-        return new AssetFileDescriptor(descriptor, 0, AssetFileDescriptor.UNKNOWN_LENGTH);
+        synchronized (PackStore.class) {
+            File file = PackStore.getStickerFile(getContext(), packId, fileName);
+            if (!file.isFile()) throw new FileNotFoundException(file.getAbsolutePath());
+            ParcelFileDescriptor descriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY);
+            return new AssetFileDescriptor(descriptor, 0, AssetFileDescriptor.UNKNOWN_LENGTH);
+        }
     }
 
     private boolean isAllowedFile(PackStore.Pack pack, String fileName) {

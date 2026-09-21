@@ -5,6 +5,7 @@ import java.util.Locale;
 final class VideoTrimPolicy {
     static final long CLIP_DURATION_MS = 10_000L;
     static final long SEEK_STEP_MS = 100L;
+    static final long MIN_CLIP_DURATION_MS = 500L;
 
     private VideoTrimPolicy() {}
 
@@ -21,6 +22,17 @@ final class VideoTrimPolicy {
         if (durationMs <= 0L) return CLIP_DURATION_MS;
         long safeStart = clampStartMs(durationMs, startMs);
         return Math.max(1L, Math.min(CLIP_DURATION_MS, durationMs - safeStart));
+    }
+
+    static long clampRangeStartMs(long durationMs, long requestedStartMs) {
+        return Math.max(0L, Math.min(requestedStartMs, Math.max(0L, durationMs - MIN_CLIP_DURATION_MS)));
+    }
+
+    static long clampRangeEndMs(long durationMs, long startMs, long requestedEndMs) {
+        long start = clampRangeStartMs(durationMs, startMs);
+        long maximum = Math.min(Math.max(1L, durationMs), start + CLIP_DURATION_MS);
+        long minimum = Math.min(maximum, start + MIN_CLIP_DURATION_MS);
+        return Math.max(minimum, Math.min(requestedEndMs, maximum));
     }
 
     static int seekBarMax(long durationMs) {

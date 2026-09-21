@@ -2,6 +2,7 @@ package com.malikksh.wastickers;
 
 import static androidx.test.espresso.Espresso.onView;
 import static androidx.test.espresso.action.ViewActions.click;
+import static androidx.test.espresso.action.ViewActions.scrollTo;
 import static androidx.test.espresso.assertion.ViewAssertions.matches;
 import static androidx.test.espresso.matcher.ViewMatchers.isEnabled;
 import static androidx.test.espresso.matcher.ViewMatchers.withId;
@@ -56,11 +57,11 @@ public class VideoTrimStepUiTest {
             onView(withId(R.id.trim_step_forward)).check(matches(isEnabled()));
             onView(withId(R.id.trim_range)).check(matches(withText("Фрагмент: 0:02.0 — 0:12.0")));
 
-            onView(withId(R.id.trim_step_forward)).perform(click());
+            onView(withId(R.id.trim_step_forward)).perform(scrollTo(), click());
             onView(withId(R.id.trim_range)).check(matches(withText("Фрагмент: 0:02.1 — 0:12.1")));
             assertEquals(2_100L, VideoTrimStore.getStartOffsetMs(video));
 
-            onView(withId(R.id.trim_step_back)).perform(click());
+            onView(withId(R.id.trim_step_back)).perform(scrollTo(), click());
             onView(withId(R.id.trim_range)).check(matches(withText("Фрагмент: 0:02.0 — 0:12.0")));
             assertEquals(2_000L, VideoTrimStore.getStartOffsetMs(video));
         }

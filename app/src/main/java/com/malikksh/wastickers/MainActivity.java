@@ -91,6 +91,20 @@ public class MainActivity extends Activity {
     private PreviewLoader previewLoader;
 
     private final PackRuntimeState packState = new PackRuntimeState();
+    private String projectId = "pack_" + java.util.UUID.randomUUID();
+    String runtimeProjectId() { return projectId; }
+    void runtimeSetProjectId(String id) {
+        if (id != null && id.matches("[A-Za-z0-9_-]+")) projectId = id;
+    }
+    boolean runtimeNewProject(String name) {
+        if (processing) return false;
+        EditorInstanceStateBridge.savePersistent(this);
+        VideoTrimStore.savePersistent(this, AppSettings.TRIM_PERSISTENT_KEY + "." + projectId);
+        if (!runtimeClearEditorDraft()) return false;
+        projectId = "pack_" + java.util.UUID.randomUUID();
+        VideoTrimStore.clear();
+        return runtimeRestoreEditorState(false, new ArrayList<>(), null, name, null);
+    }
     private boolean processing;
     private boolean lastOperationFailed;
     private String lastBugLog = "";
@@ -834,8 +848,8 @@ public class MainActivity extends Activity {
         Uri preferredCover = editorState.cover() != null && work.contains(editorState.cover()) ? editorState.cover() : work.get(0);
 
         invalidateCurrentPack();
-        String packId = (editorState.isAnimated() ? "animated_" : "pack_") + System.currentTimeMillis();
-        File packDir = PackStore.getPackDir(this, packId);
+        String packId = runtimeProjectId();
+        File packDir = PackStore.stagingDir(this, packId);
         buildSession.begin(packId, finalName, packDir, editorState.isAnimated(), preferredCover);
 
         diagnosticItemIndex = -1;
@@ -1102,16 +1116,28 @@ public class MainActivity extends Activity {
         }
         BugLogStore.appendApp("Tray icon created: bytes=" + tray.length());
 
+        List<Uri> completed = buildSession.successfulItems();
+        List<Uri> ordered = new ArrayList<>();
+        for (Uri source : editorState.snapshotItems()) if (completed.contains(source)) ordered.add(source);
+        File publication = PackStore.stagingDir(this, buildSession.packId());
+        if (!publication.mkdirs()) throw new IOException("Не удалось подготовить сохранение");
+        for (int i = 0; i < ordered.size(); i++) {
+            PackStore.copyRecursively(new File(packDir, (completed.indexOf(ordered.get(i)) + 1) + ".webp"),
+                    new File(publication, (i + 1) + ".webp"));
+        }
+        PackStore.copyRecursively(tray, new File(publication, "tray.png"));
+        ProjectSources.write(publication, ordered, buildSession.traySource());
         int stickerCount = buildSession.successCount();
-        PackStore.Pack pack = new PackStore.Pack(
-                buildSession.packId(),
-                buildSession.packName(),
-                stickerCount,
-                String.valueOf(System.currentTimeMillis()),
-                buildSession.isAnimated()
-        );
         if (activityDestroyed || buildSession.isCancelRequested()) throw new IOException("Завершение отменено");
-        PackStore.addPack(this, pack);
+        int photoCount = 0;
+        SourceAnimationDetector detector = new SourceAnimationDetector(this);
+        for (Uri uri : editorState.snapshotItems()) {
+            if (!buildSession.failures().contains(uri)
+                    && detector.classify(uri) == MediaAnimationInspector.AnimationKind.STATIC) photoCount++;
+        }
+        PackStore.Pack pack = PackStore.commitGeneration(this, buildSession.packId(),
+                buildSession.packName(), stickerCount, buildSession.isAnimated(), publication, photoCount);
+        PackStore.deleteRecursively(packDir);
         packState.set(pack);
 
         String authority = getPackageName() + ".stickercontentprovider";
@@ -1125,6 +1151,7 @@ public class MainActivity extends Activity {
         postUi(() -> {
             processing = false;
             lastOperationFailed = false;
+            EditorInstanceStateBridge.savePersistent(this);
             finishProgressSuccess(pack.stickerCount, skippedCount);
             StringBuilder message = new StringBuilder("Готово: «")
                     .append(pack.name).append("» · ").append(pack.stickerCount).append(" стикеров");

@@ -50,9 +50,9 @@ public abstract class LauncherActivity extends MainActivity {
             VideoTrimStore.restoreFromBundle(savedInstanceState, TRIM_STATE_PREFIX);
             EditorInstanceStateBridge.restore(this, savedInstanceState);
         } else {
-            VideoTrimStore.restorePersistent(this, AppSettings.TRIM_PERSISTENT_KEY);
             restoredPersistentDraftOnLaunch = EditorInstanceStateBridge.restorePersistent(this)
                     && !runtimeSelectedUrisSnapshot().isEmpty();
+            VideoTrimStore.restorePersistent(this, AppSettings.TRIM_PERSISTENT_KEY + "." + runtimeProjectId());
         }
         runtimeSetGalleryClickListener(v -> openMediaPicker());
     }
@@ -177,7 +177,7 @@ public abstract class LauncherActivity extends MainActivity {
     @Override
     protected void onPause() {
         EditorInstanceStateBridge.savePersistent(this);
-        VideoTrimStore.savePersistent(this, AppSettings.TRIM_PERSISTENT_KEY);
+        VideoTrimStore.savePersistent(this, AppSettings.TRIM_PERSISTENT_KEY + "." + runtimeProjectId());
         super.onPause();
     }
 
@@ -189,10 +189,10 @@ public abstract class LauncherActivity extends MainActivity {
     /** Opens images from the gallery without changing the project's current runtime mode. */
     protected final void openGallerySourcePicker() {
         startShellPicker(
-                MediaPickerIntentFactory.createOpenDocumentIntent(false),
-                MediaPickerIntentFactory.createGetContentFallback(false),
-                REQUEST_SHELL_PICK_PHOTOS,
-                "Выберите изображения"
+                MediaPickerIntentFactory.createUnifiedGetContentFallback(),
+                MediaPickerIntentFactory.createSystemMediaPicker(),
+                REQUEST_SHELL_PICK_UNIFIED,
+                "Фото и видео"
         );
     }
 
@@ -218,6 +218,8 @@ public abstract class LauncherActivity extends MainActivity {
     }
 
     private void startShellPicker(Intent intent, Intent fallback, int requestCode, String title) {
+        if (Intent.ACTION_GET_CONTENT.equals(intent.getAction())
+                && intent.resolveActivity(getPackageManager()) == null) intent = fallback;
         try {
             startActivityForResult(Intent.createChooser(intent, title), requestCode);
         } catch (ActivityNotFoundException first) {
@@ -242,24 +244,20 @@ public abstract class LauncherActivity extends MainActivity {
     }
 
     private void receiveShellPickerResult(Intent data, boolean prepareAnimatedMetadata) {
-        try {
-            // ACTION_OPEN_DOCUMENT keeps URI access for both image and animation sources.
-            // GET_CONTENT fallback persistence failures are tolerated by MainActivity.
-            runtimeReceivePickerResult(data, true);
-            EditorInstanceStateBridge.savePersistent(this);
-        } catch (Throwable error) {
-            BugLogStore.appendApp("Could not apply redesigned picker result: " + error);
-            return;
-        }
-
-        if (!prepareAnimatedMetadata) return;
-        List<Uri> selected = runtimeSelectedUrisSnapshot();
+        String project = runtimeProjectId();
+        int remaining = Math.max(0, 30 - runtimeSelectedUrisSnapshot().size());
         shellSelectionExecutor.execute(() -> {
             try {
-                VideoTrimStore.prepare(this, selected);
-                VideoTrimStore.savePersistent(this, AppSettings.TRIM_PERSISTENT_KEY);
-            } catch (Throwable error) {
-                BugLogStore.appendApp("Could not prepare video trim state: " + error);
+                Intent imported = SourceImporter.importResult(this, data, project, remaining);
+                runOnUiThread(() -> {
+                    if (isDestroyed() || !project.equals(runtimeProjectId())) return;
+                    runtimeReceivePickerResult(imported, false);
+                    EditorInstanceStateBridge.savePersistent(this);
+                    if (this instanceof AppShellActivity) ((AppShellActivity) this).refreshShellState();
+                });
+            } catch (Exception error) {
+                BugLogStore.appendApp("Import failed: " + error);
+                runOnUiThread(() -> TransientFeedback.show(this, "Не удалось прочитать выбранные файлы"));
             }
         });
     }

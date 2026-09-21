@@ -21,7 +21,7 @@ import java.util.Properties;
 
 final class ConversionCache {
     static final long MAX_CACHE_BYTES = 64L * 1024L * 1024L;
-    static final int CACHE_VERSION = 1;
+    static final int CACHE_VERSION = 2;
 
     static final class Hit {
         final int fps;
@@ -147,7 +147,7 @@ final class ConversionCache {
                 source.size,
                 source.mime,
                 source.displayName,
-                source.sampleDigest,
+                source.sampleDigest + (animated ? ":end=" + VideoTrimStore.getEndOffsetMs(sourceUri) : ""),
                 CACHE_VERSION
         );
     }

@@ -22,11 +22,15 @@ import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/** Task-focused editor for selecting the 10-second fragment used by long videos. */
+/** Task-focused range editor for video fragments up to ten seconds. */
 public class VideoTrimActivity extends Activity {
     static final String EXTRA_KEYS = "video_trim_keys";
 
-    private static final String TRIM_PERSISTENT_KEY = "home_video_trim";
+    static final String EXTRA_PROJECT_ID = "project_id";
+    private String trimKey() {
+        String id = getIntent().getStringExtra(EXTRA_PROJECT_ID);
+        return id == null ? "home_video_trim" : AppSettings.TRIM_PERSISTENT_KEY + "." + id;
+    }
     private static final String STATE_INDEX = "trim.current_index";
     private static final String STATE_ORIGINAL_STARTS = "trim.original_starts";
     private static final String STATE_WORKING_STARTS = "trim.working_starts";
@@ -36,6 +40,11 @@ public class VideoTrimActivity extends Activity {
     private List<VideoTrimStore.Entry> entries;
     private long[] originalStarts;
     private long[] workingStarts;
+    private long[] originalEnds;
+    private long[] workingEnds;
+    private TrimTimelineView timeline;
+    private SeekBar endSeekBar;
+    private long timelineGeneration;
     private int currentIndex;
     private long previewGeneration;
     private boolean finishingWithResult;
@@ -65,7 +74,7 @@ public class VideoTrimActivity extends Activity {
         ArrayList<String> keys = getIntent().getStringArrayListExtra(EXTRA_KEYS);
         entries = VideoTrimStore.getEntries(keys);
         if (entries.isEmpty()) {
-            VideoTrimStore.restorePersistent(this, TRIM_PERSISTENT_KEY);
+            VideoTrimStore.restorePersistent(this, trimKey());
             entries = VideoTrimStore.getEntries(keys);
         }
         if (entries.isEmpty()) {
@@ -90,7 +99,7 @@ public class VideoTrimActivity extends Activity {
         if (originalStarts == null || originalStarts.length != count) {
             originalStarts = new long[count];
             for (int i = 0; i < count; i++) {
-                originalStarts[i] = VideoTrimPolicy.clampStartMs(
+                originalStarts[i] = VideoTrimPolicy.clampRangeStartMs(
                         entries.get(i).durationMs,
                         entries.get(i).startOffsetMs
                 );
@@ -99,6 +108,13 @@ public class VideoTrimActivity extends Activity {
         if (workingStarts == null || workingStarts.length != count) {
             workingStarts = originalStarts.clone();
         }
+        originalEnds = savedInstanceState == null ? null : savedInstanceState.getLongArray("trim.original_ends");
+        workingEnds = savedInstanceState == null ? null : savedInstanceState.getLongArray("trim.working_ends");
+        if (originalEnds == null || originalEnds.length != count) {
+            originalEnds = new long[count];
+            for (int i = 0; i < count; i++) originalEnds[i] = entries.get(i).endOffsetMs;
+        }
+        if (workingEnds == null || workingEnds.length != count) workingEnds = originalEnds.clone();
 
         currentIndex = savedInstanceState == null
                 ? 0
@@ -106,11 +122,11 @@ public class VideoTrimActivity extends Activity {
         currentIndex = Math.max(0, Math.min(currentIndex, count - 1));
 
         for (int i = 0; i < count; i++) {
-            workingStarts[i] = VideoTrimPolicy.clampStartMs(
+            workingStarts[i] = VideoTrimPolicy.clampRangeStartMs(
                     entries.get(i).durationMs,
                     workingStarts[i]
             );
-            VideoTrimStore.setStartOffsetMs(entries.get(i).key, workingStarts[i]);
+            VideoTrimStore.setRangeMs(entries.get(i).key, workingStarts[i], workingEnds[i]);
         }
     }
 
@@ -167,7 +183,7 @@ public class VideoTrimActivity extends Activity {
                 this, R.color.app_disabled_surface, R.dimen.radius_card));
         if (Build.VERSION.SDK_INT >= 21) preview.setClipToOutline(true);
         editorCard.addView(preview, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(240)));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(160)));
 
         filename = UiComponents.cardTitle(this, "");
         filename.setId(R.id.trim_filename);
@@ -188,9 +204,17 @@ public class VideoTrimActivity extends Activity {
         rangeParams.topMargin = dp(16);
         editorCard.addView(range, rangeParams);
 
+        timeline = new TrimTimelineView(this);
+        timeline.setId(R.id.trim_timeline);
+        LinearLayout.LayoutParams timelineParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(56));
+        timelineParams.topMargin = dp(12);
+        editorCard.addView(timeline, timelineParams);
+        timeline.setListener((time, startBoundary, settled) -> changeBoundary(time, startBoundary, settled));
+
         TextView hint = UiComponents.metadata(
                 this,
-                "Перемещайте ползунок или используйте шаг ±0.1 с. Превью обновляется после выбора."
+                "Перетащите границы на ленте кадров. От 0,5 до 10 секунд; кнопки ±0.1 с сдвигают весь фрагмент."
         );
         LinearLayout.LayoutParams hintParams = matchWrap();
         hintParams.topMargin = dp(4);
@@ -198,7 +222,11 @@ public class VideoTrimActivity extends Activity {
 
         seekBar = new SeekBar(this);
         seekBar.setId(R.id.trim_seek);
-        seekBar.setContentDescription("Начало 10-секундного фрагмента");
+        seekBar.setContentDescription("Начало фрагмента");
+        seekBar.setMinimumHeight(dp(48));
+        TextView startLabel = UiComponents.metadata(this, "Начало");
+        startLabel.setLabelFor(R.id.trim_seek);
+        editorCard.addView(startLabel, matchWrap());
         LinearLayout.LayoutParams seekParams = matchWrap();
         seekParams.topMargin = dp(8);
         editorCard.addView(seekBar, seekParams);
@@ -206,9 +234,7 @@ public class VideoTrimActivity extends Activity {
             @Override
             public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
                 if (!fromUser || entries == null || entries.isEmpty()) return;
-                VideoTrimStore.Entry entry = entries.get(currentIndex);
-                long start = VideoTrimPolicy.startFromSeekBar(entry.durationMs, progress);
-                setWorkingStart(entry, start, false);
+                changeBoundary(progress * VideoTrimPolicy.SEEK_STEP_MS, true, !bar.isPressed());
             }
 
             @Override
@@ -217,9 +243,25 @@ public class VideoTrimActivity extends Activity {
 
             @Override
             public void onStopTrackingTouch(SeekBar bar) {
-                VideoTrimStore.Entry entry = entries.get(currentIndex);
-                long start = VideoTrimPolicy.startFromSeekBar(entry.durationMs, bar.getProgress());
-                setWorkingStart(entry, start, true);
+                changeBoundary(bar.getProgress() * VideoTrimPolicy.SEEK_STEP_MS, true, true);
+            }
+        });
+
+        TextView endLabel = UiComponents.metadata(this, "Конец");
+        endLabel.setLabelFor(R.id.trim_end_seek);
+        editorCard.addView(endLabel, matchWrap());
+        endSeekBar = new SeekBar(this);
+        endSeekBar.setId(R.id.trim_end_seek);
+        endSeekBar.setContentDescription("Конец фрагмента");
+        endSeekBar.setMinimumHeight(dp(48));
+        editorCard.addView(endSeekBar, matchWrap());
+        endSeekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
+                if (fromUser) changeBoundary(progress * VideoTrimPolicy.SEEK_STEP_MS, false, !bar.isPressed());
+            }
+            @Override public void onStartTrackingTouch(SeekBar bar) { }
+            @Override public void onStopTrackingTouch(SeekBar bar) {
+                changeBoundary(bar.getProgress() * VideoTrimPolicy.SEEK_STEP_MS, false, true);
             }
         });
 
@@ -233,7 +275,7 @@ public class VideoTrimActivity extends Activity {
         stepBack.setId(R.id.trim_step_back);
         stepBack.setText("−0.1 с");
         stepBack.setAllCaps(false);
-        stepBack.setContentDescription("Сдвинуть начало фрагмента на 0,1 секунды назад");
+        stepBack.setContentDescription("Сдвинуть фрагмент на 0,1 секунды назад");
         stepBack.setOnClickListener(v -> adjustStartBy(-VideoTrimPolicy.SEEK_STEP_MS));
         stepRow.addView(stepBack, new LinearLayout.LayoutParams(0, dp(48), 1f));
 
@@ -241,7 +283,7 @@ public class VideoTrimActivity extends Activity {
         stepForward.setId(R.id.trim_step_forward);
         stepForward.setText("+0.1 с");
         stepForward.setAllCaps(false);
-        stepForward.setContentDescription("Сдвинуть начало фрагмента на 0,1 секунды вперёд");
+        stepForward.setContentDescription("Сдвинуть фрагмент на 0,1 секунды вперёд");
         stepForward.setOnClickListener(v -> adjustStartBy(VideoTrimPolicy.SEEK_STEP_MS));
         LinearLayout.LayoutParams forwardParams = new LinearLayout.LayoutParams(0, dp(48), 1f);
         forwardParams.leftMargin = dp(8);
@@ -306,7 +348,7 @@ public class VideoTrimActivity extends Activity {
 
     private void renderCurrentEntry() {
         VideoTrimStore.Entry entry = entries.get(currentIndex);
-        long start = VideoTrimPolicy.clampStartMs(entry.durationMs, workingStarts[currentIndex]);
+        long start = VideoTrimPolicy.clampRangeStartMs(entry.durationMs, workingStarts[currentIndex]);
         workingStarts[currentIndex] = start;
 
         indicator.setText((currentIndex + 1) + " из " + entries.size());
@@ -314,8 +356,10 @@ public class VideoTrimActivity extends Activity {
         duration.setText("Длительность " + VideoTrimPolicy.formatTime(entry.durationMs));
         preview.setContentDescription("Кадр выбранного фрагмента " + entry.displayName);
 
-        seekBar.setMax(VideoTrimPolicy.seekBarMax(entry.durationMs));
-        seekBar.setProgress(VideoTrimPolicy.seekBarProgress(entry.durationMs, start));
+        seekBar.setMax((int) Math.min(Integer.MAX_VALUE, Math.max(0L, entry.durationMs - VideoTrimPolicy.MIN_CLIP_DURATION_MS) / VideoTrimPolicy.SEEK_STEP_MS));
+        endSeekBar.setMax((int) Math.min(Integer.MAX_VALUE, entry.durationMs / VideoTrimPolicy.SEEK_STEP_MS));
+        updateSeekBars();
+        loadTimeline(entry);
         updateRangeLabel(entry.durationMs, start);
         updateStepButtons(entry.durationMs, start);
         loadPreview(entry, start);
@@ -325,29 +369,44 @@ public class VideoTrimActivity extends Activity {
     private void adjustStartBy(long deltaMs) {
         if (entries == null || entries.isEmpty()) return;
         VideoTrimStore.Entry entry = entries.get(currentIndex);
-        long start = VideoTrimPolicy.clampStartMs(
-                entry.durationMs,
-                workingStarts[currentIndex] + deltaMs
-        );
-        setWorkingStart(entry, start, true);
-        seekBar.setProgress(VideoTrimPolicy.seekBarProgress(entry.durationMs, start));
+        long length = workingEnds[currentIndex] - workingStarts[currentIndex];
+        long start = Math.max(0L, Math.min(entry.durationMs - length, workingStarts[currentIndex] + deltaMs));
+        applyRange(start, start + length, true);
     }
 
-    private void setWorkingStart(VideoTrimStore.Entry entry, long requestedStart, boolean refreshPreview) {
-        long start = VideoTrimPolicy.clampStartMs(entry.durationMs, requestedStart);
-        workingStarts[currentIndex] = start;
-        VideoTrimStore.setStartOffsetMs(entry.key, start);
-        updateRangeLabel(entry.durationMs, start);
-        updateStepButtons(entry.durationMs, start);
-        if (refreshPreview) loadPreview(entry, start);
+    private void changeBoundary(long time, boolean startBoundary, boolean settled) {
+        VideoTrimStore.Entry entry = entries.get(currentIndex);
+        long start = workingStarts[currentIndex], end = workingEnds[currentIndex];
+        if (startBoundary) {
+            start = VideoTrimPolicy.clampRangeStartMs(entry.durationMs, Math.min(time, end - VideoTrimPolicy.MIN_CLIP_DURATION_MS));
+            // Dragging past ten seconds moves the opposite edge as well.
+            end = VideoTrimPolicy.clampRangeEndMs(entry.durationMs, start, end);
+        } else {
+            end = Math.max(start + VideoTrimPolicy.MIN_CLIP_DURATION_MS, Math.min(entry.durationMs, time));
+            start = Math.max(start, end - VideoTrimPolicy.CLIP_DURATION_MS);
+        }
+        applyRange(start, end, settled);
+    }
+
+    private void applyRange(long start, long end, boolean refreshPreview) {
+        VideoTrimStore.Entry entry = entries.get(currentIndex);
+        workingStarts[currentIndex] = VideoTrimPolicy.clampRangeStartMs(entry.durationMs, start);
+        workingEnds[currentIndex] = VideoTrimPolicy.clampRangeEndMs(entry.durationMs, workingStarts[currentIndex], end);
+        VideoTrimStore.setRangeMs(entry.key, workingStarts[currentIndex], workingEnds[currentIndex]);
+        updateRangeLabel(entry.durationMs, workingStarts[currentIndex]);
+        updateSeekBars();
+        updateStepButtons(entry.durationMs, workingStarts[currentIndex]);
+        if (refreshPreview) loadPreview(entry, workingStarts[currentIndex]);
+    }
+
+    private void updateSeekBars() {
+        seekBar.setProgress((int) (workingStarts[currentIndex] / VideoTrimPolicy.SEEK_STEP_MS));
+        endSeekBar.setProgress((int) (workingEnds[currentIndex] / VideoTrimPolicy.SEEK_STEP_MS));
     }
 
     private void updateStepButtons(long durationMs, long start) {
-        if (stepBack == null || stepForward == null) return;
-        long back = VideoTrimPolicy.clampStartMs(durationMs, start - VideoTrimPolicy.SEEK_STEP_MS);
-        long forward = VideoTrimPolicy.clampStartMs(durationMs, start + VideoTrimPolicy.SEEK_STEP_MS);
-        UiComponents.styleOutlineButton(stepBack, back != start);
-        UiComponents.styleOutlineButton(stepForward, forward != start);
+        UiComponents.styleOutlineButton(stepBack, start > 0L);
+        UiComponents.styleOutlineButton(stepForward, workingEnds[currentIndex] < durationMs);
     }
 
     private void updatePagerButtons() {
@@ -359,10 +418,46 @@ public class VideoTrimActivity extends Activity {
     }
 
     private void updateRangeLabel(long durationMs, long requestedStartMs) {
-        long start = VideoTrimPolicy.clampStartMs(durationMs, requestedStartMs);
-        long end = Math.min(durationMs, start + VideoTrimPolicy.CLIP_DURATION_MS);
+        long start = VideoTrimPolicy.clampRangeStartMs(durationMs, requestedStartMs);
+        long end = VideoTrimPolicy.clampRangeEndMs(durationMs, start, workingEnds[currentIndex]);
+        timeline.setRange(durationMs, start, end);
         range.setText("Фрагмент: " + VideoTrimPolicy.formatTime(start)
                 + " — " + VideoTrimPolicy.formatTime(end));
+    }
+
+    private void loadTimeline(VideoTrimStore.Entry entry) {
+        long generation = ++timelineGeneration;
+        timeline.setFrames(null);
+        previewExecutor.execute(() -> {
+            Bitmap[] frames = new Bitmap[8];
+            MediaMetadataRetriever retriever = new MediaMetadataRetriever();
+            try {
+                retriever.setDataSource(this, entry.uri);
+                for (int i = 0; i < frames.length && !Thread.currentThread().isInterrupted(); i++) {
+                    long timeUs = entry.durationMs * 1000L * i / frames.length;
+                    Bitmap frame;
+                    if (Build.VERSION.SDK_INT >= 27) {
+                        frame = retriever.getScaledFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, 120, 120);
+                    } else {
+                        frame = retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
+                        if (frame != null) {
+                            Bitmap small = Bitmap.createScaledBitmap(frame, 120, 120, true);
+                            if (small != frame) frame.recycle();
+                            frame = small;
+                        }
+                    }
+                    frames[i] = frame;
+                }
+            } catch (Exception ignored) {
+            } finally {
+                try { retriever.release(); } catch (Exception ignored) { }
+            }
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed() || generation != timelineGeneration) {
+                    for (Bitmap frame : frames) recycle(frame);
+                } else timeline.setFrames(frames);
+            });
+        });
     }
 
     private void loadPreview(VideoTrimStore.Entry entry, long startMs) {
@@ -424,9 +519,9 @@ public class VideoTrimActivity extends Activity {
     private void saveAndFinish() {
         finishingWithResult = true;
         for (int i = 0; i < entries.size(); i++) {
-            VideoTrimStore.setStartOffsetMs(entries.get(i).key, workingStarts[i]);
+            VideoTrimStore.setRangeMs(entries.get(i).key, workingStarts[i], workingEnds[i]);
         }
-        VideoTrimStore.savePersistent(this, TRIM_PERSISTENT_KEY);
+        VideoTrimStore.savePersistent(this, trimKey());
         setResult(RESULT_OK);
         finish();
     }
@@ -441,7 +536,7 @@ public class VideoTrimActivity extends Activity {
     private void restoreOriginalStarts() {
         if (entries == null || originalStarts == null) return;
         for (int i = 0; i < entries.size() && i < originalStarts.length; i++) {
-            VideoTrimStore.setStartOffsetMs(entries.get(i).key, originalStarts[i]);
+            VideoTrimStore.setRangeMs(entries.get(i).key, originalStarts[i], originalEnds[i]);
         }
     }
 
@@ -455,6 +550,8 @@ public class VideoTrimActivity extends Activity {
         outState.putInt(STATE_INDEX, currentIndex);
         outState.putLongArray(STATE_ORIGINAL_STARTS, originalStarts);
         outState.putLongArray(STATE_WORKING_STARTS, workingStarts);
+        outState.putLongArray("trim.original_ends", originalEnds);
+        outState.putLongArray("trim.working_ends", workingEnds);
         super.onSaveInstanceState(outState);
     }
 
@@ -485,7 +582,9 @@ public class VideoTrimActivity extends Activity {
     @Override
     protected void onDestroy() {
         previewGeneration++;
+        timelineGeneration++;
         previewExecutor.shutdownNow();
+        if (timeline != null) timeline.setFrames(null);
         if (!finishingWithResult && isFinishing()) {
             restoreOriginalStarts();
         }

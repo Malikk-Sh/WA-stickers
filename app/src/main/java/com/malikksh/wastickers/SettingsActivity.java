@@ -103,7 +103,9 @@ public class SettingsActivity extends Activity {
     }
 
     private View sectionAppearance() {
-        LinearLayout card = UiComponents.card(this);
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(0, dp(12), 0, dp(12));
         card.addView(UiComponents.sectionTitle(this, "Внешний вид"), matchWrap());
         card.addView(label("Тема"), topMargin(14));
 
@@ -129,7 +131,9 @@ public class SettingsActivity extends Activity {
     }
 
     private View sectionProcessing() {
-        LinearLayout card = UiComponents.card(this);
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(0, dp(12), 0, dp(12));
         card.addView(UiComponents.sectionTitle(this, "Обработка"), matchWrap());
         card.addView(label("Качество анимации"), topMargin(14));
         card.addView(UiComponents.metadata(this, "Баланс между размером и плавностью"), topMargin(3));
@@ -146,11 +150,11 @@ public class SettingsActivity extends Activity {
         addSegment(quality, qualitySharper, true);
         card.addView(quality, topMargin(9));
 
-        card.addView(valueRow("Макс. длительность", "10 сек"), topMargin(16));
+
 
         draftsSwitch = switchRow(
                 "Сохранять черновики",
-                "Восстанавливать выбор после перезапуска",
+                "Восстанавливать незавершённые наборы",
                 R.id.settings_keep_drafts,
                 checked -> AppSettings.setKeepDrafts(this, checked));
         card.addView(draftsSwitch, topMargin(12));
@@ -158,10 +162,12 @@ public class SettingsActivity extends Activity {
     }
 
     private View sectionStorage() {
-        LinearLayout card = UiComponents.card(this);
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(0, dp(12), 0, dp(12));
         card.addView(UiComponents.sectionTitle(this, "Хранилище"), matchWrap());
 
-        cacheValue = valueRow("Кэш конвертации", "0 B");
+        cacheValue = valueRow("Кэш приложения", "0 B");
         card.addView(cacheValue, topMargin(12));
 
         Button clear = new Button(this);
@@ -171,6 +177,12 @@ public class SettingsActivity extends Activity {
         UiComponents.styleOutlineButton(clear, true);
         clear.setOnClickListener(v -> clearCache());
         card.addView(clear, heightTop(50, 8));
+        Button unavailable = secondaryButton("Очистить недоступные наборы");
+        unavailable.setOnClickListener(v -> {
+            int removed = PackStore.removeUnavailablePacks(this);
+            TransientFeedback.show(this, "Удалено недоступных наборов: " + removed);
+        });
+        card.addView(unavailable, heightTop(48, 4));
 
         cleanupSwitch = switchRow(
                 "Автоочистка временных файлов",
@@ -182,14 +194,16 @@ public class SettingsActivity extends Activity {
     }
 
     private View sectionAbout() {
-        LinearLayout card = UiComponents.card(this);
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(0, dp(12), 0, dp(12));
         card.addView(UiComponents.sectionTitle(this, "О приложении"), matchWrap());
 
         TextView version = valueRow("Версия", versionName());
         version.setId(R.id.settings_version);
         card.addView(version, topMargin(12));
 
-        Button privacy = secondaryButton("Все файлы обрабатываются локально");
+        Button privacy = secondaryButton("Конфиденциальность  ›");
         privacy.setId(R.id.settings_privacy);
         privacy.setOnClickListener(v -> startActivity(InfoActivity.intent(
                 this,
@@ -198,14 +212,15 @@ public class SettingsActivity extends Activity {
                         + "Для основной работы приложению не нужен доступ в интернет; готовые наборы передаются WhatsApp через локальный content provider."
         )));
         card.addView(privacy, heightTop(50, 8));
+        card.addView(UiComponents.metadata(this, "Все файлы обрабатываются локально"), topMargin(4));
 
         Button help = secondaryButton("Помощь");
         help.setId(R.id.settings_help);
         help.setOnClickListener(v -> startActivity(InfoActivity.intent(
                 this,
                 "Помощь",
-                "Создайте набор, добавьте 3–30 файлов, настройте порядок и обложку во вкладке «Медиа», "
-                        + "при необходимости выберите 10-секундный фрагмент видео, затем соберите набор. "
+                "Создайте набор, добавьте 3–30 файлов, настройте порядок и обложку в редакторе, "
+                        + "при необходимости выберите фрагмент видео до 10 секунд, затем соберите набор. "
                         + "Ошибки отдельных файлов можно повторять или пропускать."
         )));
         card.addView(help, heightTop(50, 8));
@@ -263,7 +278,7 @@ public class SettingsActivity extends Activity {
         draftsSwitch.setChecked(AppSettings.keepDrafts(this));
         cleanupSwitch.setChecked(AppSettings.autoCleanup(this));
         if (cacheValue != null) {
-            cacheValue.setText("Кэш конвертации\n" + formatBytes(StorageStats.conversionCacheBytes(this)));
+            cacheValue.setText("Кэш приложения\n" + formatBytes(StorageStats.conversionCacheBytes(this)));
         }
     }
 

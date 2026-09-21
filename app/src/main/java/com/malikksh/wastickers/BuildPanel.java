@@ -292,16 +292,20 @@ final class BuildPanel extends LinearLayout {
     void render(Snapshot snapshot) {
         if (snapshot == null) return;
         String signature = signature(snapshot);
+        if (getContext() instanceof MainActivity) {
+            PackStore.Pack pack = ((MainActivity) getContext()).runtimeCurrentPack();
+            if (pack != null) signature += WhatsAppSync.state(getContext(), pack).name();
+        }
         if (signature.equals(lastSignature)) return;
         lastSignature = signature;
 
         packName.setText(snapshot.packName);
         packCount.setText(snapshot.successCount + " / " + snapshot.total);
-        typeChip.setText(snapshot.animated ? "Анимация" : "Фото");
+        typeChip.setVisibility(GONE);
         progressTrailing.setText(snapshot.successCount + " из " + snapshot.total + " готовы");
-        overallProgress.setProgress(snapshot.overallPercent);
+        overallProgress.setProgress(snapshot.overallPercent, Motion.enabled(getContext()));
         overallPercent.setText(snapshot.overallPercent + "%");
-        stage.setText(snapshot.stage.isEmpty() ? defaultStage(snapshot.phase) : snapshot.stage);
+        stage.setText(defaultStage(snapshot.phase));
         fileCount.setText(fileCountLabel(snapshot.total));
         loadPreview(snapshot.coverUri, cover);
 
@@ -337,11 +341,20 @@ final class BuildPanel extends LinearLayout {
         return row;
     }
 
+    private final java.util.Map<Uri, View> itemRows = new java.util.HashMap<>();
+    private final java.util.Map<Uri, String> itemRowKeys = new java.util.HashMap<>();
     private void renderItems(Snapshot snapshot) {
-        fileList.removeAllViews();
+        java.util.Set<Uri> visible = new java.util.HashSet<>();
+        for (Item item : snapshot.items) visible.add(item.uri);
+        for (int n = fileList.getChildCount() - 1; n >= 0; n--) {
+            View child = fileList.getChildAt(n);
+            if (!visible.contains(child.getTag())) fileList.removeViewAt(n);
+        }
+        itemRows.keySet().retainAll(visible);
+        itemRowKeys.keySet().retainAll(visible);
         if (snapshot.items.isEmpty()) {
             TextView empty = UiComponents.metadata(
-                    getContext(), "Добавьте от 3 до 30 файлов во вкладке «Медиа»");
+                    getContext(), "Добавьте от 3 до 30 файлов в редакторе");
             empty.setGravity(Gravity.CENTER);
             empty.setPadding(dp(8), dp(20), dp(8), dp(20));
             fileList.addView(empty, matchWrap());
@@ -350,13 +363,24 @@ final class BuildPanel extends LinearLayout {
 
         for (int i = 0; i < snapshot.items.size(); i++) {
             Item item = snapshot.items.get(i);
+            String key = i + ":" + item.phase + ":" + snapshot.phase;
+            View previous = itemRows.get(item.uri);
+            if (previous != null && key.equals(itemRowKeys.get(item.uri))) {
+                ProgressBar progress = previous.findViewWithTag("item_progress");
+                if (progress != null) progress.setProgress(item.percent, Motion.enabled(getContext()));
+                continue;
+            }
+            if (previous != null) fileList.removeView(previous);
             LinearLayout row = new LinearLayout(getContext());
             row.setOrientation(VERTICAL);
             row.setPadding(dp(12), dp(11), dp(12), dp(11));
             row.setBackground(rounded(rowBackground(item.phase), 16));
             LinearLayout.LayoutParams rowParams = matchWrap();
             if (i > 0) rowParams.topMargin = dp(8);
-            fileList.addView(row, rowParams);
+            row.setTag(item.uri);
+            fileList.addView(row, Math.min(i, fileList.getChildCount()), rowParams);
+            itemRows.put(item.uri, row);
+            itemRowKeys.put(item.uri, key);
 
             LinearLayout headline = new LinearLayout(getContext());
             headline.setOrientation(HORIZONTAL);
@@ -379,12 +403,15 @@ final class BuildPanel extends LinearLayout {
             textsParams.leftMargin = dp(10);
             headline.addView(texts, textsParams);
 
-            TextView name = text(item.name, 14, color(R.color.app_text_primary), Typeface.BOLD);
+            TextView name = text("Стикер " + (i + 1), 14, color(R.color.app_text_primary), Typeface.BOLD);
             name.setMaxLines(2);
             texts.addView(name, matchWrap());
 
             if (!item.detail.isEmpty()) {
-                TextView detail = UiComponents.metadata(getContext(), item.detail);
+                String friendly = item.phase == ItemPhase.ERROR ? "Не удалось обработать файл"
+                        : item.phase == ItemPhase.READY ? "Готово к использованию"
+                        : item.phase == ItemPhase.PROCESSING ? "Подготовка стикера…" : "В очереди";
+                TextView detail = UiComponents.metadata(getContext(), friendly);
                 detail.setMaxLines(3);
                 LinearLayout.LayoutParams detailParams = matchWrap();
                 detailParams.topMargin = dp(3);
@@ -403,9 +430,10 @@ final class BuildPanel extends LinearLayout {
             headline.addView(chip, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT, dp(30)));
 
-            if (item.phase == ItemPhase.PROCESSING || item.percent > 0) {
+            if (item.phase == ItemPhase.PROCESSING) {
                 ProgressBar progress = new ProgressBar(
                         getContext(), null, android.R.attr.progressBarStyleHorizontal);
+                progress.setTag("item_progress");
                 progress.setMax(100);
                 progress.setProgress(item.percent);
                 LinearLayout.LayoutParams progressParams = new LinearLayout.LayoutParams(
@@ -483,7 +511,9 @@ final class BuildPanel extends LinearLayout {
                 secondary.setOnClickListener(v -> host.onDiscard());
                 break;
             case FINALIZED:
-                primary.setText("Добавить в WhatsApp");
+                PackStore.Pack pack = getContext() instanceof MainActivity
+                        ? ((MainActivity) getContext()).runtimeCurrentPack() : null;
+                primary.setText(pack == null ? "Добавить в WhatsApp" : WhatsAppSync.label(getContext(), pack));
                 UiComponents.stylePrimaryButton(primary, true);
                 primary.setOnClickListener(v -> host.onAddToWhatsApp());
                 secondary.setVisibility(VISIBLE);
@@ -614,7 +644,7 @@ final class BuildPanel extends LinearLayout {
     private int rowBackground(ItemPhase phase) {
         switch (phase) {
             case ERROR: return color(R.color.app_error_container);
-            case READY: return color(R.color.app_success_container);
+            case READY: return color(R.color.app_surface_variant);
             case PROCESSING: return color(R.color.app_primary_container);
             default: return color(R.color.app_surface_variant);
         }
@@ -626,7 +656,7 @@ final class BuildPanel extends LinearLayout {
         }
         switch (itemPhase) {
             case ERROR: return color(R.color.app_error_container);
-            case READY: return color(R.color.app_success_container);
+            case READY: return color(R.color.app_surface_variant);
             case PROCESSING: return color(R.color.app_primary_container);
             case SKIPPED: return color(R.color.app_disabled_surface);
             default: return color(R.color.app_surface_strong);

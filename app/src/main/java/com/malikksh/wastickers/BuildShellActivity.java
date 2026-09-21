@@ -42,6 +42,7 @@ public class BuildShellActivity extends AppShellActivity {
     private BuildPanel buildPanel;
     private PreviewLoader buildPreviewLoader;
     private View buildScreen;
+    private String presentationProject;
     private List<Uri> activeWork = new ArrayList<>();
     private List<Uri> deferredFailures;
     private boolean previousProcessing;
@@ -170,10 +171,14 @@ public class BuildShellActivity extends AppShellActivity {
         boolean animated = animatedMode();
         String name = enteredPackName();
         if (name.isEmpty()) name = animated ? "Мои анимированные стикеры" : "Мои стикеры";
+        if (!PackNames.valid(name) || !PackStore.isNameAvailable(this, name, runtimeProjectId())) {
+            TransientFeedback.show(this, "Набор с таким названием уже существует");
+            return;
+        }
         Uri cover = coverUriSnapshot();
         if (cover == null || !selected.contains(cover)) cover = selected.get(0);
-        String packId = (animated ? "animated_" : "pack_") + System.currentTimeMillis();
-        File packDir = PackStore.getPackDir(this, packId);
+        String packId = runtimeProjectId();
+        File packDir = PackStore.stagingDir(this, packId);
 
         session.begin(packId, name, packDir, animated, cover);
         session.setAutoFinalizeAllowed(false);
@@ -252,6 +257,10 @@ public class BuildShellActivity extends AppShellActivity {
 
     private void refreshBuildPanel() {
         if (buildPanel == null) return;
+        if (!runtimeProjectId().equals(presentationProject)) {
+            clearBuildPresentationState();
+            presentationProject = runtimeProjectId();
+        }
 
         boolean processing = isProcessing();
         updateProgressCacheFromLegacy();

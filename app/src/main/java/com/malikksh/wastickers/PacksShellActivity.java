@@ -22,12 +22,21 @@ public class PacksShellActivity extends BuildShellActivity {
 
     private PacksPanel packsPanel;
     private View packsScreen;
+    private final java.util.concurrent.ExecutorService packsWorker = java.util.concurrent.Executors.newSingleThreadExecutor();
+    private String pendingSyncId;
+    private String pendingSyncVersion;
+    private final PackStore.Listener packListener = () -> refreshPacksPanel();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        if (savedInstanceState != null) {
+            pendingSyncId = savedInstanceState.getString("sync.id");
+            pendingSyncVersion = savedInstanceState.getString("sync.version");
+        }
         try {
             installPacksPanel();
+            PackStore.observe(packListener);
             refreshPacksPanel();
             if (savedInstanceState == null) openLibraryHome();
         } catch (Throwable error) {
@@ -39,10 +48,19 @@ public class PacksShellActivity extends BuildShellActivity {
     protected void onResume() {
         super.onResume();
         if (packsPanel != null) packsPanel.post(this::refreshPacksPanel);
+        packsWorker.execute(() -> {
+            for (PackStore.Pack pack : PackStore.getPacks(this)) {
+                if (WhatsAppSync.state(this, pack) == WhatsAppSync.State.SYNCING && pendingSyncId == null)
+                    WhatsAppSync.set(this, pack.id, WhatsAppSync.State.SYNC_ERROR, null);
+                else WhatsAppSync.reconcile(this, pack);
+            }
+        });
     }
 
     @Override
     protected void onDestroy() {
+        packsWorker.shutdownNow();
+        PackStore.stopObserving(packListener);
         if (packsPanel != null) packsPanel.close();
         super.onDestroy();
     }
@@ -71,12 +89,24 @@ public class PacksShellActivity extends BuildShellActivity {
 
             @Override
             public void onOpenPack(PackStore.Pack pack) {
-                showPackDetails(pack);
+                openPackEditor(pack);
             }
 
             @Override
             public void onShowPackActions(PackStore.Pack pack) {
                 showPackActions(pack);
+            }
+
+            @Override
+            public void onOpenDraft(String id) {
+                if (runtimeIsProcessing()) return;
+                EditorInstanceStateBridge.savePersistent(PacksShellActivity.this);
+                runtimeClearEditorDraft();
+                VideoTrimStore.clear();
+                if (EditorInstanceStateBridge.restoreProject(PacksShellActivity.this, id)) {
+                    VideoTrimStore.restorePersistent(PacksShellActivity.this, AppSettings.TRIM_PERSISTENT_KEY + "." + id);
+                    enterCreateEditor();
+                }
             }
 
             @Override
@@ -126,51 +156,65 @@ public class PacksShellActivity extends BuildShellActivity {
 
     private void refreshPacksPanel() {
         if (packsPanel == null) return;
-        List<PackStore.Pack> packs = PackStore.getPacks(this);
-        packsPanel.render(packs);
+        try {
+            List<PackStore.Pack> packs = PackStore.getPacks(this);
+            packsPanel.render(packs);
+        } catch (RuntimeException error) {
+            packsPanel.showLoadError();
+            BugLogStore.appendApp("Could not load Library: " + error);
+        }
     }
 
     private void showCreatePackDialog() {
-        String currentName = this.runtimePackName() == null
-                ? ""
-                : this.runtimePackName().getText().toString().trim();
-        String initial = currentName.isEmpty() ? "Мои стикеры" : currentName;
-        PackNameDialog.show(this, "Новый набор", initial, "Создать", name -> {
-            if (this.runtimePackName() != null) this.runtimePackName().setText(name);
-            this.runtimeInvalidateCurrentPack();
-            this.runtimeDiscardPendingBuild();
+        if (runtimeIsProcessing()) return;
+        PackNameDialog.show(this, "Новый набор", PackStore.nextName(this, "Мои стикеры"), "Создать", name -> {
+            if (!runtimeNewProject(name)) return;
             enterCreateEditor();
             EditorInstanceStateBridge.savePersistent(this);
         });
     }
 
-    private void showPacksOverflow(View anchor) {
-        PopupMenu menu = new PopupMenu(this, anchor);
-        menu.getMenu().add("Импортировать");
-        menu.getMenu().add("Очистить недоступные");
-        menu.getMenu().add("Помощь");
-        menu.getMenu().add("О приложении");
-        menu.setOnMenuItemClickListener(item -> {
-            String title = String.valueOf(item.getTitle());
-            if ("Импортировать".equals(title)) {
-                showImportNotice();
-                return true;
+    private void openPackEditor(PackStore.Pack pack) {
+        if (runtimeIsProcessing()) return;
+        EditorInstanceStateBridge.savePersistent(this);
+        VideoTrimStore.savePersistent(this, AppSettings.TRIM_PERSISTENT_KEY + "." + runtimeProjectId());
+        runtimeClearEditorDraft();
+        runtimeSetProjectId(pack.id);
+        VideoTrimStore.clear();
+        if (EditorInstanceStateBridge.restoreProject(this, pack.id)) {
+            VideoTrimStore.restorePersistent(this, AppSettings.TRIM_PERSISTENT_KEY + "." + pack.id);
+            runtimePackName().setText(pack.name);
+            enterCreateEditor();
+            return;
+        }
+        // Older releases stored only exported media. Copy it to durable source storage before edits.
+        packsWorker.execute(() -> {
+            java.util.ArrayList<Uri> sources = new java.util.ArrayList<>();
+            try {
+                ProjectSources.Snapshot saved = ProjectSources.read(this, pack);
+                if (saved != null) sources.addAll(saved.items);
+                File root = new File(getFilesDir(), "project_sources/" + pack.id);
+                for (int i = 1; sources.size() < pack.stickerCount && i <= pack.stickerCount; i++) {
+                    File source = new File(root, i + ".webp");
+                    PackStore.copyRecursively(PackStore.getStickerFile(this, pack.id, i + ".webp"), source);
+                    sources.add(Uri.fromFile(source));
+                }
+                runOnUiThread(() -> {
+                    if (isDestroyed() || !pack.id.equals(runtimeProjectId())) return;
+                    if (saved != null) VideoTrimStore.replaceEntries(saved.trims);
+                    runtimeRestoreEditorState(pack.animated, sources,
+                            saved != null ? saved.cover : sources.get(0), pack.name, pack);
+                    EditorInstanceStateBridge.savePersistent(this);
+                    enterCreateEditor();
+                });
+            } catch (java.io.IOException error) {
+                runOnUiThread(() -> TransientFeedback.show(this, "Не удалось открыть файлы набора"));
             }
-            if ("Очистить недоступные".equals(title)) {
-                cleanupUnavailablePacks();
-                return true;
-            }
-            if ("Помощь".equals(title)) {
-                showPacksHelp();
-                return true;
-            }
-            if ("О приложении".equals(title)) {
-                showPacksAbout();
-                return true;
-            }
-            return false;
         });
-        menu.show();
+    }
+
+    private void showPacksOverflow(View anchor) {
+        showPacksHelp();
     }
 
     private void showImportNotice() {
@@ -209,6 +253,7 @@ public class PacksShellActivity extends BuildShellActivity {
     private void showPackActions(PackStore.Pack pack) {
         if (pack == null) return;
         PackActionsSheet.show(this, pack, new PackActionsSheet.Host() {
+            @Override public void onEdit() { openPackEditor(pack); }
             @Override
             public void onRename() {
                 showRenameDialog(pack);
@@ -232,7 +277,7 @@ public class PacksShellActivity extends BuildShellActivity {
     }
 
     private void showRenameDialog(PackStore.Pack pack) {
-        PackNameDialog.show(this, "Переименовать набор", pack.name, "Сохранить", name -> {
+        PackNameDialog.show(this, "Переименовать набор", pack.name, "Сохранить", pack.id, name -> {
             PackStore.Pack renamed = PackStore.renamePack(this, pack.id, name);
             if (renamed != null) {
                 this.runtimeReplaceCurrentPackIfId(pack.id, renamed);
@@ -244,14 +289,13 @@ public class PacksShellActivity extends BuildShellActivity {
     }
 
     private void duplicatePack(PackStore.Pack pack) {
-        PackStore.Pack copy = PackStore.duplicatePack(this, pack.id);
-        if (copy == null) {
-            Toast.makeText(this, "Не удалось дублировать набор", Toast.LENGTH_LONG).show();
-            return;
-        }
-        notifyMetadataChanged();
-        refreshPacksPanel();
-        TransientFeedback.show(this, "Набор продублирован");
+        packsWorker.execute(() -> {
+            PackStore.Pack copy = PackStore.duplicatePack(this, pack.id);
+            runOnUiThread(() -> {
+                if (isDestroyed()) return;
+                TransientFeedback.show(this, copy == null ? "Не удалось дублировать набор" : "Набор продублирован");
+            });
+        });
     }
 
     private void showPackDetails(PackStore.Pack pack) {
@@ -266,20 +310,36 @@ public class PacksShellActivity extends BuildShellActivity {
     }
 
     private void confirmDelete(PackStore.Pack pack) {
-        new AlertDialog.Builder(this)
-                .setTitle("Удалить набор?")
-                .setMessage("Набор будет удалён с устройства.")
-                .setPositiveButton("Удалить", (dialog, which) -> {
+        ThemedDialogs.confirm(this, "Удалить набор?",
+                "«" + pack.name + "» будет удалён с устройства.\nЭто действие нельзя отменить.", "Удалить", () -> {
                     if (PackStore.deletePack(this, pack.id)) {
-                        this.runtimeClearCurrentPackIfId(pack.id);
-                        notifyMetadataChanged();
-                        refreshPacksPanel();
+                        runtimeClearCurrentPackIfId(pack.id);
                         TransientFeedback.show(this, "Набор удалён");
                     }
-                })
-                .setNegativeButton("Отмена", null)
-                .show();
+                });
     }
+
+    @Override
+    protected void onSaveInstanceState(Bundle outState) {
+        outState.putString("sync.id", pendingSyncId);
+        outState.putString("sync.version", pendingSyncVersion);
+        super.onSaveInstanceState(outState);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_ADD_TO_WHATSAPP && pendingSyncId != null) {
+            WhatsAppSync.set(this, pendingSyncId,
+                    resultCode == RESULT_OK ? WhatsAppSync.State.ADDED_SYNCED : WhatsAppSync.State.SYNC_ERROR,
+                    resultCode == RESULT_OK ? pendingSyncVersion : null);
+            pendingSyncId = null;
+            pendingSyncVersion = null;
+        }
+    }
+
+    @Override
+    void runtimeAddCurrentPackToWhatsApp() { addPackToWhatsApp(runtimeCurrentPack()); }
 
     private void addPackToWhatsApp(PackStore.Pack pack) {
         if (pack == null) return;
@@ -294,9 +354,14 @@ public class PacksShellActivity extends BuildShellActivity {
         intent.putExtra("sticker_pack_id", pack.id);
         intent.putExtra("sticker_pack_authority", authority);
         intent.putExtra("sticker_pack_name", pack.name);
+        pendingSyncId = pack.id;
+        pendingSyncVersion = pack.imageDataVersion;
+        WhatsAppSync.set(this, pack.id, WhatsAppSync.State.SYNCING, null);
         try {
             startActivityForResult(intent, REQUEST_ADD_TO_WHATSAPP);
         } catch (ActivityNotFoundException error) {
+            WhatsAppSync.set(this, pack.id, WhatsAppSync.State.SYNC_ERROR, null);
+            pendingSyncId = null;
             Toast.makeText(this, "WhatsApp не найден", Toast.LENGTH_LONG).show();
         }
     }
