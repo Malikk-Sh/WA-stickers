@@ -196,12 +196,15 @@ public class SettingsShellActivity extends PacksShellActivity {
                 break;
             }
         }
+        boolean visible = slot != null;
+        // Keep the entry points attached to the editor while the library owns its own header.
+        if (slot == null && topActions.getParent() == null) slot = screens.getChildAt(0).findViewWithTag("shell_actions");
         if (slot != null && topActions.getParent() != slot) {
             if (topActions.getParent() instanceof ViewGroup)
                 ((ViewGroup) topActions.getParent()).removeView(topActions);
             slot.addView(topActions, new FrameLayout.LayoutParams(-1, -1));
         }
-        topActions.setVisibility(slot == null ? View.GONE : View.VISIBLE);
+        topActions.setVisibility(visible ? View.VISIBLE : View.GONE);
     }
 
     private ImageButton topAction(int drawable, String description, int id) {

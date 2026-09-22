@@ -85,6 +85,26 @@ public class HandoffV6UiTest {
         }
     }
 
+    @Test public void updatedPackRequiresNewAcknowledgementAndCanRetrySyncFailure() {
+        android.content.Context context = androidx.test.core.app.ApplicationProvider.getApplicationContext();
+        String id = "v6-sync-test";
+        PackStore.Pack updated = new PackStore.Pack(id, "Обновление", 3, "2");
+        try {
+            WhatsAppSync.set(context, id, WhatsAppSync.State.ADDED_SYNCED, "1");
+            assertEquals(WhatsAppSync.State.ADDED_LOCAL_CHANGES, WhatsAppSync.state(context, updated));
+            WhatsAppSync.set(context, id, WhatsAppSync.State.SYNCING, null);
+            assertEquals("Обновление…", WhatsAppSync.label(context, updated));
+            WhatsAppSync.set(context, id, WhatsAppSync.State.SYNC_ERROR, null);
+            assertEquals("Повторить в WhatsApp", WhatsAppSync.label(context, updated));
+            WhatsAppSync.set(context, id, WhatsAppSync.State.SYNCING, null);
+            WhatsAppSync.set(context, id, WhatsAppSync.State.ADDED_SYNCED, updated.imageDataVersion);
+            assertEquals(WhatsAppSync.State.ADDED_SYNCED, WhatsAppSync.state(context, updated));
+            assertEquals("✓ В WhatsApp", WhatsAppSync.label(context, updated));
+        } finally {
+            context.getSharedPreferences("whatsapp_sync", 0).edit().remove(id + ".state").remove(id + ".version").commit();
+        }
+    }
+
     private static void capture(android.app.Activity activity, String name) {
         View root = activity.getWindow().getDecorView();
         android.graphics.Bitmap bitmap = android.graphics.Bitmap.createBitmap(root.getWidth(), root.getHeight(), android.graphics.Bitmap.Config.ARGB_8888);

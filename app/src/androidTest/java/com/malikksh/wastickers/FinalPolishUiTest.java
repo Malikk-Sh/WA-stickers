@@ -92,6 +92,10 @@ public class FinalPolishUiTest {
 
     private void assertEmptyTextWithDrawable(View view) {
         assertNotNull(view);
+        if (view instanceof android.widget.ImageView) {
+            assertNotNull("Media action is missing its vector drawable", ((android.widget.ImageView) view).getDrawable());
+            return;
+        }
         assertTrue(view instanceof TextView);
         TextView text = (TextView) view;
         assertEquals("", text.getText().toString());

@@ -342,7 +342,11 @@ final class MediaGridPanel extends LinearLayout {
                 loadPreview(uri, image);
             }
 
-            TextView handle = text("≡", 12, color(R.color.app_text_primary), Typeface.BOLD);
+            ImageView handle = new ImageView(getContext());
+            handle.setImageResource(R.drawable.ic_drag_handle);
+            handle.setColorFilter(color(R.color.app_text_primary));
+            handle.setContentDescription("Перетащить файл " + (i + 1));
+            handle.setOnLongClickListener(v -> startTileDrag(tile, index));
             handle.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
             FrameLayout.LayoutParams handleParams = new FrameLayout.LayoutParams(dp(18), dp(18));
             handleParams.gravity = Gravity.TOP | Gravity.START;
