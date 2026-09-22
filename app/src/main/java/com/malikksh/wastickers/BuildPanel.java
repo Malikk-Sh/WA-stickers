@@ -142,11 +142,15 @@ final class BuildPanel extends LinearLayout {
     private boolean holding;
     private long finishAt;
     private boolean completionAnnounced;
+    private int displayedPercent;
+    private final Runnable reveal = () -> render(currentSnapshot);
+
 
     void itemStarted(Uri uri) {
         motionPolicy.started(uri, android.os.SystemClock.uptimeMillis(), Motion.enabled(getContext()));
     }
     void resetPresentation() {
+        removeCallbacks(reveal); displayedPercent = 0;
         motionPolicy.reset(); journal.clear(); previousItems.clear();
         previousPhase = null; finishAt = 0; holding = false; completionAnnounced = false;
         lastSignature = "";
@@ -155,6 +159,7 @@ final class BuildPanel extends LinearLayout {
         motionPolicy.reset(); finishAt = 0; holding = false; completionAnnounced = true;
     }
     void beginBatch(boolean retry) {
+        removeCallbacks(reveal); displayedPercent = 0;
         motionPolicy.reset(); finishAt = 0; completionAnnounced = false;
         if (retry) journal.add("Повторная обработка выбранных ошибок");
         lastSignature = "";
@@ -377,12 +382,16 @@ final class BuildPanel extends LinearLayout {
         packCount.setText(snapshot.successCount + " / " + snapshot.total);
         typeChip.setVisibility(GONE);
         progressTrailing.setText(snapshot.successCount + " из " + snapshot.total + " готовы");
-        overallProgress.setIndeterminate(holding || (snapshot.phase == Phase.PROCESSING && snapshot.overallPercent == 0));
-        overallProgress.setProgress(holding ? Math.min(99, snapshot.overallPercent) : snapshot.overallPercent,
-                Motion.enabled(getContext()));
-        overallPercent.setText(holding ? "…" : snapshot.overallPercent + "%");
+        boolean rowHold = holding && finishAt == 0;
+        int targetPercent = rowHold ? Math.min(99, snapshot.overallPercent) : snapshot.overallPercent;
+        if (snapshot.phase == Phase.PROCESSING) targetPercent = Math.min(99, targetPercent);
+        displayedPercent = snapshot.phase == Phase.IDLE ? targetPercent : Math.max(displayedPercent, targetPercent);
+        overallProgress.setIndeterminate(rowHold || (snapshot.phase == Phase.PROCESSING && displayedPercent == 0));
+        overallProgress.setProgress(displayedPercent, Motion.enabled(getContext()));
+        overallPercent.setText(rowHold ? "…" : displayedPercent + "%");
         int running = 0;
-        for (Item item : snapshot.items) if (item.phase == ItemPhase.PROCESSING) running++;
+        for (Item item : snapshot.items) if (snapshot.phase == Phase.PROCESSING
+                && (item.phase == ItemPhase.PROCESSING || item.phase == ItemPhase.PENDING)) running++;
         int[] counts = {snapshot.total, snapshot.successCount, running, snapshot.failureCount};
         for (int i = 0; i < stats.length; i++) stats[i].setText(String.valueOf(counts[i]));
         for (int i = 0; i < tabs.length; i++) UiComponents.styleSegment(tabs[i], selectedTab == i);
@@ -484,7 +493,8 @@ final class BuildPanel extends LinearLayout {
             LinearLayout row = new LinearLayout(getContext());
             row.setOrientation(VERTICAL);
             row.setPadding(dp(8), dp(6), dp(8), dp(6));
-            row.setBackground(rounded(rowBackground(item.phase), 16));
+            row.setBackground(rounded(rowBackground(item.phase), 4));
+            if (previous != null) Motion.crossfade(row);
             LinearLayout.LayoutParams rowParams = matchWrap();
             if (i > 0) rowParams.topMargin = dp(4);
             row.setTag(item.uri);
@@ -537,6 +547,13 @@ final class BuildPanel extends LinearLayout {
             chip.setGravity(Gravity.CENTER);
             chip.setPadding(dp(9), 0, dp(9), 0);
             chip.setBackground(rounded(chipBackground(snapshot.phase, item.phase), 13));
+            if (item.phase == ItemPhase.PROCESSING) {
+                ProgressBar ring = new ProgressBar(getContext());
+                ring.setContentDescription("Обработка");
+                LinearLayout.LayoutParams ringParams = new LinearLayout.LayoutParams(dp(18), dp(18));
+                ringParams.rightMargin = dp(4);
+                headline.addView(ring, ringParams);
+            }
             headline.addView(chip, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT, dp(30)));
 
@@ -580,9 +597,9 @@ final class BuildPanel extends LinearLayout {
     }
 
     static List<Item> visibleItems(List<Item> items, boolean overview) {
-        if (!overview || items.size() <= 6) return items;
+        if (!overview) return items;
         List<Item> result = new ArrayList<>();
-        for (Item item : items) if ((item.phase == ItemPhase.ERROR || item.phase == ItemPhase.PROCESSING) && result.size() < 6) result.add(item);
+        for (Item item : items) if ((item.phase == ItemPhase.ERROR || item.phase == ItemPhase.PROCESSING || item.phase == ItemPhase.SKIPPED) && result.size() < 6) result.add(item);
         for (int i = items.size() - 1; i >= 0 && result.size() < 6; i--)
             if (items.get(i).phase == ItemPhase.READY && !result.contains(items.get(i))) result.add(items.get(i));
         for (Item item : items) if (result.size() < 6 && !result.contains(item)) result.add(item);
@@ -628,6 +645,11 @@ final class BuildPanel extends LinearLayout {
         else if (actual.phase == Phase.READY && !holding && !completionAnnounced) {
             if (finishAt == 0) finishAt = now + 250;
             holding = now < finishAt;
+        }
+        removeCallbacks(reveal);
+        if (holding) {
+            long deadline = finishAt > now ? finishAt : motionPolicy.nextDeadline(now);
+            if (deadline != Long.MAX_VALUE) postDelayed(reveal, Math.max(1, deadline - now));
         }
         return new Snapshot(actual.phase, actual.animated, actual.packName, actual.coverUri,
                 actual.total, actual.successCount, actual.failureCount, actual.overallPercent,
@@ -892,6 +914,11 @@ final class BuildPanel extends LinearLayout {
         drawable.setColor(fillColor);
         drawable.setCornerRadius(dp(radiusDp));
         return drawable;
+    }
+
+    @Override protected void onDetachedFromWindow() {
+        removeCallbacks(reveal);
+        super.onDetachedFromWindow();
     }
 
     private LinearLayout.LayoutParams matchWrap() {

@@ -235,8 +235,10 @@ final class MediaGridPanel extends LinearLayout {
         addMore.setEnabled(items.size() < MAX_STICKERS);
         addMore.setAlpha(addMore.isEnabled() ? 1f : 0.45f);
         UiComponents.styleOutlineButton(clear, !items.isEmpty());
+        boolean wasEnabled = continueButton.isEnabled();
         UiComponents.stylePrimaryButton(continueButton,
                 items.size() >= MIN_STICKERS && items.size() <= MAX_STICKERS);
+        if (!wasEnabled && continueButton.isEnabled()) Motion.crossfade(continueButton);
 
         renderGrid();
         renderDetail();
@@ -281,6 +283,8 @@ final class MediaGridPanel extends LinearLayout {
                 && second.containsAll(first);
     }
 
+    private Uri lastRenderedCover;
+
     private void renderGrid() {
         java.util.Map<Uri, FrameLayout> oldTiles = new java.util.HashMap<>();
         for (int n = 0; n < grid.getChildCount(); n++) {
@@ -288,10 +292,7 @@ final class MediaGridPanel extends LinearLayout {
             if (child instanceof FrameLayout && child.getTag() instanceof Uri)
                 oldTiles.put((Uri) child.getTag(), (FrameLayout) child);
         }
-        if (Motion.enabled(getContext()) && grid.isLaidOut()) {
-            android.transition.TransitionManager.beginDelayedTransition(grid,
-                    new android.transition.AutoTransition().setDuration(200));
-        }
+        Motion.reflow(grid, true);
         for (int n = grid.getChildCount() - 1; n >= 0; n--) {
             if (!items.contains(grid.getChildAt(n).getTag())) grid.removeViewAt(n);
         }
@@ -366,6 +367,7 @@ final class MediaGridPanel extends LinearLayout {
             coverParams.gravity = Gravity.BOTTOM | Gravity.END;
             coverParams.setMargins(0, 0, dp(2), dp(2));
             tile.addView(cover, coverParams);
+            if (isCover && !uri.equals(lastRenderedCover)) Motion.cover(cover);
 
             TextView duration = overlay("", 8,
                     color(R.color.app_on_primary), color(R.color.app_overlay_badge));
@@ -393,6 +395,7 @@ final class MediaGridPanel extends LinearLayout {
                 if (cachedTile == null) Motion.tileEnter(tile, Math.min(i * 25, 250));
             } else tile.setLayoutParams(tileParams);
         }
+        lastRenderedCover = coverUri;
     }
 
     private void removeWithUndo(int index) {
@@ -535,6 +538,7 @@ final class MediaGridPanel extends LinearLayout {
 
     private boolean startTileDrag(FrameLayout tile, int index) {
         ClipData dragData = ClipData.newPlainText("media-index", String.valueOf(index));
+        tile.setElevation(dp(8));
         View.DragShadowBuilder shadow = new View.DragShadowBuilder(tile);
         if (Build.VERSION.SDK_INT >= 24) {
             tile.startDragAndDrop(dragData, shadow, Integer.valueOf(index), 0);
@@ -564,6 +568,7 @@ final class MediaGridPanel extends LinearLayout {
                 }
                 return true;
             case DragEvent.ACTION_DRAG_ENDED:
+                tile.setElevation(0);
                 tile.setAlpha(1f);
                 return true;
             default:

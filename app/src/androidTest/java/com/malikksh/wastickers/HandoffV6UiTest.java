@@ -36,6 +36,7 @@ public class HandoffV6UiTest {
                         ((TextView) ((ViewGroup) stats.getChildAt(i)).getChildAt(0)).getText().toString());
             });
             onView(withId(R.id.build_primary)).check(matches(isDisplayed()));
+            scenario.onActivity(activity -> capture(activity, "build-overview"));
             onView(withText("Файлы")).perform(click());
             scenario.onActivity(activity -> {
                 ViewGroup list = activity.findViewById(R.id.build_file_list);
@@ -46,6 +47,7 @@ public class HandoffV6UiTest {
                 assertEquals(primary.getHeight(), bounds.height());
                 assertFalse(allText(list).contains("q92"));
                 assertFalse(allText(list).contains("technical_name"));
+                capture(activity, "build-files");
             });
             onView(withText("Журнал")).perform(click());
             scenario.onActivity(activity -> assertTrue(allText(activity.findViewById(R.id.build_file_list))
@@ -77,9 +79,22 @@ public class HandoffV6UiTest {
                 View next = activity.findViewById(R.id.media_continue);
                 Rect visible = new Rect(); assertTrue(next.getGlobalVisibleRect(visible));
                 assertEquals(next.getHeight(), visible.height());
+                capture(activity, "editor-30");
                 grid.getChildAt(0).performClick();
             });
         }
+    }
+
+    private static void capture(android.app.Activity activity, String name) {
+        View root = activity.getWindow().getDecorView();
+        android.graphics.Bitmap bitmap = android.graphics.Bitmap.createBitmap(root.getWidth(), root.getHeight(), android.graphics.Bitmap.Config.ARGB_8888);
+        root.draw(new android.graphics.Canvas(bitmap));
+        java.io.File directory = new java.io.File(activity.getExternalFilesDir(null), "v6-screenshots");
+        directory.mkdirs();
+        try (java.io.FileOutputStream output = new java.io.FileOutputStream(new java.io.File(directory, name + ".png"))) {
+            bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, output);
+        } catch (java.io.IOException error) { throw new AssertionError(error); }
+        finally { bitmap.recycle(); }
     }
 
     private static String allText(View view) {

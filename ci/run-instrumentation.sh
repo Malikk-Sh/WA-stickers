@@ -21,4 +21,6 @@ if [ "$test_result" -ne 0 ]; then
   adb logcat -d > "$diagnostic_dir/logcat.txt" || true
   adb exec-out screencap -p > "$diagnostic_dir/screen.png" || true
 fi
+mkdir -p app/build/outputs/androidTest-results/connected/v6-screenshots
+adb pull /sdcard/Android/data/com.malikksh.wastickers/files/v6-screenshots/. app/build/outputs/androidTest-results/connected/v6-screenshots/ || true
 exit "$test_result"
