@@ -115,6 +115,19 @@ public class HandoffV6UiTest {
             bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, output);
         } catch (java.io.IOException error) { throw new AssertionError(error); }
         finally { bitmap.recycle(); }
+        // Gradle uninstalls the app after connected tests, removing its external-files directory.
+        shell("mkdir -p /sdcard/Download/wa-v6");
+        shell("cp '" + new java.io.File(directory, name + ".png").getAbsolutePath()
+                + "' '/sdcard/Download/wa-v6/" + name + ".png'");
+    }
+
+    private static void shell(String command) {
+        try (android.os.ParcelFileDescriptor descriptor = androidx.test.platform.app.InstrumentationRegistry
+                .getInstrumentation().getUiAutomation().executeShellCommand(command);
+             java.io.FileInputStream output = new java.io.FileInputStream(descriptor.getFileDescriptor())) {
+            byte[] buffer = new byte[1024];
+            while (output.read(buffer) != -1) { /* Drain to wait for the command to finish. */ }
+        } catch (java.io.IOException error) { throw new AssertionError(error); }
     }
 
     private static String allText(View view) {

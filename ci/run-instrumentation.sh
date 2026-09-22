@@ -22,5 +22,5 @@ if [ "$test_result" -ne 0 ]; then
   adb exec-out screencap -p > "$diagnostic_dir/screen.png" || true
 fi
 mkdir -p app/build/outputs/androidTest-results/connected/v6-screenshots
-adb pull /sdcard/Android/data/com.malikksh.wastickers/files/v6-screenshots/. app/build/outputs/androidTest-results/connected/v6-screenshots/ || true
+adb pull /sdcard/Download/wa-v6/. app/build/outputs/androidTest-results/connected/v6-screenshots/
 exit "$test_result"
