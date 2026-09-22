@@ -131,6 +131,35 @@ final class BuildPanel extends LinearLayout {
     private final Button primary;
     private final Button secondary;
 
+    private final TextView[] stats = new TextView[4];
+    private final Button[] tabs = new Button[3];
+    private int selectedTab;
+    private Snapshot currentSnapshot;
+    private final BuildMotionPolicy<Uri> motionPolicy = new BuildMotionPolicy<>();
+    private final List<String> journal = new ArrayList<>();
+    private final java.util.Map<Uri, ItemPhase> previousItems = new java.util.HashMap<>();
+    private Phase previousPhase;
+    private boolean holding;
+    private long finishAt;
+    private boolean completionAnnounced;
+
+    void itemStarted(Uri uri) {
+        motionPolicy.started(uri, android.os.SystemClock.uptimeMillis(), Motion.enabled(getContext()));
+    }
+    void resetPresentation() {
+        motionPolicy.reset(); journal.clear(); previousItems.clear();
+        previousPhase = null; finishAt = 0; holding = false; completionAnnounced = false;
+        lastSignature = "";
+    }
+    void cancelPresentation() {
+        motionPolicy.reset(); finishAt = 0; holding = false; completionAnnounced = true;
+    }
+    void beginBatch(boolean retry) {
+        motionPolicy.reset(); finishAt = 0; completionAnnounced = false;
+        if (retry) journal.add("Повторная обработка выбранных ошибок");
+        lastSignature = "";
+    }
+
     private String lastSignature = "";
 
     BuildPanel(Context context, PreviewLoader previewLoader, Host host) {
@@ -143,15 +172,22 @@ final class BuildPanel extends LinearLayout {
         setPadding(dp(20), dp(18), dp(20), dp(22));
         setBackgroundColor(color(R.color.app_background));
 
-        addView(buildHeader(), matchWrap());
+        android.widget.ScrollView scroll = new android.widget.ScrollView(context);
+        scroll.setFillViewport(true);
+        LinearLayout body = new LinearLayout(context);
+        body.setOrientation(VERTICAL);
+        scroll.addView(body, new android.widget.ScrollView.LayoutParams(-1, -2));
+        addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        body.addView(buildHeader(), matchWrap());
 
         LinearLayout summary = UiComponents.card(context);
         summary.setId(R.id.build_summary);
+        summary.setPadding(dp(12), dp(10), dp(12), dp(10));
         summary.setOrientation(HORIZONTAL);
         summary.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout.LayoutParams summaryParams = matchWrap();
-        summaryParams.topMargin = dp(16);
-        addView(summary, summaryParams);
+        summaryParams.topMargin = dp(10);
+        body.addView(summary, summaryParams);
 
         cover = new ImageView(context);
         cover.setId(R.id.build_cover);
@@ -160,7 +196,7 @@ final class BuildPanel extends LinearLayout {
                 context, R.color.app_disabled_surface, R.dimen.radius_card));
         cover.setContentDescription("Обложка набора");
         if (Build.VERSION.SDK_INT >= 21) cover.setClipToOutline(true);
-        summary.addView(cover, new LinearLayout.LayoutParams(dp(76), dp(76)));
+        summary.addView(cover, new LinearLayout.LayoutParams(dp(48), dp(48)));
 
         LinearLayout summaryText = new LinearLayout(context);
         summaryText.setOrientation(VERTICAL);
@@ -196,9 +232,10 @@ final class BuildPanel extends LinearLayout {
 
         LinearLayout progressCard = UiComponents.card(context);
         progressCard.setId(R.id.build_overall);
+        progressCard.setPadding(dp(12), dp(10), dp(12), dp(10));
         LinearLayout.LayoutParams progressCardParams = matchWrap();
         progressCardParams.topMargin = dp(14);
-        addView(progressCard, progressCardParams);
+        body.addView(progressCard, progressCardParams);
 
         LinearLayout progressHeader = new LinearLayout(context);
         progressHeader.setOrientation(HORIZONTAL);
@@ -239,10 +276,44 @@ final class BuildPanel extends LinearLayout {
         progressFooter.addView(overallPercent, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
+        LinearLayout statistics = new LinearLayout(context);
+        statistics.setTag("build_stats");
+        String[] statNames = {"Всего", "Готово", "В процессе", "Ошибок"};
+        for (int i = 0; i < stats.length; i++) {
+            LinearLayout cell = new LinearLayout(context);
+            cell.setOrientation(VERTICAL);
+            cell.setPadding(0, dp(10), 0, dp(6));
+            stats[i] = text("0", 20, color(R.color.app_text_primary), Typeface.BOLD);
+            stats[i].setGravity(Gravity.CENTER);
+            cell.addView(stats[i], matchWrap());
+            TextView label = text(statNames[i], 10, color(R.color.app_text_secondary), Typeface.NORMAL);
+            label.setGravity(Gravity.CENTER);
+            cell.addView(label, matchWrap());
+            statistics.addView(cell, new LinearLayout.LayoutParams(0, -2, 1));
+        }
+        body.addView(statistics, matchWrap());
+        LinearLayout tabRow = new SegmentRow(context);
+        String[] tabNames = {"Обзор", "Файлы", "Журнал"};
+        for (int i = 0; i < tabs.length; i++) {
+            final int tab = i;
+            tabs[i] = new Button(context);
+            tabs[i].setText(tabNames[i]);
+            UiComponents.styleSegment(tabs[i], i == 0);
+            tabs[i].setOnClickListener(v -> {
+                if (selectedTab == tab) return;
+                selectedTab = tab;
+                lastSignature = "";
+                changeTab();
+            });
+            tabRow.addView(tabs[i], new LinearLayout.LayoutParams(0, dp(48), 1));
+        }
+        body.addView(tabRow, matchWrap());
+
         LinearLayout filesCard = UiComponents.card(context);
         LinearLayout.LayoutParams filesParams = matchWrap();
-        filesParams.topMargin = dp(14);
-        addView(filesCard, filesParams);
+        filesParams.topMargin = dp(6);
+        filesCard.setPadding(dp(4), dp(8), dp(4), dp(8));
+        body.addView(filesCard, filesParams);
 
         LinearLayout filesHeader = new LinearLayout(context);
         filesHeader.setOrientation(HORIZONTAL);
@@ -270,7 +341,7 @@ final class BuildPanel extends LinearLayout {
         stateMessage.setPadding(dp(14), dp(12), dp(14), dp(12));
         LinearLayout.LayoutParams stateParams = matchWrap();
         stateParams.topMargin = dp(14);
-        addView(stateMessage, stateParams);
+        body.addView(stateMessage, stateParams);
 
         primary = new Button(context);
         primary.setId(R.id.build_primary);
@@ -291,7 +362,10 @@ final class BuildPanel extends LinearLayout {
 
     void render(Snapshot snapshot) {
         if (snapshot == null) return;
-        String signature = signature(snapshot);
+        currentSnapshot = snapshot;
+        recordJournal(snapshot);
+        Snapshot visual = visualSnapshot(snapshot);
+        String signature = signature(visual) + selectedTab + holding + journal.size();
         if (getContext() instanceof MainActivity) {
             PackStore.Pack pack = ((MainActivity) getContext()).runtimeCurrentPack();
             if (pack != null) signature += WhatsAppSync.state(getContext(), pack).name();
@@ -303,15 +377,31 @@ final class BuildPanel extends LinearLayout {
         packCount.setText(snapshot.successCount + " / " + snapshot.total);
         typeChip.setVisibility(GONE);
         progressTrailing.setText(snapshot.successCount + " из " + snapshot.total + " готовы");
-        overallProgress.setProgress(snapshot.overallPercent, Motion.enabled(getContext()));
-        overallPercent.setText(snapshot.overallPercent + "%");
+        overallProgress.setIndeterminate(holding || (snapshot.phase == Phase.PROCESSING && snapshot.overallPercent == 0));
+        overallProgress.setProgress(holding ? Math.min(99, snapshot.overallPercent) : snapshot.overallPercent,
+                Motion.enabled(getContext()));
+        overallPercent.setText(holding ? "…" : snapshot.overallPercent + "%");
+        int running = 0;
+        for (Item item : snapshot.items) if (item.phase == ItemPhase.PROCESSING) running++;
+        int[] counts = {snapshot.total, snapshot.successCount, running, snapshot.failureCount};
+        for (int i = 0; i < stats.length; i++) stats[i].setText(String.valueOf(counts[i]));
+        for (int i = 0; i < tabs.length; i++) UiComponents.styleSegment(tabs[i], selectedTab == i);
         stage.setText(defaultStage(snapshot.phase));
         fileCount.setText(fileCountLabel(snapshot.total));
         loadPreview(snapshot.coverUri, cover);
 
-        renderItems(snapshot);
+        renderItems(visual);
         renderActions(snapshot);
         renderStateMessage(snapshot);
+        if (holding && snapshot.phase == Phase.READY) {
+            primary.setText("Завершение…");
+            UiComponents.stylePrimaryButton(primary, false);
+            primary.setOnClickListener(null);
+        }
+        if (!holding && snapshot.phase == Phase.READY && !completionAnnounced) {
+            completionAnnounced = true;
+            if (Motion.enabled(getContext())) { Motion.enter(primary); Motion.tick(primary); }
+        }
     }
 
     private View buildHeader() {
@@ -324,7 +414,7 @@ final class BuildPanel extends LinearLayout {
         logo.setPadding(dp(7), dp(7), dp(7), dp(7));
         logo.setBackground(UiComponents.rounded(
                 getContext(), R.color.app_primary, R.dimen.radius_card));
-        row.addView(logo, new LinearLayout.LayoutParams(dp(62), dp(62)));
+        row.addView(logo, new LinearLayout.LayoutParams(dp(40), dp(40)));
 
         LinearLayout labels = new LinearLayout(getContext());
         labels.setOrientation(VERTICAL);
@@ -333,19 +423,35 @@ final class BuildPanel extends LinearLayout {
         labelsParams.leftMargin = dp(14);
         row.addView(labels, labelsParams);
 
-        labels.addView(UiComponents.screenTitle(getContext(), "Сборка"), matchWrap());
+        labels.addView(UiComponents.cardTitle(getContext(), "Сборка"), matchWrap());
         TextView subtitle = UiComponents.metadata(getContext(), "Подготовка набора");
         LinearLayout.LayoutParams subtitleParams = matchWrap();
         subtitleParams.topMargin = dp(2);
         labels.addView(subtitle, subtitleParams);
+        FrameLayout actionSlot = new FrameLayout(getContext());
+        actionSlot.setTag("shell_actions");
+        row.addView(actionSlot, new LinearLayout.LayoutParams(dp(104), dp(48)));
         return row;
+    }
+
+    private void changeTab() {
+        itemRows.clear(); itemRowKeys.clear(); fileList.removeAllViews();
+        render(currentSnapshot);
+        Motion.enter(fileList);
     }
 
     private final java.util.Map<Uri, View> itemRows = new java.util.HashMap<>();
     private final java.util.Map<Uri, String> itemRowKeys = new java.util.HashMap<>();
     private void renderItems(Snapshot snapshot) {
+        if (selectedTab == 2) {
+            fileList.removeAllViews(); itemRows.clear(); itemRowKeys.clear();
+            if (journal.isEmpty()) addJournalLine("Событий пока нет");
+            else for (String entry : journal) addJournalLine(entry);
+            return;
+        }
+        List<Item> displayed = visibleItems(snapshot.items, selectedTab == 0);
         java.util.Set<Uri> visible = new java.util.HashSet<>();
-        for (Item item : snapshot.items) visible.add(item.uri);
+        for (Item item : displayed) visible.add(item.uri);
         for (int n = fileList.getChildCount() - 1; n >= 0; n--) {
             View child = fileList.getChildAt(n);
             if (!visible.contains(child.getTag())) fileList.removeViewAt(n);
@@ -361,22 +467,26 @@ final class BuildPanel extends LinearLayout {
             return;
         }
 
-        for (int i = 0; i < snapshot.items.size(); i++) {
-            Item item = snapshot.items.get(i);
+        for (int i = 0; i < displayed.size(); i++) {
+            Item item = displayed.get(i);
+            int itemNumber = snapshot.items.indexOf(item) + 1;
             String key = i + ":" + item.phase + ":" + snapshot.phase;
             View previous = itemRows.get(item.uri);
             if (previous != null && key.equals(itemRowKeys.get(item.uri))) {
                 ProgressBar progress = previous.findViewWithTag("item_progress");
-                if (progress != null) progress.setProgress(item.percent, Motion.enabled(getContext()));
+                if (progress != null) {
+                    progress.setIndeterminate(item.percent == 0 || item.percent >= 99);
+                    progress.setProgress(Math.max(progress.getProgress(), item.percent), Motion.enabled(getContext()));
+                }
                 continue;
             }
             if (previous != null) fileList.removeView(previous);
             LinearLayout row = new LinearLayout(getContext());
             row.setOrientation(VERTICAL);
-            row.setPadding(dp(12), dp(11), dp(12), dp(11));
+            row.setPadding(dp(8), dp(6), dp(8), dp(6));
             row.setBackground(rounded(rowBackground(item.phase), 16));
             LinearLayout.LayoutParams rowParams = matchWrap();
-            if (i > 0) rowParams.topMargin = dp(8);
+            if (i > 0) rowParams.topMargin = dp(4);
             row.setTag(item.uri);
             fileList.addView(row, Math.min(i, fileList.getChildCount()), rowParams);
             itemRows.put(item.uri, row);
@@ -392,8 +502,8 @@ final class BuildPanel extends LinearLayout {
             preview.setScaleType(ImageView.ScaleType.CENTER_CROP);
             preview.setBackground(rounded(color(R.color.app_disabled_surface), 12));
             if (Build.VERSION.SDK_INT >= 21) preview.setClipToOutline(true);
-            thumb.addView(preview, new FrameLayout.LayoutParams(dp(52), dp(52)));
-            headline.addView(thumb, new LinearLayout.LayoutParams(dp(52), dp(52)));
+            thumb.addView(preview, new FrameLayout.LayoutParams(dp(40), dp(40)));
+            headline.addView(thumb, new LinearLayout.LayoutParams(dp(40), dp(40)));
             loadPreview(item.uri, preview);
 
             LinearLayout texts = new LinearLayout(getContext());
@@ -403,16 +513,16 @@ final class BuildPanel extends LinearLayout {
             textsParams.leftMargin = dp(10);
             headline.addView(texts, textsParams);
 
-            TextView name = text("Стикер " + (i + 1), 14, color(R.color.app_text_primary), Typeface.BOLD);
+            TextView name = text("Стикер " + itemNumber, 14, color(R.color.app_text_primary), Typeface.BOLD);
             name.setMaxLines(2);
             texts.addView(name, matchWrap());
 
-            if (!item.detail.isEmpty()) {
+            {
                 String friendly = item.phase == ItemPhase.ERROR ? "Не удалось обработать файл"
                         : item.phase == ItemPhase.READY ? "Готово к использованию"
                         : item.phase == ItemPhase.PROCESSING ? "Подготовка стикера…" : "В очереди";
-                TextView detail = UiComponents.metadata(getContext(), friendly);
-                detail.setMaxLines(3);
+                TextView detail = UiComponents.metadata(getContext(), sourceType(item.name) + " · " + friendly);
+                detail.setMaxLines(2);
                 LinearLayout.LayoutParams detailParams = matchWrap();
                 detailParams.topMargin = dp(3);
                 texts.addView(detail, detailParams);
@@ -435,6 +545,7 @@ final class BuildPanel extends LinearLayout {
                         getContext(), null, android.R.attr.progressBarStyleHorizontal);
                 progress.setTag("item_progress");
                 progress.setMax(100);
+                progress.setIndeterminate(item.percent == 0 || item.percent >= 99);
                 progress.setProgress(item.percent);
                 LinearLayout.LayoutParams progressParams = new LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, dp(9));
@@ -468,7 +579,63 @@ final class BuildPanel extends LinearLayout {
         }
     }
 
+    static List<Item> visibleItems(List<Item> items, boolean overview) {
+        if (!overview || items.size() <= 6) return items;
+        List<Item> result = new ArrayList<>();
+        for (Item item : items) if ((item.phase == ItemPhase.ERROR || item.phase == ItemPhase.PROCESSING) && result.size() < 6) result.add(item);
+        for (int i = items.size() - 1; i >= 0 && result.size() < 6; i--)
+            if (items.get(i).phase == ItemPhase.READY && !result.contains(items.get(i))) result.add(items.get(i));
+        for (Item item : items) if (result.size() < 6 && !result.contains(item)) result.add(item);
+        return result;
+    }
+
+    private void addJournalLine(String message) {
+        TextView line = UiComponents.metadata(getContext(), message);
+        line.setPadding(dp(8), dp(10), dp(8), dp(10));
+        fileList.addView(line, matchWrap());
+    }
+
+    private void recordJournal(Snapshot snapshot) {
+        for (int i = 0; i < snapshot.items.size(); i++) {
+            Item item = snapshot.items.get(i);
+            ItemPhase before = previousItems.put(item.uri, item.phase);
+            if (before == item.phase) continue;
+            if (item.phase == ItemPhase.ERROR) journal.add("Стикер " + (i + 1) + ": не удалось обработать. Можно повторить или пропустить.");
+            if (item.phase == ItemPhase.SKIPPED) journal.add("Стикер " + (i + 1) + ": пропущен");
+        }
+        if (previousPhase != snapshot.phase) {
+            if (snapshot.phase == Phase.STOPPING) journal.add("Обработка остановлена пользователем");
+            if (snapshot.phase == Phase.FINALIZED) journal.add("Набор сохранён");
+            previousPhase = snapshot.phase;
+        }
+        while (journal.size() > 120) journal.remove(0);
+    }
+
+    private Snapshot visualSnapshot(Snapshot actual) {
+        boolean motion = Motion.enabled(getContext());
+        boolean interrupted = actual.phase == Phase.STOPPING || actual.phase == Phase.PARTIAL
+                || actual.phase == Phase.IDLE || actual.phase == Phase.FINALIZED || actual.failureCount > 0;
+        long now = android.os.SystemClock.uptimeMillis();
+        holding = false;
+        List<Item> items = new ArrayList<>();
+        for (Item item : actual.items) {
+            if (item.phase == ItemPhase.READY && motionPolicy.holdSuccess(item.uri, now, motion, interrupted)) {
+                holding = true;
+                items.add(new Item(item.uri, item.name, ItemPhase.PROCESSING, 99, "Завершение…"));
+            } else items.add(item);
+        }
+        if (!motion || interrupted) finishAt = 0;
+        else if (actual.phase == Phase.READY && !holding && !completionAnnounced) {
+            if (finishAt == 0) finishAt = now + 250;
+            holding = now < finishAt;
+        }
+        return new Snapshot(actual.phase, actual.animated, actual.packName, actual.coverUri,
+                actual.total, actual.successCount, actual.failureCount, actual.overallPercent,
+                actual.stage, actual.canStart, actual.canFinalize, actual.hasRetryableFailures, items);
+    }
+
     private void renderActions(Snapshot snapshot) {
+        UiComponents.syncIndicator(primary, false);
         primary.setVisibility(VISIBLE);
         secondary.setVisibility(GONE);
         primary.setOnClickListener(null);
@@ -514,7 +681,9 @@ final class BuildPanel extends LinearLayout {
                 PackStore.Pack pack = getContext() instanceof MainActivity
                         ? ((MainActivity) getContext()).runtimeCurrentPack() : null;
                 primary.setText(pack == null ? "Добавить в WhatsApp" : WhatsAppSync.label(getContext(), pack));
-                UiComponents.stylePrimaryButton(primary, true);
+                boolean syncing = pack != null && WhatsAppSync.state(getContext(), pack) == WhatsAppSync.State.SYNCING;
+                UiComponents.stylePrimaryButton(primary, !syncing);
+                UiComponents.syncIndicator(primary, syncing);
                 primary.setOnClickListener(v -> host.onAddToWhatsApp());
                 secondary.setVisibility(VISIBLE);
                 secondary.setText("Открыть в «Наборах»");
@@ -531,12 +700,9 @@ final class BuildPanel extends LinearLayout {
     }
 
     private void confirmCancellation() {
-        new AlertDialog.Builder(getContext())
-                .setTitle("Остановить обработку?")
-                .setMessage("Текущий файл будет остановлен. Уже готовые результаты сохранятся для этой сборки.")
-                .setPositiveButton("Остановить", (dialog, which) -> host.onCancel())
-                .setNegativeButton("Продолжить", null)
-                .show();
+        ThemedDialogs.confirm(getContext(), "Остановить обработку?",
+                "Текущий файл будет остановлен. Уже готовые результаты сохранятся для этой сборки.",
+                "Остановить", host::onCancel);
     }
 
     private void renderStateMessage(Snapshot snapshot) {
@@ -617,6 +783,14 @@ final class BuildPanel extends LinearLayout {
         return value.toString();
     }
 
+    private String sourceType(String name) {
+        String lower = name.toLowerCase(java.util.Locale.ROOT);
+        if (lower.endsWith(".webp")) return "WebP";
+        if (lower.endsWith(".gif")) return "GIF";
+        if (lower.endsWith(".mp4") || lower.endsWith(".webm") || lower.endsWith(".mov")) return "Видео";
+        return "Фото";
+    }
+
     private String fileCountLabel(int count) {
         int mod10 = count % 10;
         int mod100 = count % 100;
@@ -674,9 +848,10 @@ final class BuildPanel extends LinearLayout {
     }
 
     private void loadPreview(Uri uri, ImageView target) {
-        target.setImageDrawable(null);
-        if (previewLoader == null || uri == null) return;
+        if (previewLoader == null || uri == null) { target.setImageDrawable(null); target.setTag(null); return; }
         String key = previewLoader.requestKey(uri);
+        if (key.equals(target.getTag())) return;
+        target.setImageDrawable(null);
         target.setTag(key);
         previewLoader.load(uri, (loadedKey, bitmap) -> post(() -> {
             if (!loadedKey.equals(target.getTag())) return;
@@ -694,6 +869,7 @@ final class BuildPanel extends LinearLayout {
     }
 
     private void styleDangerButton(Button button, boolean enabled) {
+        UiComponents.centerButton(button);
         button.setEnabled(enabled);
         button.setTextSize(16);
         button.setTextColor(enabled

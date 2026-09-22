@@ -27,6 +27,22 @@ final class Motion {
         view.setAlpha(0f);
         view.animate().alpha(1f).translationY(0f).setDuration(240).start();
     }
+    static void tileEnter(View view, long delay) {
+        if (!enabled(view.getContext())) return;
+        view.setAlpha(0f); view.setScaleX(.92f); view.setScaleY(.92f);
+        view.animate().alpha(1f).scaleX(1f).scaleY(1f).setStartDelay(delay)
+                .setDuration(180).withEndAction(() -> view.animate().setStartDelay(0)).start();
+    }
+    static void dialog(View view) {
+        if (!enabled(view.getContext())) return;
+        view.setAlpha(0f); view.setScaleX(.96f); view.setScaleY(.96f);
+        view.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(180).start();
+    }
+    static void crossfade(View view) {
+        if (!enabled(view.getContext())) return;
+        view.setAlpha(0f);
+        view.animate().alpha(1f).setDuration(200).start();
+    }
     static void tick(View view) {
         view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK);
     }

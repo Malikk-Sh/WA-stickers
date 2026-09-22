@@ -499,6 +499,7 @@ final class PacksPanel extends LinearLayout {
         whatsapp.setText(WhatsAppSync.label(getContext(), pack));
         whatsapp.setAllCaps(false);
         UiComponents.stylePrimaryButton(whatsapp, available && WhatsAppSync.state(getContext(), pack) != WhatsAppSync.State.SYNCING);
+        UiComponents.syncIndicator(whatsapp, WhatsAppSync.state(getContext(), pack) == WhatsAppSync.State.SYNCING);
         whatsapp.setContentDescription("Добавить набор " + pack.name + " в WhatsApp");
         if (available) whatsapp.setOnClickListener(v -> host.onAddToWhatsApp(pack));
         LinearLayout.LayoutParams whatsappParams = new LinearLayout.LayoutParams(

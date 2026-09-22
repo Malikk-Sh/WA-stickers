@@ -32,6 +32,7 @@ public class BuildShellActivity extends AppShellActivity {
     private static final long REFRESH_INTERVAL_MS = 300L;
 
     private final Handler refreshHandler = new Handler(Looper.getMainLooper());
+    private final Set<Uri> failedUris = new HashSet<>();
     private final Set<Uri> readyUris = new HashSet<>();
     private final Set<Uri> skippedUris = new HashSet<>();
     private final Set<Uri> finalizedExcludedUris = new HashSet<>();
@@ -88,7 +89,7 @@ public class BuildShellActivity extends AppShellActivity {
             throw new IllegalStateException("Build screen host is missing");
         }
         buildScreen = host.getChildAt(2);
-        if (!(buildScreen instanceof ScrollView)) {
+        if (!(buildScreen instanceof FrameLayout)) {
             throw new IllegalStateException("Unexpected Build screen root");
         }
 
@@ -100,6 +101,7 @@ public class BuildShellActivity extends AppShellActivity {
 
             @Override
             public void onCancel() {
+                buildPanel.cancelPresentation();
                 BuildShellActivity.this.runtimeCancelProcessing();
                 refreshBuildPanel();
             }
@@ -151,12 +153,9 @@ public class BuildShellActivity extends AppShellActivity {
             }
         });
 
-        ScrollView scroll = (ScrollView) buildScreen;
-        scroll.removeAllViews();
-        scroll.setFillViewport(true);
-        scroll.addView(buildPanel, new ScrollView.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT));
+        FrameLayout screen = (FrameLayout) buildScreen;
+        screen.removeAllViews();
+        screen.addView(buildPanel, new FrameLayout.LayoutParams(-1, -1));
     }
 
     private void startBuildFromPanel() {
@@ -194,6 +193,7 @@ public class BuildShellActivity extends AppShellActivity {
         percentByUri.clear();
         activeWork = new ArrayList<>(selected);
         deferredFailures = null;
+        buildPanel.beginBatch(false);
         this.runtimeStartBatch(new ArrayList<>(activeWork), false);
         refreshBuildPanel();
     }
@@ -237,6 +237,8 @@ public class BuildShellActivity extends AppShellActivity {
             detailByUri.put(uri, "Подготовка к повторной обработке…");
             percentByUri.put(uri, 0);
         }
+        failedUris.removeAll(work);
+        buildPanel.beginBatch(true);
         this.runtimeStartBatch(new ArrayList<>(work), true);
         refreshBuildPanel();
     }
@@ -286,7 +288,7 @@ public class BuildShellActivity extends AppShellActivity {
         int success = finalized
                 ? currentPack.stickerCount
                 : (session != null && session.isActive() ? session.successCount() : 0);
-        int failureCount = session != null && session.isActive() ? session.failureCount() : 0;
+        int failureCount = session != null && session.isActive() ? Math.max(session.failureCount(), failedUris.size()) : 0;
 
         BuildPanel.Phase phase;
         if (finalized) {
@@ -349,6 +351,7 @@ public class BuildShellActivity extends AppShellActivity {
                 ? new HashSet<>(session.failures())
                 : new HashSet<>();
 
+        failures.addAll(failedUris);
         for (Uri uri : selected) {
             BuildPanel.ItemPhase phase = BuildPanel.ItemPhase.PENDING;
             int percent = percentByUri.containsKey(uri) ? percentByUri.get(uri) : 0;
@@ -369,7 +372,7 @@ public class BuildShellActivity extends AppShellActivity {
             } else if (failures.contains(uri)) {
                 phase = BuildPanel.ItemPhase.ERROR;
                 if (detail.isEmpty()) detail = "Не удалось оптимизировать файл";
-            } else if (readyUris.contains(uri)) {
+            } else if (readyUris.contains(uri) || (session != null && session.successfulItems().contains(uri))) {
                 phase = BuildPanel.ItemPhase.READY;
                 percent = 100;
             } else if (processing && activeWork.contains(uri) && percent > 0) {
@@ -507,7 +510,19 @@ public class BuildShellActivity extends AppShellActivity {
         return result;
     }
 
+    @Override protected void onBuildItemStartedForPresentation(Uri uri) {
+        if (buildPanel != null) buildPanel.itemStarted(uri);
+    }
+
+    @Override protected void onBuildItemFinishedForPresentation(Uri uri, boolean success) {
+        if (success) { readyUris.add(uri); failedUris.remove(uri); }
+        else { failedUris.add(uri); readyUris.remove(uri); }
+        refreshBuildPanel();
+    }
+
     private void clearBuildPresentationState() {
+        failedUris.clear();
+        if (buildPanel != null) buildPanel.resetPresentation();
         readyUris.clear();
         skippedUris.clear();
         finalizedExcludedUris.clear();

@@ -231,7 +231,13 @@ public class AppShellActivity extends LauncherActivity {
         panelParams.topMargin = dp(12);
         panelParams.bottomMargin = dp(12);
         body.addView(mediaPanel, panelParams);
-        return wrap(body);
+        LinearLayout screen = new LinearLayout(this);
+        screen.setOrientation(LinearLayout.VERTICAL);
+        screen.addView(wrap(body), new LinearLayout.LayoutParams(-1, 0, 1));
+        View actions = mediaPanel.detachActions();
+        actions.setPadding(dp(20), dp(10), dp(20), dp(12));
+        screen.addView(actions, matchWrap());
+        return screen;
     }
 
     private void configureUnifiedMediaPanel() {
@@ -291,16 +297,25 @@ public class AppShellActivity extends LauncherActivity {
                 color(R.color.app_text_secondary), Typeface.NORMAL);
         LinearLayout.LayoutParams subtitleParams = matchWrap();
         subtitleParams.topMargin = dp(1);
-        labels.addView(editorSubtitle, subtitleParams);
+
 
         editorCount = text("0 / 30", 12, color(R.color.app_primary), Typeface.BOLD);
         editorCount.setId(R.id.create_media_counter);
         editorCount.setGravity(Gravity.CENTER);
         editorCount.setPadding(dp(10), 0, dp(10), 0);
         editorCount.setBackground(rounded(color(R.color.app_primary_container), 999));
-        row.addView(editorCount, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, dp(34)));
-        return row;
+        FrameLayout actionSlot = new FrameLayout(this);
+        actionSlot.setTag("shell_actions");
+        row.addView(actionSlot, new LinearLayout.LayoutParams(dp(104), dp(48)));
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.VERTICAL);
+        header.addView(row, matchWrap());
+        LinearLayout meta = new LinearLayout(this);
+        meta.setGravity(Gravity.CENTER_VERTICAL);
+        meta.addView(editorSubtitle, new LinearLayout.LayoutParams(0, -2, 1));
+        meta.addView(editorCount, new LinearLayout.LayoutParams(-2, dp(34)));
+        header.addView(meta, matchWrap());
+        return header;
     }
 
     private View buildNameCard(EditText packName) {
@@ -355,20 +370,7 @@ public class AppShellActivity extends LauncherActivity {
     }
 
     private View buildBuildScreen() {
-        LinearLayout body = newScreenBody();
-        body.addView(buildTopBar("Сборка", "Подготовка набора"), matchWrap());
-        LinearLayout placeholder = card();
-        placeholder.addView(text("Подготовка сборки", 18,
-                color(R.color.app_text_primary), Typeface.BOLD), matchWrap());
-        TextView hint = text("Параметры и прогресс сборки появятся здесь.", 13,
-                color(R.color.app_text_secondary), Typeface.NORMAL);
-        LinearLayout.LayoutParams hintParams = matchWrap();
-        hintParams.topMargin = dp(5);
-        placeholder.addView(hint, hintParams);
-        LinearLayout.LayoutParams params = matchWrap();
-        params.topMargin = dp(16);
-        body.addView(placeholder, params);
-        return wrap(body);
+        return new FrameLayout(this);
     }
 
     private View buildPacksScreen() {

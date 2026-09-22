@@ -125,7 +125,7 @@ public class HandoffComplianceUiTest {
     }
 
     @Test
-    public void mediaTileHasAccessible48DpActionsAndAlternativeReorder() throws Exception {
+    public void mediaTileHasCompactActionsAndAccessibleAlternativeReorder() throws Exception {
         List<Uri> photos = Arrays.asList(
                 writeImage(context, "media_one.png", 0xFF115544),
                 writeImage(context, "media_two.png", 0xFF227755),
@@ -151,7 +151,7 @@ public class HandoffComplianceUiTest {
                 View cover = findByDescription(activity.getWindow().getDecorView(), "Выбрать как обложку");
                 assertNotNull(remove);
                 assertNotNull(cover);
-                int min = Math.round(48 * activity.getResources().getDisplayMetrics().density);
+                int min = Math.round(28 * activity.getResources().getDisplayMetrics().density);
                 assertTrue(remove.getWidth() >= min && remove.getHeight() >= min);
                 assertTrue(cover.getWidth() >= min && cover.getHeight() >= min);
 

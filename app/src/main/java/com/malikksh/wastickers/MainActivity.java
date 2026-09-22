@@ -882,6 +882,9 @@ public class MainActivity extends Activity {
         executor.execute(() -> processBatch(work));
     }
 
+    protected void onBuildItemStartedForPresentation(Uri uri) { }
+    protected void onBuildItemFinishedForPresentation(Uri uri, boolean success) { }
+
     private void processBatch(List<Uri> work) {
         StickerPackBuilder builder = new StickerPackBuilder(this, buildSession.isAnimated());
         PackBuildCoordinator<Uri> coordinator = new PackBuildCoordinator<>(buildSession);
@@ -945,6 +948,7 @@ public class MainActivity extends Activity {
                 diagnosticItemUri = itemUri;
                 BugLogStore.appendApp("Item " + (index + 1) + "/" + total + ": " + describeUri(itemUri));
                 postUi(() -> {
+                    onBuildItemStartedForPresentation(itemUri);
                     updateProgress(index, total,
                             (buildSession.isAnimated() ? "Конвертирую " : "Обрабатываю ")
                                     + (index + 1) + " из " + total + "…");
@@ -969,7 +973,7 @@ public class MainActivity extends Activity {
                         + (result.animated() ? ", fps=" + result.fps + ", quality=" + result.quality : ""));
                 String detail = formatBytes(result.bytes)
                         + (result.animated() ? " · " + result.fps + " FPS · q" + result.quality : "");
-                postUi(() -> completeFileProgress(index, detail));
+                postUi(() -> { completeFileProgress(index, detail); onBuildItemFinishedForPresentation(itemUri, true); });
             }
 
             @Override
@@ -978,7 +982,7 @@ public class MainActivity extends Activity {
                         ? "неизвестная ошибка конвертации"
                         : error.getMessage();
                 BugLogStore.appendApp("Item failed: " + reason);
-                postUi(() -> failFileProgress(index, reason));
+                postUi(() -> { failFileProgress(index, reason); onBuildItemFinishedForPresentation(itemUri, false); });
             }
 
             @Override

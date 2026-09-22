@@ -166,12 +166,6 @@ public class SettingsShellActivity extends PacksShellActivity {
         if (root == null) return;
 
         topActions = new FrameLayout(this);
-        FrameLayout.LayoutParams actionsParams = new FrameLayout.LayoutParams(dp(104), dp(52));
-        actionsParams.gravity = Gravity.TOP | Gravity.END;
-        actionsParams.topMargin = dp(18);
-        actionsParams.rightMargin = dp(14);
-        root.addView(topActions, actionsParams);
-
         ImageButton settings = topAction(R.drawable.ic_settings, "Настройки", R.id.app_settings);
         settings.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
         FrameLayout.LayoutParams settingsParams = new FrameLayout.LayoutParams(dp(48), dp(48));
@@ -192,8 +186,22 @@ public class SettingsShellActivity extends PacksShellActivity {
 
     private void updateTopActionsVisibility() {
         if (topActions == null) return;
-        View packsPanel = findViewById(R.id.packs_panel);
-        topActions.setVisibility(packsPanel != null && packsPanel.isShown() ? View.GONE : View.VISIBLE);
+        FrameLayout screens = findViewById(R.id.app_screen_host);
+        if (screens == null) return;
+        FrameLayout slot = null;
+        for (int i = 0; i < screens.getChildCount(); i++) {
+            View screen = screens.getChildAt(i);
+            if (screen.getVisibility() == View.VISIBLE) {
+                slot = screen.findViewWithTag("shell_actions");
+                break;
+            }
+        }
+        if (slot != null && topActions.getParent() != slot) {
+            if (topActions.getParent() instanceof ViewGroup)
+                ((ViewGroup) topActions.getParent()).removeView(topActions);
+            slot.addView(topActions, new FrameLayout.LayoutParams(-1, -1));
+        }
+        topActions.setVisibility(slot == null ? View.GONE : View.VISIBLE);
     }
 
     private ImageButton topAction(int drawable, String description, int id) {
