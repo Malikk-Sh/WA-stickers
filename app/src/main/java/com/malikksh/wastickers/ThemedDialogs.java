@@ -35,6 +35,6 @@ final class ThemedDialogs {
             window.setLayout(context.getResources().getDisplayMetrics().widthPixels - UiComponents.dp(context, 40),
                     ViewGroup.LayoutParams.WRAP_CONTENT);
         }
-        Motion.enter(content);
+        Motion.dialog(content);
     }
 }

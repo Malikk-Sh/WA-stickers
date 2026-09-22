@@ -167,17 +167,18 @@ final class PackNameDialog {
             window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         }
         dialog.show();
-        Motion.enter(card);
+        Motion.dialog(card);
         if (window != null) {
             window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         }
 
-        input.post(() -> {
+        input.postDelayed(() -> {
+            if (!dialog.isShowing()) return;
             input.requestFocus();
             InputMethodManager imm = (InputMethodManager)
                     context.getSystemService(Context.INPUT_METHOD_SERVICE);
             if (imm != null) imm.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT);
-        });
+        }, Motion.enabled(context) ? 180 : 0);
     }
 
     private static int dp(Context context, int value) {

@@ -184,15 +184,16 @@ final class PacksPanel extends LinearLayout {
         normalHeader.setVisibility(GONE);
         searchHeader.setVisibility(VISIBLE);
         findViewById(R.id.packs_create_first).setVisibility(GONE);
-        Motion.enter(searchHeader);
+        Motion.search(searchHeader);
         searchInput.setText(query);
         searchInput.setSelection(searchInput.length());
-        searchInput.post(() -> {
+        searchInput.postDelayed(() -> {
+            if (searchHeader.getVisibility() != VISIBLE) return;
             searchInput.requestFocus();
             InputMethodManager imm = (InputMethodManager)
                     getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
             if (imm != null) imm.showSoftInput(searchInput, InputMethodManager.SHOW_IMPLICIT);
-        });
+        }, Motion.enabled(getContext()) ? 180 : 0);
     }
 
     boolean closeSearchIfActive() {
@@ -349,10 +350,7 @@ final class PacksPanel extends LinearLayout {
         List<PackStore.Pack> filtered = filteredPacks();
         java.util.Set<String> visible = new java.util.HashSet<>();
         for (PackStore.Pack pack : filtered) visible.add(pack.id);
-        if (Motion.enabled(getContext()) && list.isLaidOut()) {
-            android.transition.TransitionManager.beginDelayedTransition(list,
-                    new android.transition.AutoTransition().setDuration(200));
-        }
+        Motion.reflow(list, false);
         for (int i = list.getChildCount() - 1; i >= 0; i--) {
             View child = list.getChildAt(i);
             if (!(child.getTag() instanceof String) || !visible.contains((String) child.getTag())) list.removeViewAt(i);
@@ -366,6 +364,7 @@ final class PacksPanel extends LinearLayout {
             String key = pack.name + ":" + pack.imageDataVersion + ":" + isAvailable(pack)
                     + ":" + WhatsAppSync.state(getContext(), pack);
             View card = cards.get(pack.id);
+            boolean inserted = card == null;
             if (card == null || !key.equals(cardKeys.get(pack.id))) {
                 if (card != null) list.removeView(card);
                 card = buildPackCard(pack);
@@ -378,6 +377,7 @@ final class PacksPanel extends LinearLayout {
                 LinearLayout.LayoutParams params = matchWrap();
                 if (i > 0) params.topMargin = dp(10);
                 list.addView(card, Math.min(i, list.getChildCount()), params);
+                if (inserted) Motion.enter(card);
             }
         }
         cards.keySet().retainAll(visible);
@@ -499,6 +499,7 @@ final class PacksPanel extends LinearLayout {
         whatsapp.setText(WhatsAppSync.label(getContext(), pack));
         whatsapp.setAllCaps(false);
         UiComponents.stylePrimaryButton(whatsapp, available && WhatsAppSync.state(getContext(), pack) != WhatsAppSync.State.SYNCING);
+        UiComponents.syncIndicator(whatsapp, WhatsAppSync.state(getContext(), pack) == WhatsAppSync.State.SYNCING);
         whatsapp.setContentDescription("Добавить набор " + pack.name + " в WhatsApp");
         if (available) whatsapp.setOnClickListener(v -> host.onAddToWhatsApp(pack));
         LinearLayout.LayoutParams whatsappParams = new LinearLayout.LayoutParams(

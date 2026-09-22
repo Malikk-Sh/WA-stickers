@@ -41,6 +41,10 @@ public class SettingsActivity extends Activity {
         setContentView(buildUi());
         AppSettings.applySystemBars(this);
         renderSettings();
+        if (getIntent().getBooleanExtra("theme_transition", false)) {
+            getIntent().removeExtra("theme_transition");
+            Motion.crossfade(findViewById(android.R.id.content));
+        }
     }
 
     @Override
@@ -253,6 +257,7 @@ public class SettingsActivity extends Activity {
     private void changeAppearance(String appearance) {
         if (appearance.equals(AppSettings.appearance(this))) return;
         AppSettings.setAppearance(this, appearance);
+        getIntent().putExtra("theme_transition", true);
         recreate();
     }
 
@@ -290,7 +295,7 @@ public class SettingsActivity extends Activity {
     }
 
     private LinearLayout segmentedRow() {
-        LinearLayout row = new LinearLayout(this);
+        LinearLayout row = new SegmentRow(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(dp(4), dp(4), dp(4), dp(4));

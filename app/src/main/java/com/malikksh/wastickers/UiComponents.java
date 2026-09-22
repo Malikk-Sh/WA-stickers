@@ -52,7 +52,7 @@ final class UiComponents {
         Context context = button.getContext();
         button.setEnabled(enabled);
         button.setAllCaps(false);
-        button.setGravity(Gravity.CENTER);
+        centerButton(button);
         button.setMinHeight(dimen(context, R.dimen.touch_target));
         button.setTextSize(16);
         button.setTypeface(Typeface.create("sans", Typeface.BOLD));
@@ -70,7 +70,7 @@ final class UiComponents {
         Context context = button.getContext();
         button.setEnabled(enabled);
         button.setAllCaps(false);
-        button.setGravity(Gravity.CENTER);
+        centerButton(button);
         button.setMinHeight(dimen(context, R.dimen.touch_target));
         button.setTextSize(15);
         button.setTypeface(Typeface.create("sans", Typeface.BOLD));
@@ -88,7 +88,7 @@ final class UiComponents {
         Context context = button.getContext();
         button.setEnabled(enabled);
         button.setAllCaps(false);
-        button.setGravity(Gravity.CENTER);
+        centerButton(button);
         button.setMinHeight(dimen(context, R.dimen.touch_target));
         button.setTextSize(15);
         button.setTypeface(Typeface.create("sans", Typeface.BOLD));
@@ -109,7 +109,7 @@ final class UiComponents {
         Context context = button.getContext();
         button.setEnabled(enabled);
         button.setAllCaps(false);
-        button.setGravity(Gravity.CENTER);
+        centerButton(button);
         button.setMinHeight(dimen(context, R.dimen.touch_target));
         button.setTextSize(15);
         button.setTypeface(Typeface.create("sans", Typeface.BOLD));
@@ -129,17 +129,49 @@ final class UiComponents {
     static void styleSegment(Button button, boolean selected) {
         Context context = button.getContext();
         button.setAllCaps(false);
-        button.setGravity(Gravity.CENTER);
+        centerButton(button);
         button.setMinHeight(dimen(context, R.dimen.touch_target));
         button.setTextSize(14);
         button.setTypeface(Typeface.create("sans", Typeface.BOLD));
         button.setTextColor(color(context,
                 selected ? R.color.app_on_primary : R.color.app_text_secondary));
-        button.setBackground(rounded(
-                context,
-                selected ? R.color.app_primary : R.color.app_transparent,
-                R.dimen.radius_pill
-        ));
+        boolean sliding = button.getParent() instanceof SegmentRow;
+        button.setBackground(rounded(context,
+                selected && !sliding ? R.color.app_primary : R.color.app_transparent,
+                R.dimen.radius_pill));
+        if (selected && sliding) ((SegmentRow) button.getParent()).select(button);
+        button.setSelected(selected);
+    }
+
+    static void syncIndicator(Button button, boolean syncing) {
+        android.graphics.drawable.Drawable previous = button.getCompoundDrawablesRelative()[0];
+        if (previous instanceof android.graphics.drawable.Animatable)
+            ((android.graphics.drawable.Animatable) previous).stop();
+        if (!syncing) { button.setCompoundDrawablesRelative(null, null, null, null); return; }
+        android.graphics.drawable.Drawable indicator = new android.widget.ProgressBar(button.getContext())
+                .getIndeterminateDrawable().mutate();
+        indicator.setTint(color(button.getContext(), R.color.app_primary));
+        indicator.setBounds(0, 0, dp(button.getContext(), 18), dp(button.getContext(), 18));
+        button.setCompoundDrawablePadding(dp(button.getContext(), 8));
+        button.setCompoundDrawablesRelative(indicator, null, null, null);
+        if (indicator instanceof android.graphics.drawable.Animatable && Motion.enabled(button.getContext())) {
+            android.graphics.drawable.Animatable animation = (android.graphics.drawable.Animatable) indicator;
+            button.addOnAttachStateChangeListener(new android.view.View.OnAttachStateChangeListener() {
+                public void onViewAttachedToWindow(android.view.View view) {
+                    if (button.getCompoundDrawablesRelative()[0] == indicator) animation.start();
+                }
+                public void onViewDetachedFromWindow(android.view.View view) { animation.stop(); button.removeOnAttachStateChangeListener(this); }
+            });
+            if (button.isAttachedToWindow()) animation.start();
+        }
+    }
+
+    static void centerButton(Button button) {
+        button.setGravity(Gravity.CENTER);
+        button.setIncludeFontPadding(false);
+        button.setMinWidth(0);
+        button.setMinimumWidth(0);
+        button.setPadding(dp(button.getContext(), 8), 0, dp(button.getContext(), 8), 0);
     }
 
     static GradientDrawable rounded(Context context, int colorRes, int radiusRes) {

@@ -86,4 +86,6 @@
     <item name="settings_privacy" type="id" />
     <item name="settings_help" type="id" />
     <item name="settings_about" type="id" />
+    <item name="media_action_remove" type="id" />
+    <item name="media_action_cover" type="id" />
 </resources>
