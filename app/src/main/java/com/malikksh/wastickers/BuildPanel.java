@@ -150,7 +150,7 @@ final class BuildPanel extends LinearLayout {
         motionPolicy.started(uri, android.os.SystemClock.uptimeMillis(), Motion.enabled(getContext()));
     }
     void resetPresentation() {
-        removeCallbacks(reveal); displayedPercent = 0;
+        removeCallbacks(reveal); displayedPercent = 0; selectedTab = 0;
         motionPolicy.reset(); journal.clear(); previousItems.clear();
         previousPhase = null; finishAt = 0; holding = false; completionAnnounced = false;
         lastSignature = "";

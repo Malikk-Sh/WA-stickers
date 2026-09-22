@@ -116,8 +116,12 @@ public class HandoffV6UiTest {
         // below Android's log-entry limit; CI reconstructs and validates the PNG artifacts.
         String encoded = android.util.Base64.encodeToString(output.toByteArray(), android.util.Base64.NO_WRAP);
         int count = (encoded.length() + 2999) / 3000;
-        for (int i = 0; i < count; i++) android.util.Log.i("V6_SCREEN",
-                name + " " + i + " " + count + " " + encoded.substring(i * 3000, Math.min(encoded.length(), (i + 1) * 3000)));
+        for (int i = 0; i < count; i++) {
+            android.util.Log.i("V6_SCREEN", name + " " + i + " " + count + " "
+                    + encoded.substring(i * 3000, Math.min(encoded.length(), (i + 1) * 3000)));
+            // Test transport only: let logcat drain instead of dropping a burst of PNG chunks.
+            android.os.SystemClock.sleep(20);
+        }
     }
 
     private static String allText(View view) {

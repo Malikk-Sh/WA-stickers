@@ -4,6 +4,7 @@ set -euo pipefail
 # Compilation can leave the emulator idle long enough to lock. Wake it after
 # both APKs are ready, immediately before the UI tests need window focus.
 gradle :app:assembleDebug :app:assembleDebugAndroidTest --stacktrace
+adb logcat -G 16M
 adb shell svc power stayon true
 adb shell locksettings set-disabled true
 adb shell settings put system screen_off_timeout 2147483647

@@ -144,6 +144,9 @@ final class UiComponents {
     }
 
     static void syncIndicator(Button button, boolean syncing) {
+        android.graphics.drawable.Drawable previous = button.getCompoundDrawablesRelative()[0];
+        if (previous instanceof android.graphics.drawable.Animatable)
+            ((android.graphics.drawable.Animatable) previous).stop();
         if (!syncing) { button.setCompoundDrawablesRelative(null, null, null, null); return; }
         android.graphics.drawable.Drawable indicator = new android.widget.ProgressBar(button.getContext())
                 .getIndeterminateDrawable().mutate();
@@ -154,7 +157,9 @@ final class UiComponents {
         if (indicator instanceof android.graphics.drawable.Animatable && Motion.enabled(button.getContext())) {
             android.graphics.drawable.Animatable animation = (android.graphics.drawable.Animatable) indicator;
             button.addOnAttachStateChangeListener(new android.view.View.OnAttachStateChangeListener() {
-                public void onViewAttachedToWindow(android.view.View view) { animation.start(); }
+                public void onViewAttachedToWindow(android.view.View view) {
+                    if (button.getCompoundDrawablesRelative()[0] == indicator) animation.start();
+                }
                 public void onViewDetachedFromWindow(android.view.View view) { animation.stop(); button.removeOnAttachStateChangeListener(this); }
             });
             if (button.isAttachedToWindow()) animation.start();

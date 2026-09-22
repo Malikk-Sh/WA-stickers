@@ -673,13 +673,12 @@ final class MediaGridPanel extends LinearLayout {
             MediaPreflightAnalyzer.Result result = results.get(0);
             post(() -> {
                 if (generation != renderGeneration || !uri.toString().equals(badge.getTag())) return;
-                if (result.video && result.durationMs >= 0) {
-                    badge.setText("Видео · " + MediaPreflightPolicy.formatDuration(result.durationMs));
-                } else {
-                    String kind = result.kindLabel();
-                    badge.setText("JPG".equalsIgnoreCase(kind) || "JPEG".equalsIgnoreCase(kind)
-                            || "PNG".equalsIgnoreCase(kind) ? "Фото" : kind);
-                }
+                String kind = result.kindLabel();
+                String label = result.video ? "Видео" : "GIF".equalsIgnoreCase(kind) ? "GIF"
+                        : "WebP".equalsIgnoreCase(kind) ? "WebP" : "Фото";
+                badge.setText(label);
+                badge.setContentDescription(result.video && result.durationMs >= 0
+                        ? label + ", " + MediaPreflightPolicy.formatDuration(result.durationMs) : label);
             });
         });
     }
